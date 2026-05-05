@@ -166,13 +166,7 @@ function AIAssistantContent() {
       return;
     }
 
-    // Check credits
-    const cost = imagePreview ? AI_CREDIT_COSTS.image : AI_CREDIT_COSTS.text;
-    if (totalCredits < cost) {
-      console.log("[v0] Insufficient credits, opening modal");
-      setShowBuyCreditsModal(true);
-      return;
-    }
+    // Do NOT block on credits client-side - let server handle it
 
     // Build user message content
     let userContent = text;
@@ -427,7 +421,14 @@ function AIAssistantContent() {
 
         {/* Input area */}
         <div className="p-4 border-t border-border">
-          <div className="flex gap-2">
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              console.log("[v0] Form submitted");
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
             <input
               type="file"
               ref={fileInputRef}
@@ -436,6 +437,7 @@ function AIAssistantContent() {
               className="hidden"
             />
             <Button
+              type="button"
               variant="outline"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
@@ -454,19 +456,25 @@ function AIAssistantContent() {
               rows={1}
             />
             <Button 
-              onClick={() => handleSend()} 
-              disabled={isLoading || (!input.trim() && !selectedImage)} 
+              type="submit"
+              disabled={isLoading || (!input.trim() && !imagePreview)} 
               className="gap-2"
             >
               <Send className="w-4 h-4" />
               Ask AI
             </Button>
-          </div>
+          </form>
+          {/* Debug info (development only) */}
+          {process.env.NODE_ENV === "development" && (
+            <p className="text-[10px] text-muted-foreground/50 mt-1 font-mono">
+              input: {input.length} | hasImage: {imagePreview ? "true" : "false"} | isLoading: {isLoading ? "true" : "false"} | disabled: {(isLoading || (!input.trim() && !imagePreview)) ? "true" : "false"}
+            </p>
+          )}
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            {selectedImage ? "Costs 3 credits with image" : "Costs 1 credit"}
+            {imagePreview ? "Costs 3 credits with image" : "Costs 1 credit"}
             {!creditsLoading && totalCredits < creditCost && (
               <span className="text-destructive ml-2">
-                (Not enough credits - <button onClick={() => setShowBuyCreditsModal(true)} className="underline">buy more</button>)
+                (Not enough credits - <button type="button" onClick={() => setShowBuyCreditsModal(true)} className="underline">buy more</button>)
               </span>
             )}
           </p>
