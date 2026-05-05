@@ -255,6 +255,104 @@ function SettingsPageContent() {
             </CardContent>
           </Card>
 
+          {/* Roblox Account */}
+          <Card className="border-border bg-card">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Gamepad2 className="w-5 h-5 text-primary" />
+                Roblox Account
+              </CardTitle>
+              <CardDescription>Connect your Roblox account for full platform access</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {robloxError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{robloxError}</AlertDescription>
+                </Alert>
+              )}
+              
+              {robloxSuccess && (
+                <Alert className="border-green-500/50 bg-green-500/10">
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <AlertDescription className="text-green-700 dark:text-green-400">
+                    {robloxProfile?.roblox_user_id 
+                      ? "Roblox account connected successfully!" 
+                      : "Roblox account disconnected successfully"}
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Gamepad2 className="w-5 h-5 text-primary" />
+                  </div>
+                  <div>
+                    <div className="font-medium text-foreground flex items-center gap-2">
+                      Roblox
+                      {robloxProfile?.roblox_user_id && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+                          <Check className="w-3 h-3" />
+                          Connected
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {robloxProfile?.roblox_username 
+                        ? `@${robloxProfile.roblox_username}` 
+                        : "Connect to sync your games and analytics"}
+                    </div>
+                  </div>
+                </div>
+                {robloxProfile?.roblox_user_id ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleDisconnectRoblox}
+                    disabled={connectingRoblox}
+                    className="gap-2"
+                  >
+                    {connectingRoblox ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Disconnecting...
+                      </>
+                    ) : (
+                      <>
+                        <Unlink className="w-4 h-4" />
+                        Disconnect
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={handleConnectRoblox}
+                    disabled={connectingRoblox}
+                    className="gap-2"
+                  >
+                    {connectingRoblox ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Link className="w-4 h-4" />
+                        Connect Roblox Account
+                      </>
+                    )}
+                  </Button>
+                )}
+              </div>
+              
+              <p className="text-xs text-muted-foreground">
+                We&apos;ll request access to your profile and game data to enable analytics and monetization features.
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Appearance */}
           <Card className="border-border bg-card">
             <CardHeader>
@@ -365,110 +463,6 @@ function SettingsPageContent() {
 
         {/* Sidebar */}
         <div className="space-y-6">
-          {/* Roblox Connection */}
-          <Card className={`border-border bg-card ${robloxProfile?.roblox_user_id ? "border-green-500/30" : "border-orange-500/30"}`}>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Gamepad2 className="w-5 h-5 text-primary" />
-                Roblox Account
-              </CardTitle>
-              <CardDescription>
-                Connect your Roblox account for full platform access
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {robloxError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>{robloxError}</AlertDescription>
-                </Alert>
-              )}
-              
-              {robloxSuccess && !robloxProfile?.roblox_user_id && (
-                <Alert className="border-green-500/50 bg-green-500/10">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                  <AlertDescription className="text-green-700 dark:text-green-400">
-                    Roblox account disconnected successfully
-                  </AlertDescription>
-                </Alert>
-              )}
-              
-              {robloxSuccess && robloxProfile?.roblox_user_id && (
-                <Alert className="border-green-500/50 bg-green-500/10">
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                  <AlertDescription className="text-green-700 dark:text-green-400">
-                    Roblox account connected successfully!
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              {robloxProfile?.roblox_user_id ? (
-                <div className="space-y-3">
-                  <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-                    <div className="flex items-center gap-2">
-                      <Check className="w-4 h-4 text-green-500" />
-                      <span className="font-medium text-foreground">Connected</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      @{robloxProfile.roblox_username}
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    className="w-full gap-2"
-                    onClick={handleDisconnectRoblox}
-                    disabled={connectingRoblox}
-                  >
-                    {connectingRoblox ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Disconnecting...
-                      </>
-                    ) : (
-                      <>
-                        <Unlink className="w-4 h-4" />
-                        Disconnect Account
-                      </>
-                    )}
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-orange-500" />
-                      <span className="font-medium text-foreground">Not Connected</span>
-                    </div>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Connect to sync your games and enable advanced features
-                    </p>
-                  </div>
-                  <Button
-                    className="w-full gap-2"
-                    onClick={handleConnectRoblox}
-                    disabled={connectingRoblox}
-                  >
-                    {connectingRoblox ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      <>
-                        <Link className="w-4 h-4" />
-                        Connect Roblox Account
-                      </>
-                    )}
-                  </Button>
-                </div>
-              )}
-              
-              <p className="text-xs text-muted-foreground">
-                We&apos;ll request access to your profile and game data for analytics.
-              </p>
-            </CardContent>
-          </Card>
-
           {/* Plan */}
           <Card className="border-border bg-card border-primary/30">
             <CardHeader>
