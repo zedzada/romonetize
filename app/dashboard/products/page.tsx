@@ -354,7 +354,9 @@ export default function ProductsPage() {
                 <TrendingUp className="w-4 h-4 text-amber-500" />
               </div>
             </div>
-            <div className="text-2xl font-bold text-foreground">{avgConversion.toFixed(1)}%</div>
+            <div className="text-2xl font-bold text-foreground">
+              {products.some(p => p.clicks > 0) ? `${avgConversion.toFixed(1)}%` : "Needs tracking"}
+            </div>
             <div className="text-xs text-muted-foreground">Avg Conversion Rate</div>
           </CardContent>
         </Card>
@@ -496,12 +498,7 @@ export default function ProductsPage() {
                     </button>
                   </th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground hidden lg:table-cell">
-                    <button
-                      className="flex items-center gap-1 ml-auto hover:text-foreground"
-                      onClick={() => handleSort("clicks")}
-                    >
-                      Clicks <ArrowUpDown className="w-3 h-3" />
-                    </button>
+                    Unique Buyers
                   </th>
                   <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground hidden md:table-cell">
                     <button
@@ -516,7 +513,7 @@ export default function ProductsPage() {
                       className="flex items-center gap-1 ml-auto hover:text-foreground"
                       onClick={() => handleSort("revenue_per_player")}
                     >
-                      Rev/Player <ArrowUpDown className="w-3 h-3" />
+                      Rev/Buyer <ArrowUpDown className="w-3 h-3" />
                     </button>
                   </th>
                 </tr>
@@ -555,7 +552,7 @@ export default function ProductsPage() {
                       {product.purchases.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right text-muted-foreground hidden lg:table-cell">
-                      {product.clicks.toLocaleString()}
+                      {product.unique_buyers.toLocaleString()}
                     </td>
                     <td className="py-3 px-4 text-right hidden md:table-cell">
                       <span className={`font-medium ${
@@ -565,11 +562,11 @@ export default function ProductsPage() {
                             ? "text-yellow-500" 
                             : product.clicks > 0 ? "text-red-500" : "text-muted-foreground"
                       }`}>
-                        {product.clicks > 0 ? `${product.conversion_rate.toFixed(1)}%` : "—"}
+                        {product.clicks > 0 ? `${product.conversion_rate.toFixed(1)}%` : "Needs tracking"}
                       </span>
                     </td>
                     <td className="py-3 px-4 text-right hidden xl:table-cell">
-                      <RobuxValue amount={Math.round(product.revenue_per_player)} size="sm" />
+                      <RobuxValue amount={product.unique_buyers > 0 ? Math.round(product.revenue / product.unique_buyers) : 0} size="sm" />
                     </td>
                   </tr>
                 ))}

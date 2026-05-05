@@ -57,12 +57,26 @@ import { Gamepad2, ExternalLink } from "lucide-react";
 // Filter options
 const dateRanges = ["Last 7 days", "Last 14 days", "Last 28 days"];
 
-// Custom tooltip for charts
+// Custom tooltip for charts - formats timestamps in user's local timezone
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) => {
   if (active && payload && payload.length) {
+    // Format label in user's timezone if it looks like a timestamp
+    let formattedLabel = label;
+    if (label) {
+      try {
+        const date = new Date(label);
+        if (!isNaN(date.getTime())) {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          formattedLabel = date.toLocaleString(undefined, { timeZone: tz });
+        }
+      } catch {
+        // Keep original label
+      }
+    }
+    
     return (
       <div className="bg-popover border border-border rounded-lg p-3 shadow-lg">
-        <p className="text-sm font-medium text-foreground mb-1">{label}</p>
+        <p className="text-sm font-medium text-foreground mb-1">{formattedLabel}</p>
         {payload.map((entry, index) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
             {entry.name}: {typeof entry.value === "number" ? entry.value.toLocaleString() : entry.value}
@@ -764,7 +778,7 @@ export default function MonetizationPage() {
                         {product.purchases.toLocaleString()}
                       </td>
                       <td className="py-3 px-2 text-right text-muted-foreground">
-                        {product.conversion.toFixed(1)}%
+                        {product.conversion > 0 ? `${product.conversion.toFixed(1)}%` : "Needs tracking"}
                       </td>
                     </tr>
                   ))}

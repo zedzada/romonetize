@@ -256,8 +256,11 @@ export default function PerformancePage() {
   const timeSeries = performanceData?.timeSeries || [];
   const hasTrackerData = stats && stats.totalEvents > 0;
 
+  // Format dates in user's local timezone
+  const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  
   const lastEventDate = stats?.lastEventTime
-    ? new Date(stats.lastEventTime).toLocaleString()
+    ? new Date(stats.lastEventTime).toLocaleString(undefined, { timeZone: userTimezone })
     : "No events yet";
 
   // Get retention data based on selected tab
@@ -276,24 +279,38 @@ export default function PerformancePage() {
 
   const retentionData = getRetentionData();
 
-  // Generate mock CCU chart data based on period
+  // Get CCU chart data from real CCU snapshots
   const getCCUChartData = () => {
     const period = ccuPeriods.find(p => p.value === ccuPeriod);
     if (!period) return [];
     
-    // Use real data from timeSeries if available, otherwise show empty
-    if (timeSeries.length === 0) return [];
+    // Use real CCU snapshots from the database
+    const ccuSnapshots = performanceData?.ccuSnapshots || [];
+    if (ccuSnapshots.length === 0) return [];
     
     // Filter data based on selected period
     const now = new Date();
     const cutoff = new Date(now.getTime() - period.hours * 60 * 60 * 1000);
     
-    return timeSeries
-      .filter(d => new Date(d.date) >= cutoff)
-      .map(d => ({
-        time: d.date,
-        ccu: d.players,
-      }));
+    // Format time in user's timezone
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
+    return ccuSnapshots
+      .filter(d => new Date(d.time) >= cutoff)
+      .map(d => {
+        const date = new Date(d.time);
+        const formattedTime = date.toLocaleString(undefined, {
+          weekday: "short",
+          hour: "numeric",
+          minute: "2-digit",
+          hour12: false,
+          timeZone: tz,
+        });
+        return {
+          time: formattedTime,
+          ccu: d.ccu,
+        };
+      });
   };
 
   const ccuChartData = getCCUChartData();
@@ -344,7 +361,7 @@ export default function PerformancePage() {
             Monitor your game&apos;s analytics and metrics
             {lastRobloxFetch && (
               <span className="text-xs ml-2 text-muted-foreground/60">
-                Last updated: {lastRobloxFetch.toLocaleTimeString()}
+                Last updated: {lastRobloxFetch.toLocaleTimeString(undefined, { timeZone: userTimezone })}
               </span>
             )}
           </p>

@@ -57,10 +57,16 @@ export interface TimeSeriesData {
   avgSessionDuration: number;
 }
 
+export interface CCUSnapshot {
+  time: string;
+  ccu: number;
+}
+
 export interface PerformanceData {
   stats: PerformanceStats;
   robloxStats: RobloxApiStats;
   timeSeries: TimeSeriesData[];
+  ccuSnapshots: CCUSnapshot[];
 }
 
 // Get performance stats for a specific game
@@ -93,8 +99,8 @@ export async function getPerformanceStats(
   const startDate = new Date(now);
   startDate.setDate(startDate.getDate() - days);
 
-  // Fetch events and Roblox API stats in parallel
-  const [eventsResult, robloxStatsResult] = await Promise.all([
+  // Fetch events, Roblox API stats, and CCU snapshots in parallel
+  const [eventsResult, robloxStatsResult, ccuResult] = await Promise.all([
     supabase
       .from("events")
       .select("id, event_type, player_id, robux, created_at, metadata")
@@ -102,6 +108,12 @@ export async function getPerformanceStats(
       .gte("created_at", startDate.toISOString())
       .order("created_at", { ascending: true }),
     fetchRobloxStats(game.roblox_game_id),
+    supabase
+      .from("ccu_snapshots")
+      .select("ccu, created_at")
+      .eq("game_id", gameId)
+      .gte("created_at", startDate.toISOString())
+      .order("created_at", { ascending: true }),
   ]);
 
   if (eventsResult.error) {
@@ -296,6 +308,12 @@ export async function getPerformanceStats(
 
   const timeSeries = Array.from(timeSeriesMap.values());
 
+  // Process CCU snapshots
+  const ccuSnapshots: CCUSnapshot[] = (ccuResult.data || []).map((s) => ({
+    time: s.created_at,
+    ccu: s.ccu,
+  }));
+
   return {
     data: {
       stats: {
@@ -319,6 +337,7 @@ export async function getPerformanceStats(
       },
       robloxStats: robloxStatsResult,
       timeSeries,
+      ccuSnapshots,
     },
     error: null,
   };
