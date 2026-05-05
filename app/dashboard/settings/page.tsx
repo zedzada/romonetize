@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
   Settings,
@@ -15,21 +15,38 @@ import {
   LogOut,
   Sun,
   Moon,
+  Gamepad2,
+  Link,
+  Unlink,
+  Loader2,
+  AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+
+interface RobloxProfile {
+  roblox_user_id: string | null;
+  roblox_username: string | null;
+}
 
 export default function SettingsPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [saved, setSaved] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [username, setUsername] = useState("");
+  const [robloxProfile, setRobloxProfile] = useState<RobloxProfile | null>(null);
+  const [connectingRoblox, setConnectingRoblox] = useState(false);
+  const [robloxError, setRobloxError] = useState<string | null>(null);
+  const [robloxSuccess, setRobloxSuccess] = useState(false);
   const [profile, setProfile] = useState({
     name: "",
     email: "",
@@ -47,6 +64,24 @@ export default function SettingsPage() {
   useEffect(() => {
     setMounted(true);
     
+    // Check for Roblox OAuth callback parameters
+    const robloxStatus = searchParams.get("roblox");
+    const error = searchParams.get("error");
+    
+    if (robloxStatus === "connected") {
+      setRobloxSuccess(true);
+      // Clear the URL params
+      router.replace("/dashboard/settings", { scroll: false });
+      setTimeout(() => setRobloxSuccess(false), 5000);
+    }
+    
+    if (error) {
+      setRobloxError(decodeURIComponent(error));
+      // Clear the URL params
+      router.replace("/dashboard/settings", { scroll: false });
+      setTimeout(() => setRobloxError(null), 10000);
+    }
+    
     // Load saved username from localStorage
     const savedUsername = localStorage.getItem("romonetize_username") || "";
     setUsername(savedUsername);
@@ -61,7 +96,7 @@ export default function SettingsPage() {
       }
     }
 
-    // Get user from Supabase
+    // Get user from Supabase and fetch Roblox profile
     if (isSupabaseConfigured) {
       const supabase = createClient();
       supabase.auth.getUser().then(({ data: { user } }) => {
@@ -72,12 +107,30 @@ export default function SettingsPage() {
             name: prev.name || user.user_metadata?.full_name || user.user_metadata?.name || "",
             email: prev.email || user.email || "",
           }));
+          
+          // Fetch Roblox connection status from profiles table
+          supabase
+            .from("profiles")
+            .select("roblox_user_id, roblox_username")
+            .eq("id", user.id)
+            .single()
+            .then(({ data, error }) => {
+              if (!error && data) {
+                setRobloxProfile(data);
+                if (data.roblox_username) {
+                  setProfile((prev) => ({
+                    ...prev,
+                    robloxUsername: data.roblox_username || prev.robloxUsername,
+                  }));
+                }
+              }
+            });
         }
       }).catch((error) => {
         console.error('[v0] Error getting user:', error);
       });
     }
-  }, []);
+  }, [searchParams, router]);
 
   const handleSave = () => {
     // Save username to localStorage
@@ -90,6 +143,46 @@ export default function SettingsPage() {
     
     // Trigger storage event for other components to update
     window.dispatchEvent(new Event("storage"));
+  };
+
+  const handleConnectRoblox = () => {
+    setConnectingRoblox(true);
+    setRobloxError(null);
+    // Redirect to Roblox OAuth
+    window.location.href = "/api/auth/roblox";
+  };
+
+  const handleDisconnectRoblox = async () => {
+    if (!user) return;
+    
+    setConnectingRoblox(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("profiles")
+        .update({
+          roblox_user_id: null,
+          roblox_username: null,
+          roblox_access_token: null,
+          roblox_refresh_token: null,
+          roblox_token_expires_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+
+      if (error) {
+        setRobloxError("Failed to disconnect Roblox account");
+      } else {
+        setRobloxProfile(null);
+        setProfile((prev) => ({ ...prev, robloxUsername: "" }));
+        setRobloxSuccess(true);
+        setTimeout(() => setRobloxSuccess(false), 3000);
+      }
+    } catch {
+      setRobloxError("An error occurred while disconnecting");
+    } finally {
+      setConnectingRoblox(false);
+    }
   };
 
   const handleLogout = async () => {
@@ -272,6 +365,110 @@ export default function SettingsPage() {
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {/* Roblox Connection */}
+          <Card className={`border-border bg-card ${robloxProfile?.roblox_user_id ? "border-green-500/30" : "border-orange-500/30"}`}>
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Gamepad2 className="w-5 h-5 text-primary" />
+                Roblox Account
+              </CardTitle>
+              <CardDescription>
+                Connect your Roblox account for full platform access
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {robloxError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertDescription>{robloxError}</AlertDescription>
+                </Alert>
+              )}
+              
+              {robloxSuccess && !robloxProfile?.roblox_user_id && (
+                <Alert className="border-green-500/50 bg-green-500/10">
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <AlertDescription className="text-green-700 dark:text-green-400">
+                    Roblox account disconnected successfully
+                  </AlertDescription>
+                </Alert>
+              )}
+              
+              {robloxSuccess && robloxProfile?.roblox_user_id && (
+                <Alert className="border-green-500/50 bg-green-500/10">
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <AlertDescription className="text-green-700 dark:text-green-400">
+                    Roblox account connected successfully!
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {robloxProfile?.roblox_user_id ? (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                    <div className="flex items-center gap-2">
+                      <Check className="w-4 h-4 text-green-500" />
+                      <span className="font-medium text-foreground">Connected</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      @{robloxProfile.roblox_username}
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="w-full gap-2"
+                    onClick={handleDisconnectRoblox}
+                    disabled={connectingRoblox}
+                  >
+                    {connectingRoblox ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Disconnecting...
+                      </>
+                    ) : (
+                      <>
+                        <Unlink className="w-4 h-4" />
+                        Disconnect Account
+                      </>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-orange-500/10 border border-orange-500/20">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-orange-500" />
+                      <span className="font-medium text-foreground">Not Connected</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Connect to sync your games and enable advanced features
+                    </p>
+                  </div>
+                  <Button
+                    className="w-full gap-2"
+                    onClick={handleConnectRoblox}
+                    disabled={connectingRoblox}
+                  >
+                    {connectingRoblox ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Connecting...
+                      </>
+                    ) : (
+                      <>
+                        <Link className="w-4 h-4" />
+                        Connect Roblox Account
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
+              
+              <p className="text-xs text-muted-foreground">
+                We&apos;ll request access to your profile and game data for analytics.
+              </p>
+            </CardContent>
+          </Card>
+
           {/* Plan */}
           <Card className="border-border bg-card border-primary/30">
             <CardHeader>
