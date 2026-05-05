@@ -40,14 +40,32 @@ interface LocalMessage {
 
 const suggestedQuestions = [
   { text: "Show me my stats overview", icon: BarChart3 },
-  { text: "What are my 7-day trends?", icon: TrendingUp },
-  { text: "Which product needs improvement?", icon: Lightbulb },
-  { text: "Give me recommendations", icon: DollarSign },
+  { text: "What should I improve first?", icon: Lightbulb },
+  { text: "Which product needs improvement?", icon: TrendingUp },
+  { text: "How can I increase conversion?", icon: DollarSign },
+  { text: "Why is my revenue low?", icon: DollarSign },
+  { text: "Analyze my monetization", icon: BarChart3 },
+  { text: "Give me 3 monetization ideas", icon: Lightbulb },
+  { text: "How can I improve retention?", icon: TrendingUp },
 ];
+
+// Analytics stats interface
+interface AnalyticsStats {
+  trackedActions: number;
+  revenue: number;
+  purchases: number;
+  conversionRate: number | null;
+  uniquePlayers: number;
+  payingUsers: number;
+  gameName: string | null;
+  hasData: boolean;
+}
 
 export default function AIAssistantPage() {
   const [inputMessage, setInputMessage] = useState("");
   const [context, setContext] = useState<AIContext | null>(null);
+  const [analyticsStats, setAnalyticsStats] = useState<AnalyticsStats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(true);
   const [loadingContext, setLoadingContext] = useState(true);
   const [insufficientCredits, setInsufficientCredits] = useState(false);
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
@@ -82,6 +100,43 @@ export default function AIAssistantPage() {
       refreshCredits(); // Refresh to show refunded credits
     },
   });
+
+  // Fetch real analytics from centralized API
+  const fetchAnalytics = useCallback(async () => {
+    setLoadingStats(true);
+    try {
+      const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
+      if (res.ok) {
+        const { data } = await res.json();
+        if (data && data.trackerStats) {
+          setAnalyticsStats({
+            trackedActions: data.trackerStats.totalEvents || 0,
+            revenue: data.revenueStats?.totalRevenue || 0,
+            purchases: data.revenueStats?.totalPurchases || 0,
+            conversionRate: data.revenueStats?.conversionRate || null,
+            uniquePlayers: data.trackerStats?.uniquePlayers || 0,
+            payingUsers: data.revenueStats?.payingUsers || 0,
+            gameName: data.game?.name || null,
+            hasData: (data.trackerStats?.totalEvents || 0) > 0,
+          });
+        } else {
+          setAnalyticsStats({
+            trackedActions: 0,
+            revenue: 0,
+            purchases: 0,
+            conversionRate: null,
+            uniquePlayers: 0,
+            payingUsers: 0,
+            gameName: data?.game?.name || null,
+            hasData: false,
+          });
+        }
+      }
+    } catch (error) {
+      console.error("[v0] Failed to fetch analytics:", error);
+    }
+    setLoadingStats(false);
+  }, []);
 
   // Load AI context
   const loadContext = useCallback(async () => {
@@ -121,10 +176,11 @@ export default function AIAssistantPage() {
     setLoadingContext(false);
   }, [setMessages]);
 
-  // Load AI context on mount
+  // Load AI context and analytics on mount
   useEffect(() => {
     loadContext();
-  }, [loadContext]);
+    fetchAnalytics();
+  }, [loadContext, fetchAnalytics]);
 
   // Listen for global stats refresh
   useStatsRefresh(loadContext);
@@ -257,9 +313,11 @@ export default function AIAssistantPage() {
             AI Assistant
           </h1>
           <p className="text-muted-foreground mt-1">
-            {context?.hasData 
-              ? `Analyzing ${context.gameName || "your game"} with ${context.totalEvents.toLocaleString()} tracked actions`
-              : "Get AI-powered insights once you have tracking data"
+            {loadingStats 
+              ? "Loading analytics data..."
+              : analyticsStats?.hasData 
+                ? `Analyzing ${analyticsStats.gameName || "your game"} with ${analyticsStats.trackedActions.toLocaleString()} tracked actions`
+                : "Get AI-powered insights once you have tracking data"
             }
           </p>
         </div>
@@ -296,14 +354,23 @@ export default function AIAssistantPage() {
       )}
 
       {/* Stats summary (if data exists) */}
-      {context?.hasData && (
+      {loadingStats ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i} className="border-border bg-card p-4 animate-pulse">
+              <div className="h-4 bg-secondary rounded w-24 mb-2" />
+              <div className="h-8 bg-secondary rounded w-16" />
+            </Card>
+          ))}
+        </div>
+      ) : analyticsStats?.hasData ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Card className="border-border bg-card p-4">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <Database className="w-4 h-4" />
               Tracked Actions
             </div>
-            <div className="text-2xl font-bold mt-1">{context.totalEvents.toLocaleString()}</div>
+            <div className="text-2xl font-bold mt-1">{analyticsStats.trackedActions.toLocaleString()}</div>
           </Card>
           <Card className="border-border bg-card p-4">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -311,7 +378,7 @@ export default function AIAssistantPage() {
               Revenue
             </div>
             <div className="text-2xl font-bold mt-1">
-              <RobuxValue amount={context.totalRevenue} />
+              <RobuxValue amount={analyticsStats.revenue} />
             </div>
           </Card>
           <Card className="border-border bg-card p-4">
@@ -319,17 +386,52 @@ export default function AIAssistantPage() {
               <TrendingUp className="w-4 h-4" />
               Purchases
             </div>
-            <div className="text-2xl font-bold mt-1">{context.totalPurchases.toLocaleString()}</div>
+            <div className="text-2xl font-bold mt-1">{analyticsStats.purchases.toLocaleString()}</div>
           </Card>
           <Card className="border-border bg-card p-4">
             <div className="flex items-center gap-2 text-muted-foreground text-sm">
               <BarChart3 className="w-4 h-4" />
               Conversion
             </div>
-            <div className="text-2xl font-bold mt-1">{context.conversionRate.toFixed(1)}%</div>
+            <div className="text-2xl font-bold mt-1">
+              {analyticsStats.conversionRate !== null 
+                ? `${analyticsStats.conversionRate.toFixed(1)}%`
+                : "Not enough data"}
+            </div>
           </Card>
         </div>
-      )}
+      ) : analyticsStats && !analyticsStats.hasData ? (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="border-border bg-card p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Database className="w-4 h-4" />
+              Tracked Actions
+            </div>
+            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
+          </Card>
+          <Card className="border-border bg-card p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <DollarSign className="w-4 h-4" />
+              Revenue
+            </div>
+            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
+          </Card>
+          <Card className="border-border bg-card p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <TrendingUp className="w-4 h-4" />
+              Purchases
+            </div>
+            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
+          </Card>
+          <Card className="border-border bg-card p-4">
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <BarChart3 className="w-4 h-4" />
+              Conversion
+            </div>
+            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
+          </Card>
+        </div>
+      ) : null}
 
       {/* Suggested questions */}
       <div className="flex flex-wrap gap-2">
@@ -516,34 +618,55 @@ export default function AIAssistantPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
-            {CREDIT_PACKAGES.map((pkg) => (
-              <button
-                key={pkg.id}
-                onClick={() => handlePurchase(pkg.id)}
-                disabled={purchasingPackage !== null}
-                className="w-full p-4 rounded-lg border border-border bg-card hover:bg-secondary/50 transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center">
-                    <Sparkles className="w-5 h-5 text-purple-500" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-semibold">{pkg.credits} Credits</div>
-                    <div className="text-sm text-muted-foreground">
-                      ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+            {CREDIT_PACKAGES.map((pkg) => {
+              const badge = pkg.credits === 250 
+                ? { text: "Best Value • Save 10%", color: "text-green-600 bg-green-500/10" }
+                : pkg.credits === 500
+                  ? { text: "Save 25%", color: "text-blue-600 bg-blue-500/10" }
+                  : null;
+              
+              return (
+                <button
+                  key={pkg.id}
+                  onClick={() => handlePurchase(pkg.id)}
+                  disabled={purchasingPackage !== null}
+                  className={`w-full p-4 rounded-lg border transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed ${
+                    pkg.credits === 250
+                      ? "border-green-500/30 bg-green-500/5 hover:bg-green-500/10"
+                      : "border-border bg-card hover:bg-secondary/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      pkg.credits === 250 ? "bg-green-500/10" : "bg-purple-500/10"
+                    }`}>
+                      <Sparkles className={`w-5 h-5 ${pkg.credits === 250 ? "text-green-500" : "text-purple-500"}`} />
+                    </div>
+                    <div className="text-left">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{pkg.credits} Credits</span>
+                        {badge && (
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.color}`}>
+                            {badge.text}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
-                  {purchasingPackage === pkg.id ? (
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <CreditCard className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
-              </button>
-            ))}
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
+                    {purchasingPackage === pkg.id ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
           <div className="text-xs text-muted-foreground text-center">
             Secure payment via Stripe. Credits are added instantly after purchase.
