@@ -1,0 +1,324 @@
+"use server";
+
+import { createClient } from "@/lib/supabase/server";
+
+export interface MonetizationStats {
+  totalRevenue: number;
+  passesRevenue: number;
+  devProductsRevenue: number;
+  totalPurchases: number;
+  payingUsers: number;
+  uniquePlayers: number;
+  payerConversionRate: number;
+  arppu: number;
+  arpdau: number;
+}
+
+export interface HourlyRevenue {
+  time: string;
+  hour: number;
+  total: number;
+  passes: number;
+  devProducts: number;
+}
+
+export interface DailyRevenue {
+  date: string;
+  revenue: number;
+}
+
+export interface RevenueSource {
+  name: string;
+  value: number;
+  color: string;
+}
+
+export interface DailyMetric {
+  date: string;
+  value: number;
+}
+
+export interface TopProduct {
+  id: string;
+  name: string;
+  type: string;
+  revenue: number;
+  purchases: number;
+  conversion: number;
+}
+
+export async function getMonetizationStats(gameId?: string): Promise<{
+  stats: MonetizationStats | null;
+  hourlyRevenue: HourlyRevenue[];
+  dailyRevenue: DailyRevenue[];
+  revenueSources: RevenueSource[];
+  payingUsersOverTime: DailyMetric[];
+  conversionOverTime: DailyMetric[];
+  arppuOverTime: DailyMetric[];
+  arpdauOverTime: DailyMetric[];
+  topProducts: TopProduct[];
+  error: string | null;
+}> {
+  const supabase = await createClient();
+
+  const { data: { user } } = await supabase.auth.getUser();
+
+  if (!user) {
+    return {
+      stats: null,
+      hourlyRevenue: [],
+      dailyRevenue: [],
+      revenueSources: [],
+      payingUsersOverTime: [],
+      conversionOverTime: [],
+      arppuOverTime: [],
+      arpdauOverTime: [],
+      topProducts: [],
+      error: "Not authenticated",
+    };
+  }
+
+  // Get user's games
+  let gamesQuery = supabase
+    .from("games")
+    .select("id")
+    .eq("user_id", user.id);
+
+  if (gameId) {
+    gamesQuery = gamesQuery.eq("id", gameId);
+  }
+
+  const { data: games } = await gamesQuery;
+  const gameIds = games?.map((g) => g.id) || [];
+
+  if (gameIds.length === 0) {
+    return {
+      stats: {
+        totalRevenue: 0,
+        passesRevenue: 0,
+        devProductsRevenue: 0,
+        totalPurchases: 0,
+        payingUsers: 0,
+        uniquePlayers: 0,
+        payerConversionRate: 0,
+        arppu: 0,
+        arpdau: 0,
+      },
+      hourlyRevenue: [],
+      dailyRevenue: [],
+      revenueSources: [],
+      payingUsersOverTime: [],
+      conversionOverTime: [],
+      arppuOverTime: [],
+      arpdauOverTime: [],
+      topProducts: [],
+      error: null,
+    };
+  }
+
+  // Get all events for these games
+  const { data: allEvents } = await supabase
+    .from("events")
+    .select("*")
+    .in("game_id", gameIds)
+    .order("created_at", { ascending: false });
+
+  const events = allEvents || [];
+
+  // Purchase event types (legacy + new Roblox events)
+  const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+  
+  // Calculate stats
+  const purchaseEvents = events.filter((e) => purchaseTypes.includes(e.event_type));
+  const totalRevenue = purchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+  // Gamepass revenue: explicit gamepass type OR gamepass_purchase event type
+  const passesRevenue = purchaseEvents
+    .filter((e) => e.product_type === "gamepass" || e.event_type === "gamepass_purchase")
+    .reduce((sum, e) => sum + (e.robux || 0), 0);
+  // Dev product revenue: explicit devproduct type OR devproduct_purchase event type  
+  const devProductsRevenue = purchaseEvents
+    .filter((e) => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
+    .reduce((sum, e) => sum + (e.robux || 0), 0);
+  const totalPurchases = purchaseEvents.length;
+
+  // Unique paying users
+  const payingUserIds = new Set(purchaseEvents.map((e) => e.player_id).filter(Boolean));
+  const payingUsers = payingUserIds.size;
+
+  // Unique players (all events)
+  const allPlayerIds = new Set(events.map((e) => e.player_id).filter(Boolean));
+  const uniquePlayers = allPlayerIds.size;
+
+  // Payer conversion rate
+  const payerConversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : 0;
+
+  // ARPPU (Average Revenue Per Paying User)
+  const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
+
+  // ARPDAU (Average Revenue Per Daily Active User) - simplified
+  const arpdau = uniquePlayers > 0 ? totalRevenue / uniquePlayers : 0;
+
+  // Hourly revenue (last 72 hours)
+  const now = new Date();
+  const hourlyRevenue: HourlyRevenue[] = [];
+  for (let i = 71; i >= 0; i--) {
+    const hourStart = new Date(now.getTime() - i * 60 * 60 * 1000);
+    const hourEnd = new Date(hourStart.getTime() + 60 * 60 * 1000);
+    const hourStr = hourStart.getHours();
+    const dayStr = hourStart.toLocaleDateString("en-US", { weekday: "short" });
+
+    const hourEvents = purchaseEvents.filter((e) => {
+      const eventTime = new Date(e.created_at);
+      return eventTime >= hourStart && eventTime < hourEnd;
+    });
+
+    const total = hourEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+    const passes = hourEvents
+      .filter((e) => e.product_type === "gamepass")
+      .reduce((sum, e) => sum + (e.robux || 0), 0);
+    const devProducts = hourEvents
+      .filter((e) => e.product_type === "devproduct")
+      .reduce((sum, e) => sum + (e.robux || 0), 0);
+
+    hourlyRevenue.push({
+      time: `${dayStr} ${hourStr}:00`,
+      hour: hourStr,
+      total,
+      passes,
+      devProducts,
+    });
+  }
+
+  // Daily revenue (last 28 days)
+  const dailyRevenue: DailyRevenue[] = [];
+  for (let i = 27; i >= 0; i--) {
+    const dayStart = new Date(now);
+    dayStart.setDate(dayStart.getDate() - i);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+
+    const dayEvents = purchaseEvents.filter((e) => {
+      const eventTime = new Date(e.created_at);
+      return eventTime >= dayStart && eventTime < dayEnd;
+    });
+
+    const revenue = dayEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+
+    dailyRevenue.push({
+      date: dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      revenue,
+    });
+  }
+
+  // Revenue sources
+  const revenueSources: RevenueSource[] = [
+    { name: "Gamepasses", value: passesRevenue, color: "var(--primary)" },
+    { name: "Dev Products", value: devProductsRevenue, color: "#22c55e" },
+  ];
+
+  // Daily metrics for charts
+  const payingUsersOverTime: DailyMetric[] = [];
+  const conversionOverTime: DailyMetric[] = [];
+  const arppuOverTime: DailyMetric[] = [];
+  const arpdauOverTime: DailyMetric[] = [];
+
+  for (let i = 27; i >= 0; i--) {
+    const dayStart = new Date(now);
+    dayStart.setDate(dayStart.getDate() - i);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(dayStart);
+    dayEnd.setDate(dayEnd.getDate() + 1);
+    const dateStr = dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+
+    const dayEvents = events.filter((e) => {
+      const eventTime = new Date(e.created_at);
+      return eventTime >= dayStart && eventTime < dayEnd;
+    });
+
+    const dayPurchases = dayEvents.filter((e) => purchaseTypes.includes(e.event_type));
+    const dayPayingUsers = new Set(dayPurchases.map((e) => e.player_id).filter(Boolean)).size;
+    const dayUniquePlayers = new Set(dayEvents.map((e) => e.player_id).filter(Boolean)).size;
+    const dayRevenue = dayPurchases.reduce((sum, e) => sum + (e.robux || 0), 0);
+
+    payingUsersOverTime.push({ date: dateStr, value: dayPayingUsers });
+    conversionOverTime.push({
+      date: dateStr,
+      value: dayUniquePlayers > 0 ? (dayPayingUsers / dayUniquePlayers) * 100 : 0,
+    });
+    arppuOverTime.push({
+      date: dateStr,
+      value: dayPayingUsers > 0 ? dayRevenue / dayPayingUsers : 0,
+    });
+    arpdauOverTime.push({
+      date: dateStr,
+      value: dayUniquePlayers > 0 ? dayRevenue / dayUniquePlayers : 0,
+    });
+  }
+
+  // Top products from events
+  const productMap = new Map<string, { name: string; type: string; revenue: number; purchases: number; clicks: number }>();
+  
+  purchaseEvents.forEach((e) => {
+    const key = e.product_id || e.product_name || "unknown";
+    const existing = productMap.get(key);
+    if (existing) {
+      existing.revenue += e.robux || 0;
+      existing.purchases += 1;
+    } else {
+      productMap.set(key, {
+        name: e.product_name || "Unknown Product",
+        type: e.product_type || "gamepass",
+        revenue: e.robux || 0,
+        purchases: 1,
+        clicks: 0,
+      });
+    }
+  });
+
+  // Count clicks
+  events
+    .filter((e) => e.event_type === "gamepass_click" || e.event_type === "devproduct_click")
+    .forEach((e) => {
+      const key = e.product_id || e.product_name || "unknown";
+      const existing = productMap.get(key);
+      if (existing) {
+        existing.clicks += 1;
+      }
+    });
+
+  const topProducts: TopProduct[] = Array.from(productMap.entries())
+    .map(([id, data]) => ({
+      id,
+      name: data.name,
+      type: data.type === "gamepass" ? "Gamepass" : "Dev Product",
+      revenue: data.revenue,
+      purchases: data.purchases,
+      conversion: data.clicks > 0 ? (data.purchases / data.clicks) * 100 : 0,
+    }))
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 10);
+
+  return {
+    stats: {
+      totalRevenue,
+      passesRevenue,
+      devProductsRevenue,
+      totalPurchases,
+      payingUsers,
+      uniquePlayers,
+      payerConversionRate,
+      arppu,
+      arpdau,
+    },
+    hourlyRevenue,
+    dailyRevenue,
+    revenueSources,
+    payingUsersOverTime,
+    conversionOverTime,
+    arppuOverTime,
+    arpdauOverTime,
+    topProducts,
+    error: null,
+  };
+}
