@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { OnboardingTutorial } from "@/components/dashboard/onboarding-tutorial";
 import { ProfileModal } from "@/components/dashboard/profile-modal";
+import { CreditsWidget } from "@/components/dashboard/credits-widget";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import {
@@ -207,6 +208,9 @@ export default function DashboardLayout({
             );
           })}
         </nav>
+
+        {/* AI Credits Widget */}
+        <CreditsWidget />
 
         {/* User section */}
         <div className="p-4 border-t border-border">

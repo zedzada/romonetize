@@ -13,6 +13,9 @@ import {
   ExternalLink,
   Loader2,
   AlertCircle,
+  Sparkles,
+  Plus,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,9 +23,11 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { PRICING_PLANS, formatPrice, type PricingPlan } from "@/lib/products";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { PRICING_PLANS, formatPrice, type PricingPlan, CREDIT_PACKAGES } from "@/lib/products";
 import { createCheckoutSession, createPortalSession, getSubscriptionStatus } from "@/lib/actions/stripe";
 import { useSearchParams } from "next/navigation";
+import { useCredits, useCreditPackages } from "@/hooks/use-credits";
 
 export default function BillingPage() {
   return (
@@ -40,6 +45,8 @@ function BillingContent() {
   const [loading, setLoading] = useState(true);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
   const [processingPlan, setProcessingPlan] = useState<string | null>(null);
+  const [showCreditsModal, setShowCreditsModal] = useState(false);
+  const [purchasingPackage, setPurchasingPackage] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<{
     plan: PricingPlan;
     status: string;
@@ -52,9 +59,23 @@ function BillingContent() {
     };
   } | null>(null);
   
+  // AI Credits
+  const { monthlyCredits, extraCredits, totalCredits, refresh: refreshCredits } = useCredits();
+  const { purchaseCredits } = useCreditPackages();
+  
   const searchParams = useSearchParams();
   const success = searchParams.get("success");
   const canceled = searchParams.get("canceled");
+  const creditsSuccess = searchParams.get("credits_success");
+  const creditsPurchased = searchParams.get("credits");
+  const creditsCanceled = searchParams.get("credits_canceled");
+
+  // Refresh credits on successful purchase
+  useEffect(() => {
+    if (creditsSuccess) {
+      refreshCredits();
+    }
+  }, [creditsSuccess, refreshCredits]);
 
   useEffect(() => {
     async function loadSubscription() {
@@ -83,6 +104,12 @@ function BillingContent() {
       window.location.href = result.url;
     }
     setProcessingPlan(null);
+  };
+
+  const handlePurchaseCredits = async (packageId: string) => {
+    setPurchasingPackage(packageId);
+    await purchaseCredits(packageId);
+    setPurchasingPackage(null);
   };
 
   const getPlanIcon = (planId: string) => {
@@ -147,6 +174,14 @@ function BillingContent() {
           </AlertDescription>
         </Alert>
       )}
+      {creditsSuccess && (
+        <Alert className="bg-green-500/10 border-green-500/50">
+          <Sparkles className="w-4 h-4 text-green-500" />
+          <AlertDescription className="text-green-500">
+            Successfully purchased {creditsPurchased} AI credits! Your balance has been updated.
+          </AlertDescription>
+        </Alert>
+      )}
       {canceled && (
         <Alert className="bg-amber-500/10 border-amber-500/50">
           <AlertCircle className="w-4 h-4 text-amber-500" />
@@ -155,9 +190,17 @@ function BillingContent() {
           </AlertDescription>
         </Alert>
       )}
+      {creditsCanceled && (
+        <Alert className="bg-amber-500/10 border-amber-500/50">
+          <AlertCircle className="w-4 h-4 text-amber-500" />
+          <AlertDescription className="text-amber-500">
+            Credit purchase was canceled. No charges were made.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Current Plan & Usage */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card className="border-border bg-card">
           <CardHeader className="pb-2">
             <CardDescription>Current Plan</CardDescription>
@@ -224,6 +267,32 @@ function BillingContent() {
                 </p>
               </>
             )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-2">
+            <CardDescription>AI Credits</CardDescription>
+            <CardTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-500" />
+              {totalCredits}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-1">
+              <p className="text-xs text-muted-foreground">
+                Monthly: {monthlyCredits} | Extra: {extraCredits}
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full gap-1 mt-2"
+                onClick={() => setShowCreditsModal(true)}
+              >
+                <Plus className="w-3 h-3" />
+                Buy Credits
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
@@ -339,8 +408,63 @@ function BillingContent() {
               American Express, and more.
             </p>
           </div>
+          <div>
+            <h4 className="font-medium">How do AI credits work?</h4>
+            <p className="text-sm text-muted-foreground">
+              Text AI prompts cost 1 credit. Image analysis costs 3 credits. 
+              Monthly credits refresh each billing cycle. Extra purchased credits never expire.
+            </p>
+          </div>
         </CardContent>
       </Card>
+
+      {/* Buy Credits Modal */}
+      <Dialog open={showCreditsModal} onOpenChange={setShowCreditsModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-500" />
+              Buy Extra AI Credits
+            </DialogTitle>
+            <DialogDescription>
+              Purchase additional credits for AI Assistant features. Extra credits never expire.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            {CREDIT_PACKAGES.map((pkg) => (
+              <button
+                key={pkg.id}
+                onClick={() => handlePurchaseCredits(pkg.id)}
+                disabled={purchasingPackage !== null}
+                className="w-full p-4 rounded-lg border border-border bg-card hover:bg-secondary/50 transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center">
+                    <Sparkles className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold">{pkg.credits} Credits</div>
+                    <div className="text-sm text-muted-foreground">
+                      ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
+                  {purchasingPackage === pkg.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-muted-foreground text-center">
+            Secure payment via Stripe. Credits are added instantly after purchase.
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

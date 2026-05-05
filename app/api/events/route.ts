@@ -2,11 +2,13 @@ import { createClient } from "@supabase/supabase-js";
 import { NextRequest, NextResponse } from "next/server";
 import { getPlanById, PRICING_PLANS } from "@/lib/products";
 
-// Use service role for API endpoint (bypasses RLS for event insertion)
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Lazy init for service role client
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 // Valid event types - Roblox-specific naming
 const VALID_EVENT_TYPES = [
@@ -89,6 +91,7 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
 
 // POST /api/events - Receive tracking events from Roblox games
 export async function POST(request: NextRequest) {
+  const supabaseAdmin = getSupabaseAdmin();
   try {
     // Parse request body first (Roblox sends apiKey in body)
     let body: unknown;

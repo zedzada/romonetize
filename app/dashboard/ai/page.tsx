@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import Link from "next/link";
 import {
   Sparkles,
   Send,
@@ -11,14 +12,19 @@ import {
   DollarSign,
   Database,
   BarChart3,
+  CreditCard,
+  Plus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { getAIContext } from "@/lib/actions/ai";
 import { generateSmartResponse, generateBusinessInsights, type AIContext } from "@/lib/utils/ai-responses";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
+import { useCredits } from "@/hooks/use-credits";
+import { AI_CREDIT_COSTS } from "@/lib/products";
 
 interface Message {
   id: string;
@@ -39,7 +45,12 @@ export default function AIAssistantPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [context, setContext] = useState<AIContext | null>(null);
   const [loadingContext, setLoadingContext] = useState(true);
+  const [insufficientCredits, setInsufficientCredits] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // AI Credits
+  const { totalCredits, consumeCredits, refundCredits, isLoading: creditsLoading } = useCredits();
+  const creditCost = AI_CREDIT_COSTS.text; // Text prompts cost 1 credit
 
   // Load AI context
   const loadContext = useCallback(async () => {
@@ -105,6 +116,22 @@ export default function AIAssistantPage() {
     const messageText = question || inputMessage.trim();
     if (!messageText || !context) return;
 
+    // Check if user has enough credits
+    if (totalCredits < creditCost) {
+      setInsufficientCredits(true);
+      return;
+    }
+    setInsufficientCredits(false);
+
+    // Consume credits first
+    const consumeResult = await consumeCredits("text");
+    if (!consumeResult.success) {
+      if (consumeResult.error === "Insufficient credits") {
+        setInsufficientCredits(true);
+      }
+      return;
+    }
+
     // Add user message
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -115,19 +142,32 @@ export default function AIAssistantPage() {
     setInputMessage("");
     setIsLoading(true);
 
-    // Simulate AI thinking delay
-    await new Promise((resolve) => setTimeout(resolve, 800));
+    try {
+      // Simulate AI thinking delay
+      await new Promise((resolve) => setTimeout(resolve, 800));
 
-    // Generate smart response based on real data
-    const response = generateSmartResponse(messageText, context);
+      // Generate smart response based on real data
+      const response = generateSmartResponse(messageText, context);
 
-    const assistantMessage: Message = {
-      id: (Date.now() + 1).toString(),
-      role: "assistant",
-      content: response,
-    };
-    setMessages((prev) => [...prev, assistantMessage]);
-    setIsLoading(false);
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: response,
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+    } catch (error) {
+      // Refund credits on error
+      await refundCredits("text", "AI response generation failed");
+      
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "Sorry, I encountered an error processing your request. Your credits have been refunded.",
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const refreshContext = async () => {
@@ -195,11 +235,35 @@ export default function AIAssistantPage() {
             }
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={refreshContext} disabled={loadingContext} className="gap-2">
-          <RefreshCw className={`w-4 h-4 ${loadingContext ? "animate-spin" : ""}`} />
-          Refresh Data
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+            <Sparkles className="w-4 h-4 text-purple-500" />
+            <span className="text-sm font-medium">{creditsLoading ? "..." : totalCredits} credits</span>
+          </div>
+          <Button variant="outline" size="sm" onClick={refreshContext} disabled={loadingContext} className="gap-2">
+            <RefreshCw className={`w-4 h-4 ${loadingContext ? "animate-spin" : ""}`} />
+            Refresh Data
+          </Button>
+        </div>
       </div>
+
+      {/* Insufficient credits warning */}
+      {insufficientCredits && (
+        <Alert className="border-amber-500/30 bg-amber-500/5">
+          <CreditCard className="h-4 w-4 text-amber-500" />
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-amber-700 dark:text-amber-300">
+              You need at least {creditCost} credit{creditCost > 1 ? "s" : ""} to send a message. Each text prompt costs {creditCost} credit.
+            </span>
+            <Button variant="outline" size="sm" className="ml-4 gap-2" asChild>
+              <Link href="/dashboard/billing">
+                <Plus className="w-3 h-3" />
+                Buy Credits
+              </Link>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats summary (if data exists) */}
       {context?.hasData && (
@@ -315,22 +379,31 @@ export default function AIAssistantPage() {
           <div className="p-4 border-t border-border">
             <div className="flex gap-2">
               <Input
-                placeholder={context?.hasData ? "Ask about your monetization data..." : "Connect a game to enable AI insights..."}
+                placeholder={
+                  !context?.hasData 
+                    ? "Connect a game to enable AI insights..." 
+                    : totalCredits < creditCost 
+                      ? "Buy credits to ask questions..." 
+                      : "Ask about your monetization data..."
+                }
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSendMessage()}
-                disabled={isLoading || !context?.hasData}
+                disabled={isLoading || !context?.hasData || totalCredits < creditCost}
                 className="bg-secondary/30"
               />
               <Button 
                 onClick={() => handleSendMessage()} 
-                disabled={isLoading || !inputMessage.trim() || !context?.hasData} 
+                disabled={isLoading || !inputMessage.trim() || !context?.hasData || totalCredits < creditCost} 
                 className="gap-2"
               >
                 <Send className="w-4 h-4" />
                 Ask AI
               </Button>
             </div>
+            <p className="text-xs text-muted-foreground mt-2 text-center">
+              Each question costs {creditCost} credit. You have {totalCredits} credits available.
+            </p>
           </div>
         </CardContent>
       </Card>
