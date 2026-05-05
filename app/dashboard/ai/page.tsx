@@ -36,6 +36,12 @@ class AIErrorBoundary extends Component<{ children: ReactNode }, { hasError: boo
     return { hasError: true, error };
   }
 
+  componentDidCatch(error: Error, errorInfo: { componentStack: string }) {
+    console.error("[v0] AI Page Error Message:", error.message);
+    console.error("[v0] AI Page Error Stack:", error.stack);
+    console.error("[v0] AI Page Component Stack:", errorInfo.componentStack);
+  }
+
   render() {
     if (this.state.hasError) {
       return (
