@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback, Component, type ReactNode } from "react";
+import { useState, useRef, useEffect, Component, type ReactNode } from "react";
 import Image from "next/image";
 import {
   Sparkles,
@@ -22,7 +22,6 @@ import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useCredits, useCreditPackages } from "@/hooks/use-credits";
 import { AI_CREDIT_COSTS, CREDIT_PACKAGES } from "@/lib/products";
-import { useChat } from "@ai-sdk/react";
 import ReactMarkdown from "react-markdown";
 
 // Error boundary for the AI page
@@ -77,7 +76,7 @@ class AIErrorBoundary extends Component<{ children: ReactNode }, { hasError: boo
   }
 }
 
-// Quick prompt suggestions - exactly as specified
+// Quick prompt suggestions
 const quickPrompts = [
   { text: "Show me my stats overview", icon: BarChart3 },
   { text: "What should I improve first?", icon: Lightbulb },
@@ -89,8 +88,16 @@ const quickPrompts = [
   { text: "How can I improve retention?", icon: TrendingUp },
 ];
 
+interface Message {
+  id: string;
+  role: "user" | "assistant" | "error";
+  content: string;
+}
+
 function AIAssistantContent() {
-  const [inputMessage, setInputMessage] = useState("");
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -98,36 +105,19 @@ function AIAssistantContent() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
-  // AI Credits
+  // Credits
   const { totalCredits, isLoading: creditsLoading, refresh: refreshCredits } = useCredits();
   const { purchaseCredits } = useCreditPackages();
   
-  // Determine credit cost based on image
+  // Credit cost based on image
   const creditCost = selectedImage ? AI_CREDIT_COSTS.image : AI_CREDIT_COSTS.text;
 
-  // Use AI SDK chat hook
-  const { messages, append, isLoading, setMessages } = useChat({
-    api: "/api/ai/chat",
-    body: {
-      hasImage: !!selectedImage,
-    },
-    onResponse: (response) => {
-      const remaining = response.headers.get("X-Credits-Remaining");
-      if (remaining) {
-        refreshCredits();
-      }
-    },
-    onError: (error) => {
-      console.error("[v0] AI chat error:", error);
-      refreshCredits();
-    },
-  });
-
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Image handling
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -148,48 +138,146 @@ function AIAssistantContent() {
     }
   };
 
+  // Purchase credits
   const handlePurchase = async (packageId: string) => {
     setPurchasingPackage(packageId);
     await purchaseCredits(packageId);
     setPurchasingPackage(null);
   };
 
-  const handleSendMessage = async (promptText?: string) => {
-    const messageText = promptText || inputMessage.trim();
-    if (!messageText && !selectedImage) return;
+  // SINGLE SEND FUNCTION - used by all send methods
+  const handleSend = async (messageOverride?: string) => {
+    const text = messageOverride ?? input.trim();
+    
+    // Debug log
+    if (process.env.NODE_ENV === "development") {
+      console.log("[v0] handleSend called", { text, hasImage: !!imagePreview });
+    }
 
-    // Check if user has enough credits
-    if (totalCredits < creditCost) {
+    // Validate input
+    if (!text && !imagePreview) {
+      console.log("[v0] No text or image, returning");
+      return;
+    }
+    
+    // Prevent duplicate sends
+    if (isLoading) {
+      console.log("[v0] Already loading, returning");
+      return;
+    }
+
+    // Check credits
+    const cost = imagePreview ? AI_CREDIT_COSTS.image : AI_CREDIT_COSTS.text;
+    if (totalCredits < cost) {
+      console.log("[v0] Insufficient credits, opening modal");
       setShowBuyCreditsModal(true);
       return;
     }
 
-    // Clear input
-    setInputMessage("");
-    
-    // Build message content
-    let content = messageText || "";
-    if (imagePreview) {
-      content = `[Image attached for analysis]\n\n${content || "Please analyze this screenshot."}`;
+    // Build user message content
+    let userContent = text;
+    if (imagePreview && !text) {
+      userContent = "Please analyze this screenshot.";
+    } else if (imagePreview && text) {
+      userContent = `[Image attached]\n\n${text}`;
     }
 
-    // Clear image after building content
+    // Add user message
+    const userMessageId = `user-${Date.now()}`;
+    const userMessage: Message = {
+      id: userMessageId,
+      role: "user",
+      content: userContent,
+    };
+    setMessages(prev => [...prev, userMessage]);
+
+    // Clear input and image
+    setInput("");
+    const currentImage = imagePreview;
     handleRemoveImage();
 
-    // Send message using AI SDK
-    await append({
-      role: "user",
-      content,
-    });
+    // Set loading
+    setIsLoading(true);
+
+    try {
+      // Build request body
+      const requestBody = {
+        message: text || "Please analyze this screenshot.",
+        image: currentImage || null,
+      };
+
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] API request body keys:", Object.keys(requestBody));
+      }
+
+      // Call API
+      const res = await fetch("/api/ai/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await res.json();
+
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] API response", { success: data.success, hasError: !!data.error });
+      }
+
+      if (!res.ok || !data.success) {
+        // Handle error
+        const errorMessage = data.error || "Something went wrong";
+        
+        // Check if insufficient credits
+        if (res.status === 402 || errorMessage.toLowerCase().includes("insufficient")) {
+          setShowBuyCreditsModal(true);
+        }
+
+        // Add error message
+        setMessages(prev => [...prev, {
+          id: `error-${Date.now()}`,
+          role: "error",
+          content: errorMessage,
+        }]);
+      } else {
+        // Add assistant message
+        setMessages(prev => [...prev, {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: data.message,
+        }]);
+
+        // Update credits
+        refreshCredits();
+        window.dispatchEvent(new CustomEvent("credits-updated"));
+      }
+    } catch (error) {
+      console.error("[v0] API call failed:", error);
+      setMessages(prev => [...prev, {
+        id: `error-${Date.now()}`,
+        role: "error",
+        content: "Failed to connect to AI. Please try again.",
+      }]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  // Clear chat
   const handleClearChat = () => {
     setMessages([]);
   };
 
+  // Handle Enter key
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
   return (
     <div className="space-y-6">
-      {/* Page header - clean, no credit badge */}
+      {/* Page header */}
       <div>
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
@@ -202,7 +290,7 @@ function AIAssistantContent() {
         </p>
       </div>
 
-      {/* Quick prompt buttons */}
+      {/* Quick prompts */}
       <div className="flex flex-wrap gap-2">
         {quickPrompts.map((prompt) => (
           <Button
@@ -210,7 +298,12 @@ function AIAssistantContent() {
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => handleSendMessage(prompt.text)}
+            onClick={() => {
+              if (process.env.NODE_ENV === "development") {
+                console.log("[v0] Quick prompt clicked:", prompt.text);
+              }
+              handleSend(prompt.text);
+            }}
             disabled={isLoading}
           >
             <prompt.icon className="w-4 h-4" />
@@ -240,7 +333,6 @@ function AIAssistantContent() {
         {/* Messages area */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {messages.length === 0 ? (
-            // Empty state welcome
             <div className="flex flex-col items-center justify-center h-full text-center py-12">
               <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center mb-4">
                 <Sparkles className="w-8 h-8 text-primary-foreground" />
@@ -257,16 +349,26 @@ function AIAssistantContent() {
                   key={message.id}
                   className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
                 >
-                  {message.role === "assistant" && (
-                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center shrink-0 mt-1">
-                      <Sparkles className="w-4 h-4 text-primary-foreground" />
+                  {message.role !== "user" && (
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mt-1 ${
+                      message.role === "error" 
+                        ? "bg-destructive/10" 
+                        : "bg-gradient-to-br from-primary to-blue-400"
+                    }`}>
+                      {message.role === "error" ? (
+                        <AlertCircle className="w-4 h-4 text-destructive" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-primary-foreground" />
+                      )}
                     </div>
                   )}
                   <div
                     className={`rounded-lg p-4 ${
                       message.role === "user"
                         ? "bg-primary text-primary-foreground max-w-[70%]"
-                        : "bg-secondary/50 text-foreground max-w-[80%]"
+                        : message.role === "error"
+                          ? "bg-destructive/10 text-destructive max-w-[80%]"
+                          : "bg-secondary/50 text-foreground max-w-[80%]"
                     }`}
                   >
                     {message.role === "assistant" ? (
@@ -344,28 +446,24 @@ function AIAssistantContent() {
             </Button>
             <Textarea
               placeholder="Ask about monetization, products, conversion..."
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey && !isLoading) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
               disabled={isLoading}
               className="bg-secondary/30 min-h-[44px] max-h-[120px] resize-none"
               rows={1}
             />
             <Button 
-              onClick={() => handleSendMessage()} 
-              disabled={isLoading || (!inputMessage.trim() && !selectedImage)} 
+              onClick={() => handleSend()} 
+              disabled={isLoading || (!input.trim() && !selectedImage)} 
               className="gap-2"
             >
               <Send className="w-4 h-4" />
+              Ask AI
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            {selectedImage ? "3 credits" : "1 credit"} per message
+            {selectedImage ? "Costs 3 credits with image" : "Costs 1 credit"}
             {!creditsLoading && totalCredits < creditCost && (
               <span className="text-destructive ml-2">
                 (Not enough credits - <button onClick={() => setShowBuyCreditsModal(true)} className="underline">buy more</button>)
