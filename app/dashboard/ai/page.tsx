@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Component, type ReactNode } from "react";
 import Image from "next/image";
 import {
   Sparkles,
@@ -14,6 +14,7 @@ import {
   ImageIcon,
   X,
   Trash2,
+  AlertCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -23,6 +24,52 @@ import { useCredits, useCreditPackages } from "@/hooks/use-credits";
 import { AI_CREDIT_COSTS, CREDIT_PACKAGES } from "@/lib/products";
 import { useChat } from "@ai-sdk/react";
 import ReactMarkdown from "react-markdown";
+
+// Error boundary for the AI page
+class AIErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error?: Error }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-primary-foreground" />
+              </div>
+              AI Assistant
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Upload images or ask questions about Roblox monetization
+            </p>
+          </div>
+          <Card className="border-border bg-card p-8">
+            <div className="flex flex-col items-center justify-center text-center">
+              <AlertCircle className="w-12 h-12 text-destructive mb-4" />
+              <h2 className="text-lg font-semibold text-foreground mb-2">Something went wrong</h2>
+              <p className="text-muted-foreground mb-4 max-w-md">
+                The AI Assistant encountered an error. Please try refreshing the page.
+              </p>
+              <Button onClick={() => window.location.reload()}>
+                Refresh Page
+              </Button>
+            </div>
+          </Card>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 // Quick prompt suggestions - exactly as specified
 const quickPrompts = [
@@ -36,7 +83,7 @@ const quickPrompts = [
   { text: "How can I improve retention?", icon: TrendingUp },
 ];
 
-export default function AIAssistantPage() {
+function AIAssistantContent() {
   const [inputMessage, setInputMessage] = useState("");
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
@@ -391,5 +438,14 @@ export default function AIAssistantPage() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Export wrapped with error boundary
+export default function AIAssistantPage() {
+  return (
+    <AIErrorBoundary>
+      <AIAssistantContent />
+    </AIErrorBoundary>
   );
 }
