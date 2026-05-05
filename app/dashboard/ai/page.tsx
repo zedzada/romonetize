@@ -11,23 +11,20 @@ import {
   DollarSign,
   BarChart3,
   CreditCard,
-  Plus,
   ImageIcon,
   X,
   Trash2,
-  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { RobuxValue } from "@/components/ui/robux-icon";
 import { useCredits, useCreditPackages } from "@/hooks/use-credits";
 import { AI_CREDIT_COSTS, CREDIT_PACKAGES } from "@/lib/products";
 import { useChat } from "@ai-sdk/react";
 import ReactMarkdown from "react-markdown";
 
-// Quick prompt suggestions
+// Quick prompt suggestions - exactly as specified
 const quickPrompts = [
   { text: "Show me my stats overview", icon: BarChart3 },
   { text: "What should I improve first?", icon: Lightbulb },
@@ -37,22 +34,10 @@ const quickPrompts = [
   { text: "Analyze my monetization", icon: BarChart3 },
   { text: "Give me 3 monetization ideas", icon: Lightbulb },
   { text: "How can I improve retention?", icon: TrendingUp },
-  { text: "Analyze my shop screenshot", icon: Camera },
 ];
-
-// Analytics stats interface
-interface AnalyticsStats {
-  revenue: number;
-  purchases: number;
-  purchaseRate: number | null;
-  uniquePlayers: number;
-  hasData: boolean;
-}
 
 export default function AIAssistantPage() {
   const [inputMessage, setInputMessage] = useState("");
-  const [analyticsStats, setAnalyticsStats] = useState<AnalyticsStats | null>(null);
-  const [loadingStats, setLoadingStats] = useState(true);
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -84,53 +69,6 @@ export default function AIAssistantPage() {
       refreshCredits();
     },
   });
-
-  // Fetch real analytics from centralized API
-  const fetchAnalytics = useCallback(async () => {
-    setLoadingStats(true);
-    try {
-      const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
-      if (res.ok) {
-        const { data } = await res.json();
-        if (data && data.trackerStats) {
-          const uniquePlayers = data.trackerStats?.uniquePlayers || 0;
-          const purchases = data.revenueStats?.totalPurchases || 0;
-          const purchaseRate = uniquePlayers > 0 ? (purchases / uniquePlayers) * 100 : null;
-          
-          setAnalyticsStats({
-            revenue: data.revenueStats?.totalRevenue || 0,
-            purchases,
-            purchaseRate,
-            uniquePlayers,
-            hasData: (data.trackerStats?.totalEvents || 0) > 0,
-          });
-        } else {
-          setAnalyticsStats({
-            revenue: 0,
-            purchases: 0,
-            purchaseRate: null,
-            uniquePlayers: 0,
-            hasData: false,
-          });
-        }
-      }
-    } catch (error) {
-      console.error("[v0] Failed to fetch analytics:", error);
-      setAnalyticsStats({
-        revenue: 0,
-        purchases: 0,
-        purchaseRate: null,
-        uniquePlayers: 0,
-        hasData: false,
-      });
-    }
-    setLoadingStats(false);
-  }, []);
-
-  // Load analytics on mount
-  useEffect(() => {
-    fetchAnalytics();
-  }, [fetchAnalytics]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -196,89 +134,19 @@ export default function AIAssistantPage() {
     setMessages([]);
   };
 
-  const handleRefreshData = async () => {
-    setLoadingStats(true);
-    await fetchAnalytics();
-    refreshCredits();
-  };
-
   return (
     <div className="space-y-6">
-      {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary-foreground" />
-            </div>
-            AI Assistant
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Ask about your Roblox monetization data or upload shop/game screenshots for analysis.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <button 
-            onClick={() => setShowBuyCreditsModal(true)}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
-          >
-            <Sparkles className="w-4 h-4 text-purple-500" />
-            <span className="text-sm font-medium">{creditsLoading ? "..." : totalCredits} credits</span>
-          </button>
-          <Button variant="outline" size="sm" onClick={handleRefreshData} disabled={loadingStats} className="gap-2">
-            <RefreshCw className={`w-4 h-4 ${loadingStats ? "animate-spin" : ""}`} />
-            Refresh Data
-          </Button>
-        </div>
-      </div>
-
-      {/* 3 Compact stat cards */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <DollarSign className="w-4 h-4" />
-            Revenue
+      {/* Page header - clean, no credit badge */}
+      <div>
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
+            <Sparkles className="w-4 h-4 text-primary-foreground" />
           </div>
-          <div className="text-2xl font-bold mt-1">
-            {loadingStats ? (
-              <span className="text-muted-foreground">...</span>
-            ) : analyticsStats?.hasData ? (
-              <RobuxValue amount={analyticsStats.revenue} />
-            ) : (
-              <span className="text-muted-foreground text-base">No data yet</span>
-            )}
-          </div>
-        </Card>
-        <Card className="border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <TrendingUp className="w-4 h-4" />
-            Purchases
-          </div>
-          <div className="text-2xl font-bold mt-1">
-            {loadingStats ? (
-              <span className="text-muted-foreground">...</span>
-            ) : analyticsStats?.hasData ? (
-              analyticsStats.purchases.toLocaleString()
-            ) : (
-              <span className="text-muted-foreground text-base">No data yet</span>
-            )}
-          </div>
-        </Card>
-        <Card className="border-border bg-card p-4">
-          <div className="flex items-center gap-2 text-muted-foreground text-sm">
-            <BarChart3 className="w-4 h-4" />
-            Purchase Rate
-          </div>
-          <div className="text-2xl font-bold mt-1">
-            {loadingStats ? (
-              <span className="text-muted-foreground">...</span>
-            ) : analyticsStats?.purchaseRate !== null ? (
-              `${analyticsStats.purchaseRate.toFixed(1)}%`
-            ) : (
-              <span className="text-muted-foreground text-base">Needs player data</span>
-            )}
-          </div>
-        </Card>
+          AI Assistant
+        </h1>
+        <p className="text-muted-foreground mt-1">
+          Upload images or ask questions about Roblox monetization
+        </p>
       </div>
 
       {/* Quick prompt buttons */}
@@ -298,15 +166,20 @@ export default function AIAssistantPage() {
         ))}
       </div>
 
-      {/* Chat area */}
+      {/* Chat card */}
       <Card className="border-border bg-card flex flex-col" style={{ minHeight: "500px" }}>
         {/* Chat header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="text-sm font-medium text-foreground">Chat</div>
+          <div>
+            <div className="text-sm font-medium text-foreground">Chat</div>
+            <div className="text-xs text-muted-foreground">
+              Upload images for analysis or ask general Roblox monetization questions
+            </div>
+          </div>
           {messages.length > 0 && (
             <Button variant="ghost" size="sm" onClick={handleClearChat} className="gap-2 text-muted-foreground hover:text-foreground">
               <Trash2 className="w-4 h-4" />
-              Clear Chat
+              Clear chat
             </Button>
           )}
         </div>
@@ -340,7 +213,7 @@ export default function AIAssistantPage() {
                     className={`rounded-lg p-4 ${
                       message.role === "user"
                         ? "bg-primary text-primary-foreground max-w-[70%]"
-                        : "bg-secondary/50 text-foreground max-w-[75%]"
+                        : "bg-secondary/50 text-foreground max-w-[80%]"
                     }`}
                   >
                     {message.role === "assistant" ? (
@@ -417,7 +290,7 @@ export default function AIAssistantPage() {
               <ImageIcon className="w-4 h-4" />
             </Button>
             <Textarea
-              placeholder="Ask about your monetization data..."
+              placeholder="Ask about monetization, products, conversion..."
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyDown={(e) => {
@@ -436,16 +309,15 @@ export default function AIAssistantPage() {
               className="gap-2"
             >
               <Send className="w-4 h-4" />
-              Ask AI
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            {selectedImage ? (
-              <span className="text-purple-500 font-medium">Costs 3 credits with image</span>
-            ) : (
-              <span>Costs 1 credit</span>
+            {selectedImage ? "3 credits" : "1 credit"} per message
+            {!creditsLoading && totalCredits < creditCost && (
+              <span className="text-destructive ml-2">
+                (Not enough credits - <button onClick={() => setShowBuyCreditsModal(true)} className="underline">buy more</button>)
+              </span>
             )}
-            {" "}| You have {totalCredits} credits available
           </p>
         </div>
       </Card>
