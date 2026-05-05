@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import {
   Sparkles,
@@ -10,35 +9,26 @@ import {
   Lightbulb,
   TrendingUp,
   DollarSign,
-  Database,
   BarChart3,
   CreditCard,
   Plus,
   ImageIcon,
   X,
-  Upload,
-  AlertTriangle,
+  Trash2,
+  Camera,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { getAIContext } from "@/lib/actions/ai";
-import { generateBusinessInsights, type AIContext } from "@/lib/utils/ai-responses";
 import { RobuxValue } from "@/components/ui/robux-icon";
-import { useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { useCredits, useCreditPackages } from "@/hooks/use-credits";
 import { AI_CREDIT_COSTS, CREDIT_PACKAGES } from "@/lib/products";
 import { useChat } from "@ai-sdk/react";
+import ReactMarkdown from "react-markdown";
 
-interface LocalMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-}
-
-const suggestedQuestions = [
+// Quick prompt suggestions
+const quickPrompts = [
   { text: "Show me my stats overview", icon: BarChart3 },
   { text: "What should I improve first?", icon: Lightbulb },
   { text: "Which product needs improvement?", icon: TrendingUp },
@@ -47,27 +37,22 @@ const suggestedQuestions = [
   { text: "Analyze my monetization", icon: BarChart3 },
   { text: "Give me 3 monetization ideas", icon: Lightbulb },
   { text: "How can I improve retention?", icon: TrendingUp },
+  { text: "Analyze my shop screenshot", icon: Camera },
 ];
 
 // Analytics stats interface
 interface AnalyticsStats {
-  trackedActions: number;
   revenue: number;
   purchases: number;
-  conversionRate: number | null;
+  purchaseRate: number | null;
   uniquePlayers: number;
-  payingUsers: number;
-  gameName: string | null;
   hasData: boolean;
 }
 
 export default function AIAssistantPage() {
   const [inputMessage, setInputMessage] = useState("");
-  const [context, setContext] = useState<AIContext | null>(null);
   const [analyticsStats, setAnalyticsStats] = useState<AnalyticsStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
-  const [loadingContext, setLoadingContext] = useState(true);
-  const [insufficientCredits, setInsufficientCredits] = useState(false);
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -89,7 +74,6 @@ export default function AIAssistantPage() {
       hasImage: !!selectedImage,
     },
     onResponse: (response) => {
-      // Refresh credits after successful response
       const remaining = response.headers.get("X-Credits-Remaining");
       if (remaining) {
         refreshCredits();
@@ -97,7 +81,7 @@ export default function AIAssistantPage() {
     },
     onError: (error) => {
       console.error("[v0] AI chat error:", error);
-      refreshCredits(); // Refresh to show refunded credits
+      refreshCredits();
     },
   });
 
@@ -109,90 +93,44 @@ export default function AIAssistantPage() {
       if (res.ok) {
         const { data } = await res.json();
         if (data && data.trackerStats) {
+          const uniquePlayers = data.trackerStats?.uniquePlayers || 0;
+          const purchases = data.revenueStats?.totalPurchases || 0;
+          const purchaseRate = uniquePlayers > 0 ? (purchases / uniquePlayers) * 100 : null;
+          
           setAnalyticsStats({
-            trackedActions: data.trackerStats.totalEvents || 0,
             revenue: data.revenueStats?.totalRevenue || 0,
-            purchases: data.revenueStats?.totalPurchases || 0,
-            conversionRate: data.revenueStats?.conversionRate || null,
-            uniquePlayers: data.trackerStats?.uniquePlayers || 0,
-            payingUsers: data.revenueStats?.payingUsers || 0,
-            gameName: data.game?.name || null,
+            purchases,
+            purchaseRate,
+            uniquePlayers,
             hasData: (data.trackerStats?.totalEvents || 0) > 0,
           });
         } else {
           setAnalyticsStats({
-            trackedActions: 0,
             revenue: 0,
             purchases: 0,
-            conversionRate: null,
+            purchaseRate: null,
             uniquePlayers: 0,
-            payingUsers: 0,
-            gameName: data?.game?.name || null,
             hasData: false,
           });
         }
       }
     } catch (error) {
       console.error("[v0] Failed to fetch analytics:", error);
+      setAnalyticsStats({
+        revenue: 0,
+        purchases: 0,
+        purchaseRate: null,
+        uniquePlayers: 0,
+        hasData: false,
+      });
     }
     setLoadingStats(false);
   }, []);
 
-  // Load AI context
-  const loadContext = useCallback(async () => {
-    setLoadingContext(true);
-    const { context: ctx, error } = await getAIContext();
-    
-    if (!error && ctx) {
-      setContext(ctx);
-      
-      // Set initial message with business insights if data exists
-      let initialContent: string;
-      
-      if (ctx.hasData) {
-        const insights = generateBusinessInsights(ctx);
-        initialContent = `**${ctx.gameName || "Your Game"} Analysis**\n\n`;
-        
-        if (insights.length > 0) {
-          initialContent += `**Key Insights:**\n`;
-          insights.slice(0, 4).forEach(insight => {
-            initialContent += `\n- ${insight}`;
-          });
-          initialContent += `\n\nAsk me about revenue, conversion, products, or trends for more details!`;
-        } else {
-          initialContent += `I see **${ctx.totalEvents.toLocaleString()} tracked actions** and **${ctx.totalRevenue.toLocaleString()} Robux** revenue.\n\nI need more data to provide specific insights. Keep tracking player actions and check back soon!`;
-        }
-      } else {
-        initialContent = "I need tracking data to provide insights.\n\n**To get started:**\n1. Go to the **My Game** page\n2. Copy the Lua tracking script\n3. Install it in your Roblox game\n4. Track player actions like joins, purchases, clicks, etc.\n\nOnce player actions flow in, I'll analyze your monetization and give you specific recommendations.";
-      }
-      
-      const initialMessage: LocalMessage = {
-        id: "1",
-        role: "assistant",
-        content: initialContent,
-      };
-      setMessages([initialMessage]);
-    }
-    setLoadingContext(false);
-  }, [setMessages]);
-
-  // Load AI context and analytics on mount
+  // Load analytics on mount
   useEffect(() => {
-    loadContext();
     fetchAnalytics();
-  }, [loadContext, fetchAnalytics]);
-
-  // Listen for global stats refresh
-  useStatsRefresh(loadContext);
-
-  // Auto-refresh context every 30 seconds (silent refresh, doesn't reset messages)
-  useEffect(() => {
-    const interval = setInterval(async () => {
-      const { context: ctx } = await getAIContext();
-      if (ctx) setContext(ctx);
-    }, 30000);
-    return () => clearInterval(interval);
-  }, []);
+  }, [fetchAnalytics]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -225,29 +163,27 @@ export default function AIAssistantPage() {
     setPurchasingPackage(null);
   };
 
-  const handleSendMessage = async (question?: string) => {
-    const messageText = question || inputMessage.trim();
-    if (!messageText || !context) return;
+  const handleSendMessage = async (promptText?: string) => {
+    const messageText = promptText || inputMessage.trim();
+    if (!messageText && !selectedImage) return;
 
     // Check if user has enough credits
     if (totalCredits < creditCost) {
-      setInsufficientCredits(true);
       setShowBuyCreditsModal(true);
       return;
     }
-    setInsufficientCredits(false);
 
-    // Clear input and image
+    // Clear input
     setInputMessage("");
-    handleRemoveImage();
-
-    // If there's an image, include it in the message (for display purposes)
-    let content = messageText;
+    
+    // Build message content
+    let content = messageText || "";
     if (imagePreview) {
-      // Note: For actual image analysis, the API would need to handle multipart/form-data
-      // For now, we'll append a note that an image was included
-      content = `[Image attached for analysis]\n\n${messageText}`;
+      content = `[Image attached for analysis]\n\n${content || "Please analyze this screenshot."}`;
     }
+
+    // Clear image after building content
+    handleRemoveImage();
 
     // Send message using AI SDK
     await append({
@@ -256,50 +192,15 @@ export default function AIAssistantPage() {
     });
   };
 
-  const refreshContext = async () => {
-    setLoadingContext(true);
-    const { context: ctx } = await getAIContext();
-    if (ctx) {
-      setContext(ctx);
-      
-      let refreshContent: string;
-      if (ctx.hasData) {
-        const insights = generateBusinessInsights(ctx);
-        refreshContent = `**Data Refreshed!**\n\nNow tracking **${ctx.totalEvents.toLocaleString()} player actions** with **${ctx.totalRevenue.toLocaleString()} Robux** revenue.`;
-        if (insights.length > 0) {
-          refreshContent += `\n\n**Latest Insight:** ${insights[0]}`;
-        }
-        refreshContent += `\n\nWhat would you like to know?`;
-      } else {
-        refreshContent = "I still don't see any tracking data. Make sure the RoMonetize tracker is installed and sending player actions from your game.";
-      }
-      
-      await append({
-        role: "assistant",
-        content: refreshContent,
-      });
-    }
-    setLoadingContext(false);
+  const handleClearChat = () => {
+    setMessages([]);
   };
 
-  if (loadingContext) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
-              <Sparkles className="w-4 h-4 text-primary-foreground" />
-            </div>
-            AI Assistant
-          </h1>
-          <p className="text-muted-foreground mt-1">Loading your game data...</p>
-        </div>
-        <Card className="border-border bg-card min-h-[400px] flex items-center justify-center">
-          <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
-        </Card>
-      </div>
-    );
-  }
+  const handleRefreshData = async () => {
+    setLoadingStats(true);
+    await fetchAnalytics();
+    refreshCredits();
+  };
 
   return (
     <div className="space-y-6">
@@ -313,12 +214,7 @@ export default function AIAssistantPage() {
             AI Assistant
           </h1>
           <p className="text-muted-foreground mt-1">
-            {loadingStats 
-              ? "Loading analytics data..."
-              : analyticsStats?.hasData 
-                ? `Analyzing ${analyticsStats.gameName || "your game"} with ${analyticsStats.trackedActions.toLocaleString()} tracked actions`
-                : "Get AI-powered insights once you have tracking data"
-            }
+            Ask about your Roblox monetization data or upload shop/game screenshots for analysis.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -328,282 +224,231 @@ export default function AIAssistantPage() {
           >
             <Sparkles className="w-4 h-4 text-purple-500" />
             <span className="text-sm font-medium">{creditsLoading ? "..." : totalCredits} credits</span>
-            <Plus className="w-3 h-3 text-purple-500" />
           </button>
-          <Button variant="outline" size="sm" onClick={refreshContext} disabled={loadingContext} className="gap-2">
-            <RefreshCw className={`w-4 h-4 ${loadingContext ? "animate-spin" : ""}`} />
+          <Button variant="outline" size="sm" onClick={handleRefreshData} disabled={loadingStats} className="gap-2">
+            <RefreshCw className={`w-4 h-4 ${loadingStats ? "animate-spin" : ""}`} />
             Refresh Data
           </Button>
         </div>
       </div>
 
-      {/* Insufficient credits warning */}
-      {insufficientCredits && (
-        <Alert className="border-amber-500/30 bg-amber-500/5">
-          <CreditCard className="h-4 w-4 text-amber-500" />
-          <AlertDescription className="flex items-center justify-between">
-            <span className="text-amber-700 dark:text-amber-300">
-              You need at least {creditCost} credit{creditCost > 1 ? "s" : ""} to send a message. {selectedImage ? "Image analysis costs 3 credits." : "Text prompts cost 1 credit."}
-            </span>
-            <Button variant="outline" size="sm" className="ml-4 gap-2" onClick={() => setShowBuyCreditsModal(true)}>
-              <Plus className="w-3 h-3" />
-              Buy Credits
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Stats summary (if data exists) */}
-      {loadingStats ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <Card key={i} className="border-border bg-card p-4 animate-pulse">
-              <div className="h-4 bg-secondary rounded w-24 mb-2" />
-              <div className="h-8 bg-secondary rounded w-16" />
-            </Card>
-          ))}
-        </div>
-      ) : analyticsStats?.hasData ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <Database className="w-4 h-4" />
-              Tracked Actions
-            </div>
-            <div className="text-2xl font-bold mt-1">{analyticsStats.trackedActions.toLocaleString()}</div>
-          </Card>
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <DollarSign className="w-4 h-4" />
-              Revenue
-            </div>
-            <div className="text-2xl font-bold mt-1">
+      {/* 3 Compact stat cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <Card className="border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <DollarSign className="w-4 h-4" />
+            Revenue
+          </div>
+          <div className="text-2xl font-bold mt-1">
+            {loadingStats ? (
+              <span className="text-muted-foreground">...</span>
+            ) : analyticsStats?.hasData ? (
               <RobuxValue amount={analyticsStats.revenue} />
-            </div>
-          </Card>
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <TrendingUp className="w-4 h-4" />
-              Purchases
-            </div>
-            <div className="text-2xl font-bold mt-1">{analyticsStats.purchases.toLocaleString()}</div>
-          </Card>
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <BarChart3 className="w-4 h-4" />
-              Conversion
-            </div>
-            <div className="text-2xl font-bold mt-1">
-              {analyticsStats.conversionRate !== null 
-                ? `${analyticsStats.conversionRate.toFixed(1)}%`
-                : "Not enough data"}
-            </div>
-          </Card>
-        </div>
-      ) : analyticsStats && !analyticsStats.hasData ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <Database className="w-4 h-4" />
-              Tracked Actions
-            </div>
-            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
-          </Card>
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <DollarSign className="w-4 h-4" />
-              Revenue
-            </div>
-            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
-          </Card>
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <TrendingUp className="w-4 h-4" />
-              Purchases
-            </div>
-            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
-          </Card>
-          <Card className="border-border bg-card p-4">
-            <div className="flex items-center gap-2 text-muted-foreground text-sm">
-              <BarChart3 className="w-4 h-4" />
-              Conversion
-            </div>
-            <div className="text-2xl font-bold mt-1 text-muted-foreground">No data yet</div>
-          </Card>
-        </div>
-      ) : null}
+            ) : (
+              <span className="text-muted-foreground text-base">No data yet</span>
+            )}
+          </div>
+        </Card>
+        <Card className="border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <TrendingUp className="w-4 h-4" />
+            Purchases
+          </div>
+          <div className="text-2xl font-bold mt-1">
+            {loadingStats ? (
+              <span className="text-muted-foreground">...</span>
+            ) : analyticsStats?.hasData ? (
+              analyticsStats.purchases.toLocaleString()
+            ) : (
+              <span className="text-muted-foreground text-base">No data yet</span>
+            )}
+          </div>
+        </Card>
+        <Card className="border-border bg-card p-4">
+          <div className="flex items-center gap-2 text-muted-foreground text-sm">
+            <BarChart3 className="w-4 h-4" />
+            Purchase Rate
+          </div>
+          <div className="text-2xl font-bold mt-1">
+            {loadingStats ? (
+              <span className="text-muted-foreground">...</span>
+            ) : analyticsStats?.purchaseRate !== null ? (
+              `${analyticsStats.purchaseRate.toFixed(1)}%`
+            ) : (
+              <span className="text-muted-foreground text-base">Needs player data</span>
+            )}
+          </div>
+        </Card>
+      </div>
 
-      {/* Suggested questions */}
+      {/* Quick prompt buttons */}
       <div className="flex flex-wrap gap-2">
-        {suggestedQuestions.map((question) => (
+        {quickPrompts.map((prompt) => (
           <Button
-            key={question.text}
+            key={prompt.text}
             variant="outline"
             size="sm"
             className="gap-2"
-            onClick={() => handleSendMessage(question.text)}
-            disabled={isLoading || !context}
+            onClick={() => handleSendMessage(prompt.text)}
+            disabled={isLoading}
           >
-            <question.icon className="w-4 h-4" />
-            {question.text}
+            <prompt.icon className="w-4 h-4" />
+            {prompt.text}
           </Button>
         ))}
       </div>
 
       {/* Chat area */}
-      <Card className="border-border bg-card min-h-[400px] flex flex-col">
-        <CardHeader className="border-b border-border pb-4">
-          <CardTitle className="text-base">Chat</CardTitle>
-          <CardDescription>
-            {context?.hasData 
-              ? "Ask questions about your real monetization data"
-              : "Install tracker to enable AI insights"
-            }
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="flex-1 flex flex-col p-0">
-          {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 max-h-[400px]">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
-              >
-                {message.role === "assistant" && (
-                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-4 h-4 text-primary-foreground" />
-                  </div>
-                )}
-                <div
-                  className={`max-w-[80%] rounded-lg p-4 ${
-                    message.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-secondary/50 text-foreground"
-                  }`}
-                >
-                  <div className="text-sm whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none">
-                    {message.content.split("**").map((part, i) => 
-                      i % 2 === 1 ? <strong key={i}>{part}</strong> : part
-                    )}
-                  </div>
-                </div>
-                {message.role === "user" && (
-                  <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
-                    <span className="text-xs font-bold text-primary">You</span>
-                  </div>
-                )}
-              </div>
-            ))}
-            {isLoading && (
-              <div className="flex gap-3">
-                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-4 h-4 text-primary-foreground" />
-                </div>
-                <div className="bg-secondary/50 rounded-lg p-4">
-                  <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
-                </div>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Image preview */}
-          {imagePreview && (
-            <div className="px-4 pb-2">
-              <div className="relative inline-block">
-                <Image
-                  src={imagePreview}
-                  alt="Upload preview"
-                  width={128}
-                  height={128}
-                  className="h-24 w-auto rounded-lg border border-border object-cover"
-                />
-                <button
-                  onClick={handleRemoveImage}
-                  className="absolute -top-2 -right-2 p-1 rounded-full bg-destructive text-destructive-foreground"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              </div>
-            </div>
+      <Card className="border-border bg-card flex flex-col" style={{ minHeight: "500px" }}>
+        {/* Chat header */}
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <div className="text-sm font-medium text-foreground">Chat</div>
+          {messages.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={handleClearChat} className="gap-2 text-muted-foreground hover:text-foreground">
+              <Trash2 className="w-4 h-4" />
+              Clear Chat
+            </Button>
           )}
+        </div>
 
-          {/* Input */}
-          <div className="p-4 border-t border-border">
-            <div className="flex gap-2">
-              <input
-                type="file"
-                ref={fileInputRef}
-                accept="image/*"
-                onChange={handleImageSelect}
-                className="hidden"
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading || !context?.hasData}
-                title="Upload image for analysis"
-              >
-                <ImageIcon className="w-4 h-4" />
-              </Button>
-              <Textarea
-                placeholder={
-                  !context?.hasData 
-                    ? "Connect a game to enable AI insights..." 
-                    : totalCredits < creditCost 
-                      ? "Buy credits to ask questions..." 
-                      : selectedImage
-                        ? "Describe what you want me to analyze in this image..."
-                        : "Ask about your monetization data..."
-                }
-                value={inputMessage}
-                onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey && !isLoading) {
-                    e.preventDefault();
-                    handleSendMessage();
-                  }
-                }}
-                disabled={isLoading || !context?.hasData || totalCredits < creditCost}
-                className="bg-secondary/30 min-h-[44px] max-h-[120px] resize-none"
-                rows={1}
-              />
-              <Button 
-                onClick={() => handleSendMessage()} 
-                disabled={isLoading || !inputMessage.trim() || !context?.hasData || totalCredits < creditCost} 
-                className="gap-2"
-              >
-                <Send className="w-4 h-4" />
-                Ask AI
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground mt-2 text-center">
-              {selectedImage ? (
-                <span className="text-purple-500 font-medium">Costs 3 credits with image</span>
-              ) : (
-                <span>Costs 1 credit</span>
-              )}
-              {" "} | You have {totalCredits} credits available
-            </p>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* No data warning */}
-      {context && !context.hasData && (
-        <Card className="border-yellow-500/30 bg-yellow-500/5 p-4">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-yellow-500 shrink-0 mt-0.5" />
-            <div>
-              <h3 className="font-medium text-foreground">No tracking data yet</h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                The AI assistant needs real event data to provide insights. Go to the My Game page to get the tracking script and install it in your Roblox game.
+        {/* Messages area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 ? (
+            // Empty state welcome
+            <div className="flex flex-col items-center justify-center h-full text-center py-12">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center mb-4">
+                <Sparkles className="w-8 h-8 text-primary-foreground" />
+              </div>
+              <h2 className="text-xl font-semibold text-foreground mb-2">Welcome to RoMonetize AI</h2>
+              <p className="text-muted-foreground max-w-md">
+                Ask about your Roblox revenue, products, conversion, retention, or upload a shop screenshot for analysis.
               </p>
             </div>
+          ) : (
+            <>
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}
+                >
+                  {message.role === "assistant" && (
+                    <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center shrink-0 mt-1">
+                      <Sparkles className="w-4 h-4 text-primary-foreground" />
+                    </div>
+                  )}
+                  <div
+                    className={`rounded-lg p-4 ${
+                      message.role === "user"
+                        ? "bg-primary text-primary-foreground max-w-[70%]"
+                        : "bg-secondary/50 text-foreground max-w-[75%]"
+                    }`}
+                  >
+                    {message.role === "assistant" ? (
+                      <div className="prose prose-sm dark:prose-invert max-w-none prose-p:my-2 prose-headings:my-3 prose-ul:my-2 prose-li:my-0.5">
+                        <ReactMarkdown>{message.content}</ReactMarkdown>
+                      </div>
+                    ) : (
+                      <div className="text-sm whitespace-pre-wrap">{message.content}</div>
+                    )}
+                  </div>
+                  {message.role === "user" && (
+                    <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center shrink-0 mt-1">
+                      <span className="text-xs font-bold text-primary">You</span>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {isLoading && (
+                <div className="flex gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center shrink-0 mt-1">
+                    <Sparkles className="w-4 h-4 text-primary-foreground" />
+                  </div>
+                  <div className="bg-secondary/50 rounded-lg p-4">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Thinking...</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Image preview */}
+        {imagePreview && (
+          <div className="px-4 pb-2">
+            <div className="relative inline-block">
+              <Image
+                src={imagePreview}
+                alt="Upload preview"
+                width={128}
+                height={128}
+                className="h-24 w-auto rounded-lg border border-border object-cover"
+              />
+              <button
+                onClick={handleRemoveImage}
+                className="absolute -top-2 -right-2 p-1 rounded-full bg-destructive text-destructive-foreground"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
           </div>
-        </Card>
-      )}
+        )}
+
+        {/* Input area */}
+        <div className="p-4 border-t border-border">
+          <div className="flex gap-2">
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept="image/*"
+              onChange={handleImageSelect}
+              className="hidden"
+            />
+            <Button
+              variant="outline"
+              size="icon"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isLoading}
+              title="Upload image for analysis"
+            >
+              <ImageIcon className="w-4 h-4" />
+            </Button>
+            <Textarea
+              placeholder="Ask about your monetization data..."
+              value={inputMessage}
+              onChange={(e) => setInputMessage(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey && !isLoading) {
+                  e.preventDefault();
+                  handleSendMessage();
+                }
+              }}
+              disabled={isLoading}
+              className="bg-secondary/30 min-h-[44px] max-h-[120px] resize-none"
+              rows={1}
+            />
+            <Button 
+              onClick={() => handleSendMessage()} 
+              disabled={isLoading || (!inputMessage.trim() && !selectedImage)} 
+              className="gap-2"
+            >
+              <Send className="w-4 h-4" />
+              Ask AI
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 text-center">
+            {selectedImage ? (
+              <span className="text-purple-500 font-medium">Costs 3 credits with image</span>
+            ) : (
+              <span>Costs 1 credit</span>
+            )}
+            {" "}| You have {totalCredits} credits available
+          </p>
+        </div>
+      </Card>
 
       {/* Buy Credits Modal */}
       <Dialog open={showBuyCreditsModal} onOpenChange={setShowBuyCreditsModal}>
@@ -620,7 +465,7 @@ export default function AIAssistantPage() {
           <div className="space-y-3 py-4">
             {CREDIT_PACKAGES.map((pkg) => {
               const badge = pkg.credits === 250 
-                ? { text: "Best Value • Save 10%", color: "text-green-600 bg-green-500/10" }
+                ? { text: "Best Value - Save 10%", color: "text-green-600 bg-green-500/10" }
                 : pkg.credits === 500
                   ? { text: "Save 25%", color: "text-blue-600 bg-blue-500/10" }
                   : null;
