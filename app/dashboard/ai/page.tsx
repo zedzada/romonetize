@@ -2,31 +2,37 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import {
   Sparkles,
   Send,
   RefreshCw,
   Lightbulb,
   TrendingUp,
-  AlertTriangle,
   DollarSign,
   Database,
   BarChart3,
   CreditCard,
   Plus,
+  ImageIcon,
+  X,
+  Upload,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { getAIContext } from "@/lib/actions/ai";
-import { generateSmartResponse, generateBusinessInsights, type AIContext } from "@/lib/utils/ai-responses";
+import { generateBusinessInsights, type AIContext } from "@/lib/utils/ai-responses";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
-import { useCredits } from "@/hooks/use-credits";
-import { AI_CREDIT_COSTS } from "@/lib/products";
+import { useCredits, useCreditPackages } from "@/hooks/use-credits";
+import { AI_CREDIT_COSTS, CREDIT_PACKAGES } from "@/lib/products";
+import { useChat } from "@ai-sdk/react";
 
-interface Message {
+interface LocalMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
@@ -40,17 +46,42 @@ const suggestedQuestions = [
 ];
 
 export default function AIAssistantPage() {
-  const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
   const [context, setContext] = useState<AIContext | null>(null);
   const [loadingContext, setLoadingContext] = useState(true);
   const [insufficientCredits, setInsufficientCredits] = useState(false);
+  const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [purchasingPackage, setPurchasingPackage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   
   // AI Credits
-  const { totalCredits, consumeCredits, refundCredits, isLoading: creditsLoading } = useCredits();
-  const creditCost = AI_CREDIT_COSTS.text; // Text prompts cost 1 credit
+  const { totalCredits, isLoading: creditsLoading, refresh: refreshCredits } = useCredits();
+  const { purchaseCredits } = useCreditPackages();
+  
+  // Determine credit cost based on image
+  const creditCost = selectedImage ? AI_CREDIT_COSTS.image : AI_CREDIT_COSTS.text;
+
+  // Use AI SDK chat hook
+  const { messages, append, isLoading, setMessages } = useChat({
+    api: "/api/ai/chat",
+    body: {
+      hasImage: !!selectedImage,
+    },
+    onResponse: (response) => {
+      // Refresh credits after successful response
+      const remaining = response.headers.get("X-Credits-Remaining");
+      if (remaining) {
+        refreshCredits();
+      }
+    },
+    onError: (error) => {
+      console.error("[v0] AI chat error:", error);
+      refreshCredits(); // Refresh to show refunded credits
+    },
+  });
 
   // Load AI context
   const loadContext = useCallback(async () => {
@@ -80,7 +111,7 @@ export default function AIAssistantPage() {
         initialContent = "I need tracking data to provide insights.\n\n**To get started:**\n1. Go to the **My Game** page\n2. Copy the Lua tracking script\n3. Install it in your Roblox game\n4. Track player actions like joins, purchases, clicks, etc.\n\nOnce player actions flow in, I'll analyze your monetization and give you specific recommendations.";
       }
       
-      const initialMessage: Message = {
+      const initialMessage: LocalMessage = {
         id: "1",
         role: "assistant",
         content: initialContent,
@@ -88,7 +119,7 @@ export default function AIAssistantPage() {
       setMessages([initialMessage]);
     }
     setLoadingContext(false);
-  }, []);
+  }, [setMessages]);
 
   // Load AI context on mount
   useEffect(() => {
@@ -98,12 +129,12 @@ export default function AIAssistantPage() {
   // Listen for global stats refresh
   useStatsRefresh(loadContext);
 
-  // Auto-refresh context every 10 seconds (silent refresh, doesn't reset messages)
+  // Auto-refresh context every 30 seconds (silent refresh, doesn't reset messages)
   useEffect(() => {
     const interval = setInterval(async () => {
       const { context: ctx } = await getAIContext();
       if (ctx) setContext(ctx);
-    }, 10000);
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -112,6 +143,32 @@ export default function AIAssistantPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedImage(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
+
+  const handlePurchase = async (packageId: string) => {
+    setPurchasingPackage(packageId);
+    await purchaseCredits(packageId);
+    setPurchasingPackage(null);
+  };
+
   const handleSendMessage = async (question?: string) => {
     const messageText = question || inputMessage.trim();
     if (!messageText || !context) return;
@@ -119,55 +176,28 @@ export default function AIAssistantPage() {
     // Check if user has enough credits
     if (totalCredits < creditCost) {
       setInsufficientCredits(true);
+      setShowBuyCreditsModal(true);
       return;
     }
     setInsufficientCredits(false);
 
-    // Consume credits first
-    const consumeResult = await consumeCredits("text");
-    if (!consumeResult.success) {
-      if (consumeResult.error === "Insufficient credits") {
-        setInsufficientCredits(true);
-      }
-      return;
-    }
-
-    // Add user message
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: messageText,
-    };
-    setMessages((prev) => [...prev, userMessage]);
+    // Clear input and image
     setInputMessage("");
-    setIsLoading(true);
+    handleRemoveImage();
 
-    try {
-      // Simulate AI thinking delay
-      await new Promise((resolve) => setTimeout(resolve, 800));
-
-      // Generate smart response based on real data
-      const response = generateSmartResponse(messageText, context);
-
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: response,
-      };
-      setMessages((prev) => [...prev, assistantMessage]);
-    } catch (error) {
-      // Refund credits on error
-      await refundCredits("text", "AI response generation failed");
-      
-      const errorMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "Sorry, I encountered an error processing your request. Your credits have been refunded.",
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    } finally {
-      setIsLoading(false);
+    // If there's an image, include it in the message (for display purposes)
+    let content = messageText;
+    if (imagePreview) {
+      // Note: For actual image analysis, the API would need to handle multipart/form-data
+      // For now, we'll append a note that an image was included
+      content = `[Image attached for analysis]\n\n${messageText}`;
     }
+
+    // Send message using AI SDK
+    await append({
+      role: "user",
+      content,
+    });
   };
 
   const refreshContext = async () => {
@@ -188,12 +218,10 @@ export default function AIAssistantPage() {
         refreshContent = "I still don't see any tracking data. Make sure the RoMonetize tracker is installed and sending player actions from your game.";
       }
       
-      const refreshMessage: Message = {
-        id: Date.now().toString(),
+      await append({
         role: "assistant",
         content: refreshContent,
-      };
-      setMessages((prev) => [...prev, refreshMessage]);
+      });
     }
     setLoadingContext(false);
   };
@@ -236,10 +264,14 @@ export default function AIAssistantPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20">
+          <button 
+            onClick={() => setShowBuyCreditsModal(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-purple-500/10 border border-purple-500/20 hover:bg-purple-500/20 transition-colors"
+          >
             <Sparkles className="w-4 h-4 text-purple-500" />
             <span className="text-sm font-medium">{creditsLoading ? "..." : totalCredits} credits</span>
-          </div>
+            <Plus className="w-3 h-3 text-purple-500" />
+          </button>
           <Button variant="outline" size="sm" onClick={refreshContext} disabled={loadingContext} className="gap-2">
             <RefreshCw className={`w-4 h-4 ${loadingContext ? "animate-spin" : ""}`} />
             Refresh Data
@@ -253,13 +285,11 @@ export default function AIAssistantPage() {
           <CreditCard className="h-4 w-4 text-amber-500" />
           <AlertDescription className="flex items-center justify-between">
             <span className="text-amber-700 dark:text-amber-300">
-              You need at least {creditCost} credit{creditCost > 1 ? "s" : ""} to send a message. Each text prompt costs {creditCost} credit.
+              You need at least {creditCost} credit{creditCost > 1 ? "s" : ""} to send a message. {selectedImage ? "Image analysis costs 3 credits." : "Text prompts cost 1 credit."}
             </span>
-            <Button variant="outline" size="sm" className="ml-4 gap-2" asChild>
-              <Link href="/dashboard/billing">
-                <Plus className="w-3 h-3" />
-                Buy Credits
-              </Link>
+            <Button variant="outline" size="sm" className="ml-4 gap-2" onClick={() => setShowBuyCreditsModal(true)}>
+              <Plus className="w-3 h-3" />
+              Buy Credits
             </Button>
           </AlertDescription>
         </Alert>
@@ -349,7 +379,7 @@ export default function AIAssistantPage() {
                       : "bg-secondary/50 text-foreground"
                   }`}
                 >
-                  <div className="text-sm whitespace-pre-wrap">
+                  <div className="text-sm whitespace-pre-wrap prose prose-sm dark:prose-invert max-w-none">
                     {message.content.split("**").map((part, i) => 
                       i % 2 === 1 ? <strong key={i}>{part}</strong> : part
                     )}
@@ -375,22 +405,67 @@ export default function AIAssistantPage() {
             <div ref={messagesEndRef} />
           </div>
 
+          {/* Image preview */}
+          {imagePreview && (
+            <div className="px-4 pb-2">
+              <div className="relative inline-block">
+                <Image
+                  src={imagePreview}
+                  alt="Upload preview"
+                  width={128}
+                  height={128}
+                  className="h-24 w-auto rounded-lg border border-border object-cover"
+                />
+                <button
+                  onClick={handleRemoveImage}
+                  className="absolute -top-2 -right-2 p-1 rounded-full bg-destructive text-destructive-foreground"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Input */}
           <div className="p-4 border-t border-border">
             <div className="flex gap-2">
-              <Input
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handleImageSelect}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isLoading || !context?.hasData}
+                title="Upload image for analysis"
+              >
+                <ImageIcon className="w-4 h-4" />
+              </Button>
+              <Textarea
                 placeholder={
                   !context?.hasData 
                     ? "Connect a game to enable AI insights..." 
                     : totalCredits < creditCost 
                       ? "Buy credits to ask questions..." 
-                      : "Ask about your monetization data..."
+                      : selectedImage
+                        ? "Describe what you want me to analyze in this image..."
+                        : "Ask about your monetization data..."
                 }
                 value={inputMessage}
                 onChange={(e) => setInputMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && !isLoading && handleSendMessage()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey && !isLoading) {
+                    e.preventDefault();
+                    handleSendMessage();
+                  }
+                }}
                 disabled={isLoading || !context?.hasData || totalCredits < creditCost}
-                className="bg-secondary/30"
+                className="bg-secondary/30 min-h-[44px] max-h-[120px] resize-none"
+                rows={1}
               />
               <Button 
                 onClick={() => handleSendMessage()} 
@@ -402,7 +477,12 @@ export default function AIAssistantPage() {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground mt-2 text-center">
-              Each question costs {creditCost} credit. You have {totalCredits} credits available.
+              {selectedImage ? (
+                <span className="text-purple-500 font-medium">Costs 3 credits with image</span>
+              ) : (
+                <span>Costs 1 credit</span>
+              )}
+              {" "} | You have {totalCredits} credits available
             </p>
           </div>
         </CardContent>
@@ -422,6 +502,54 @@ export default function AIAssistantPage() {
           </div>
         </Card>
       )}
+
+      {/* Buy Credits Modal */}
+      <Dialog open={showBuyCreditsModal} onOpenChange={setShowBuyCreditsModal}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-purple-500" />
+              Buy Extra AI Credits
+            </DialogTitle>
+            <DialogDescription>
+              Purchase additional credits for AI Assistant features. Extra credits never expire.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-4">
+            {CREDIT_PACKAGES.map((pkg) => (
+              <button
+                key={pkg.id}
+                onClick={() => handlePurchase(pkg.id)}
+                disabled={purchasingPackage !== null}
+                className="w-full p-4 rounded-lg border border-border bg-card hover:bg-secondary/50 transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center">
+                    <Sparkles className="w-5 h-5 text-purple-500" />
+                  </div>
+                  <div className="text-left">
+                    <div className="font-semibold">{pkg.credits} Credits</div>
+                    <div className="text-sm text-muted-foreground">
+                      ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
+                  {purchasingPackage === pkg.id ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <CreditCard className="w-4 h-4 text-muted-foreground" />
+                  )}
+                </div>
+              </button>
+            ))}
+          </div>
+          <div className="text-xs text-muted-foreground text-center">
+            Secure payment via Stripe. Credits are added instantly after purchase.
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

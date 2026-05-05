@@ -1,16 +1,35 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, TrendingUp, Zap, Shield } from "lucide-react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 interface HeroProps {
   onOpenAuthModal: () => void;
 }
 
 export function Hero({ onOpenAuthModal }: HeroProps) {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAuthenticated(!!user);
+    });
+  }, []);
+  
   const handleGetStarted = () => {
-    onOpenAuthModal();
+    if (isAuthenticated) {
+      router.push("/dashboard");
+    } else {
+      onOpenAuthModal();
+    }
   };
 
   return (
