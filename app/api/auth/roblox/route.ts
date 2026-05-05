@@ -5,10 +5,7 @@ const ROBLOX_CLIENT_ID = "6125409488143470452";
 const REDIRECT_URI = "https://www.romonetize.com/api/auth/roblox/callback";
 const SCOPES = [
   "openid",
-  "profile", 
-  "universe-messaging-service:publish",
-  "universe-datastores.objects:read",
-  "universe-datastores.objects:write",
+  "profile",
 ];
 
 export async function GET() {
