@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
@@ -34,7 +34,7 @@ interface RobloxProfile {
   roblox_username: string | null;
 }
 
-export default function SettingsPage() {
+function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
@@ -562,5 +562,36 @@ export default function SettingsPage() {
         </Button>
       </div>
     </div>
+  );
+}
+
+// Loading fallback for Suspense
+function SettingsPageLoading() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">Settings</h1>
+        <p className="text-muted-foreground">Manage your account and preferences</p>
+      </div>
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <div className="h-64 rounded-lg bg-card border border-border animate-pulse" />
+          <div className="h-48 rounded-lg bg-card border border-border animate-pulse" />
+        </div>
+        <div className="space-y-6">
+          <div className="h-48 rounded-lg bg-card border border-border animate-pulse" />
+          <div className="h-64 rounded-lg bg-card border border-border animate-pulse" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Main export wrapped in Suspense to handle useSearchParams during prerender
+export default function SettingsPage() {
+  return (
+    <Suspense fallback={<SettingsPageLoading />}>
+      <SettingsPageContent />
+    </Suspense>
   );
 }
