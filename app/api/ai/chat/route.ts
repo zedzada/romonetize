@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { AI_CREDIT_COSTS } from "@/lib/products";
-import { streamText, type Message as AIMessage } from "ai";
+import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
 // Lazy init for service role client
@@ -11,11 +11,6 @@ function getSupabaseAdmin() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
 }
 
 // Consume credits
@@ -173,7 +168,7 @@ async function getAnalyticsContext(
     return { hasData: false, gameName: null };
   }
 
-  // Get events without caps using pagination
+  // Get events (paginated to avoid caps)
   const allEvents: Array<{
     event_type: string;
     player_id: string;
@@ -188,7 +183,7 @@ async function getAnalyticsContext(
   const pageSize = 1000;
   let hasMore = true;
 
-  while (hasMore) {
+  while (hasMore && offset < 10000) { // Cap at 10k for performance
     const { data: events } = await supabase
       .from("events")
       .select(
@@ -217,7 +212,6 @@ async function getAnalyticsContext(
     "gamepass_purchase",
     "devproduct_purchase",
   ];
-  const sessionStartTypes = ["player_join", "session_start"];
 
   const purchaseEvents = allEvents.filter((e) =>
     purchaseEventTypes.includes(e.event_type)
@@ -278,20 +272,19 @@ async function getAnalyticsContext(
   const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
 
-  const currentWeekEvents = allEvents.filter(
-    (e) => new Date(e.created_at) >= sevenDaysAgo
+  const currentWeekPurchases = allEvents.filter(
+    (e) =>
+      new Date(e.created_at) >= sevenDaysAgo &&
+      purchaseEventTypes.includes(e.event_type)
   );
-  const previousWeekEvents = allEvents.filter((e) => {
+  const previousWeekPurchases = allEvents.filter((e) => {
     const date = new Date(e.created_at);
-    return date >= fourteenDaysAgo && date < sevenDaysAgo;
+    return (
+      date >= fourteenDaysAgo &&
+      date < sevenDaysAgo &&
+      purchaseEventTypes.includes(e.event_type)
+    );
   });
-
-  const currentWeekPurchases = currentWeekEvents.filter((e) =>
-    purchaseEventTypes.includes(e.event_type)
-  );
-  const previousWeekPurchases = previousWeekEvents.filter((e) =>
-    purchaseEventTypes.includes(e.event_type)
-  );
 
   const currentWeekRevenue = currentWeekPurchases.reduce(
     (sum, e) => sum + (e.robux || 0),
@@ -301,19 +294,6 @@ async function getAnalyticsContext(
     (sum, e) => sum + (e.robux || 0),
     0
   );
-
-  const currentWeekPlayers = new Set(
-    currentWeekEvents
-      .filter((e) => sessionStartTypes.includes(e.event_type))
-      .map((e) => e.player_id)
-      .filter(Boolean)
-  ).size;
-  const previousWeekPlayers = new Set(
-    previousWeekEvents
-      .filter((e) => sessionStartTypes.includes(e.event_type))
-      .map((e) => e.player_id)
-      .filter(Boolean)
-  ).size;
 
   const revenueChange =
     previousWeekRevenue > 0
@@ -336,8 +316,6 @@ async function getAnalyticsContext(
     currentWeekRevenue,
     previousWeekRevenue,
     revenueChange,
-    currentWeekPlayers,
-    previousWeekPlayers,
     currentWeekPurchases: currentWeekPurchases.length,
     previousWeekPurchases: previousWeekPurchases.length,
   };
@@ -351,26 +329,29 @@ export async function POST(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   if (!user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    return NextResponse.json(
+      { success: false, error: "Not authenticated" },
+      { status: 401 }
+    );
   }
 
   try {
     const body = await request.json();
-    const {
-      messages,
-      gameId,
-      hasImage,
-    }: { messages: Message[]; gameId?: string; hasImage?: boolean } = body;
+    const { message, gameId, image } = body as {
+      message: string;
+      gameId?: string;
+      image?: string | null;
+    };
 
-    if (!messages || messages.length === 0) {
+    if (!message) {
       return NextResponse.json(
-        { error: "Messages required" },
+        { success: false, error: "Message is required" },
         { status: 400 }
       );
     }
 
-    // Determine credit type
-    const creditType = hasImage ? "image" : "text";
+    // Determine credit type based on image
+    const creditType = image ? "image" : "text";
 
     // Consume credits before making AI call
     const creditResult = await consumeCredits(
@@ -381,6 +362,7 @@ export async function POST(request: NextRequest) {
     if (!creditResult.success) {
       return NextResponse.json(
         {
+          success: false,
           error: creditResult.error,
           creditsRequired: AI_CREDIT_COSTS[creditType],
         },
@@ -432,8 +414,6 @@ ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
 - Current Week Revenue: ${analyticsContext.currentWeekRevenue?.toLocaleString()} Robux
 - Previous Week Revenue: ${analyticsContext.previousWeekRevenue?.toLocaleString()} Robux
 - Revenue Change: ${analyticsContext.revenueChange?.toFixed(1)}%
-- Current Week Players: ${analyticsContext.currentWeekPlayers}
-- Previous Week Players: ${analyticsContext.previousWeekPlayers}
 - Current Week Purchases: ${analyticsContext.currentWeekPurchases}
 - Previous Week Purchases: ${analyticsContext.previousWeekPurchases}
 
@@ -460,45 +440,43 @@ If they ask about their stats, guide them to:
 You can still answer general Roblox monetization questions without the data.`;
     }
 
-    // Stream the response
-    const result = streamText({
+    // Build messages for the AI
+    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+      { role: "user", content: message },
+    ];
+
+    // Generate response (not streaming for simplicity)
+    const result = await generateText({
       model: gateway("openai/gpt-4.1-mini"),
       system: systemPrompt,
-      messages: messages.map((m) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
+      messages,
       maxTokens: 1000,
       temperature: 0.7,
-      onFinish: () => {
-        // Response completed successfully
-      },
     });
 
-    // Return streaming response with credit balance
-    const response = result.toDataStreamResponse();
-
-    // Add credit balance to headers
-    response.headers.set(
-      "X-Credits-Remaining",
-      creditResult.remaining?.toString() || "0"
-    );
-
-    return response;
+    // Return success response
+    return NextResponse.json({
+      success: true,
+      message: result.text,
+      credits: creditResult.remaining,
+    });
   } catch (error) {
     console.error("[v0] AI chat error:", error);
 
     // Refund credits on error
-    const creditType = "text";
-    await refundCredits(
-      supabaseAdmin,
-      user.id,
-      creditType,
-      "AI request failed"
-    );
+    try {
+      await refundCredits(
+        supabaseAdmin,
+        user.id,
+        "text",
+        "AI request failed"
+      );
+    } catch (refundError) {
+      console.error("[v0] Failed to refund credits:", refundError);
+    }
 
     return NextResponse.json(
-      { error: "AI request failed. Credits have been refunded." },
+      { success: false, error: "AI request failed. Credits have been refunded." },
       { status: 500 }
     );
   }
