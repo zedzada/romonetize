@@ -1,16 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { stripe } from "@/lib/stripe";
+import { getStripe } from "@/lib/stripe";
 import { createClient } from "@supabase/supabase-js";
-import { getPlanById, PRICING_PLANS } from "@/lib/products";
+import { getPlanById, PRICING_PLANS, getAiCreditsForPlan } from "@/lib/products";
 import Stripe from "stripe";
 
-// Use service role for webhook handling
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+// Track processed sessions to prevent duplicate credit grants
+const processedSessions = new Set<string>();
+
+// Lazy init for service role client
+function getSupabaseAdmin() {
+  return createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+}
 
 export async function POST(request: NextRequest) {
+  const stripe = getStripe();
+  const supabaseAdmin = getSupabaseAdmin();
   const body = await request.text();
   const signature = request.headers.get("stripe-signature");
 
@@ -69,6 +76,23 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
+  const sessionId = session.id;
+  
+  // Idempotency check - prevent duplicate processing
+  if (processedSessions.has(sessionId)) {
+    console.log("Session already processed:", sessionId);
+    return;
+  }
+  processedSessions.add(sessionId);
+
+  // Check if this is a credit purchase
+  const purchaseType = session.metadata?.purchaseType;
+  if (purchaseType === "ai_credits") {
+    await handleCreditPurchase(session);
+    return;
+  }
+
+  // Otherwise, handle subscription checkout
   const userId = session.metadata?.user_id;
   const planId = session.metadata?.plan_id;
 
@@ -103,6 +127,118 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
     }, {
       onConflict: "user_id,month_year",
     });
+
+  // Grant initial monthly AI credits for new subscription
+  const aiCredits = getAiCreditsForPlan(planId);
+  if (aiCredits > 0) {
+    await grantMonthlyCredits(userId, aiCredits);
+  }
+}
+
+// Handle AI credit purchases
+async function handleCreditPurchase(session: Stripe.Checkout.Session) {
+  const userId = session.metadata?.userId;
+  const credits = parseInt(session.metadata?.credits || "0", 10);
+  const packageId = session.metadata?.packageId;
+
+  if (!userId || !credits || credits <= 0) {
+    console.error("Invalid credit purchase metadata:", session.metadata);
+    return;
+  }
+
+  console.log(`Processing credit purchase: ${credits} credits for user ${userId}`);
+
+  // Get current balance
+  const { data: balance } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .select("extra_credits, monthly_credits")
+    .eq("user_id", userId)
+    .single();
+
+  const currentExtraCredits = balance?.extra_credits || 0;
+  const newExtraCredits = currentExtraCredits + credits;
+  const totalCredits = (balance?.monthly_credits || 0) + newExtraCredits;
+
+  // Update balance - only increment extra_credits, never touch monthly_credits
+  const { error: updateError } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .upsert({
+      user_id: userId,
+      monthly_credits: balance?.monthly_credits || 0,
+      extra_credits: newExtraCredits,
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: "user_id",
+    });
+
+  if (updateError) {
+    console.error("Error granting credits:", updateError);
+    return;
+  }
+
+  // Record transaction with idempotency
+  await supabaseAdmin
+    .from("ai_credit_transactions")
+    .insert({
+      user_id: userId,
+      type: `purchase_${credits}`,
+      amount: credits,
+      balance_after: totalCredits,
+      metadata: {
+        packageId,
+        stripe_session_id: session.id,
+        stripe_payment_intent: session.payment_intent,
+      },
+      created_at: new Date().toISOString(),
+    });
+
+  console.log(`Granted ${credits} extra credits to user ${userId}. New extra balance: ${newExtraCredits}`);
+}
+
+// Grant monthly credits for subscription
+async function grantMonthlyCredits(userId: string, credits: number) {
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  // Get current balance to preserve extra_credits
+  const { data: currentBalance } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .select("extra_credits")
+    .eq("user_id", userId)
+    .single();
+
+  const { error } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .upsert({
+      user_id: userId,
+      monthly_credits: credits,
+      extra_credits: currentBalance?.extra_credits || 0, // Never reset extra_credits
+      monthly_credits_reset_at: nextMonth.toISOString(),
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: "user_id",
+    });
+
+  if (error) {
+    console.error("Error granting monthly credits:", error);
+    return;
+  }
+
+  const totalCredits = credits + (currentBalance?.extra_credits || 0);
+
+  // Record transaction
+  await supabaseAdmin
+    .from("ai_credit_transactions")
+    .insert({
+      user_id: userId,
+      type: "monthly_grant",
+      amount: credits,
+      balance_after: totalCredits,
+      metadata: { source: "subscription" },
+      created_at: new Date().toISOString(),
+    });
+
+  console.log(`Granted ${credits} monthly credits to user ${userId}`);
 }
 
 async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
@@ -245,6 +381,12 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
     }, {
       onConflict: "user_id,month_year",
     });
+
+  // Grant monthly AI credits on invoice payment (subscription renewal)
+  const aiCredits = getAiCreditsForPlan(profile.plan);
+  if (aiCredits > 0) {
+    await grantMonthlyCredits(profile.id, aiCredits);
+  }
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {

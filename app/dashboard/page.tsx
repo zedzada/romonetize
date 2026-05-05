@@ -241,14 +241,19 @@ export default function DashboardPage() {
   };
 
   const formatTimeAgo = (dateStr: string) => {
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const minutes = Math.floor(diff / 60000);
-    const hours = Math.floor(diff / 3600000);
-    
-    if (minutes < 1) return "Just now";
-    if (minutes < 60) return `${minutes}m ago`;
-    if (hours < 24) return `${hours}h ago`;
-    return `${Math.floor(hours / 24)}d ago`;
+    try {
+      const eventTime = new Date(dateStr).getTime();
+      const diff = Date.now() - eventTime;
+      const minutes = Math.floor(diff / 60000);
+      const hours = Math.floor(diff / 3600000);
+      
+      if (minutes < 1) return "Just now";
+      if (minutes < 60) return `${minutes}m ago`;
+      if (hours < 24) return `${hours}h ago`;
+      return `${Math.floor(hours / 24)}d ago`;
+    } catch {
+      return dateStr;
+    }
   };
 
   // Loading state
@@ -432,7 +437,7 @@ export default function DashboardPage() {
           <p className="text-muted-foreground">
             Track your Roblox game monetization performance
             <span className="text-xs ml-2 text-muted-foreground/60">
-              Last updated: {lastRefresh.toLocaleTimeString()}
+              Last updated: {lastRefresh.toLocaleTimeString(undefined, { timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone })}
             </span>
           </p>
         </div>

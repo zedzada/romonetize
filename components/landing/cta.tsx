@@ -1,15 +1,34 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { ArrowRight } from "lucide-react";
+import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 
 interface CTAProps {
   onOpenAuthModal: () => void;
 }
 
 export function CTA({ onOpenAuthModal }: CTAProps) {
+  const router = useRouter();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  
+  useEffect(() => {
+    if (!isSupabaseConfigured) return;
+    
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      setIsAuthenticated(!!user);
+    });
+  }, []);
+  
   const handleGetStarted = () => {
-    onOpenAuthModal();
+    if (isAuthenticated) {
+      router.push("/dashboard");
+    } else {
+      onOpenAuthModal();
+    }
   };
 
   return (

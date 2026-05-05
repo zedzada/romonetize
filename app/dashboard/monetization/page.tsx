@@ -49,17 +49,34 @@ import {
 import { getUserGames } from "@/lib/actions/games";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
+import { useRobloxMonetization } from "@/hooks/use-roblox-monetization";
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Gamepad2, ExternalLink } from "lucide-react";
 
 // Filter options
 const dateRanges = ["Last 7 days", "Last 14 days", "Last 28 days"];
 
-// Custom tooltip for charts
+// Custom tooltip for charts - formats timestamps in user's local timezone
 const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) => {
   if (active && payload && payload.length) {
+    // Format label in user's timezone if it looks like a timestamp
+    let formattedLabel = label;
+    if (label) {
+      try {
+        const date = new Date(label);
+        if (!isNaN(date.getTime())) {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          formattedLabel = date.toLocaleString(undefined, { timeZone: tz });
+        }
+      } catch {
+        // Keep original label
+      }
+    }
+    
     return (
       <div className="bg-popover border border-border rounded-lg p-3 shadow-lg">
-        <p className="text-sm font-medium text-foreground mb-1">{label}</p>
+        <p className="text-sm font-medium text-foreground mb-1">{formattedLabel}</p>
         {payload.map((entry, index) => (
           <p key={index} className="text-sm" style={{ color: entry.color }}>
             {entry.name}: {typeof entry.value === "number" ? entry.value.toLocaleString() : entry.value}
@@ -87,6 +104,15 @@ export default function MonetizationPage() {
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [games, setGames] = useState<{ id: string; name: string }[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | undefined>();
+
+  // Fetch real Roblox monetization data
+  const { 
+    monetizationData: robloxData, 
+    isLoading: robloxLoading, 
+    error: robloxError,
+    needsConnection: robloxNeedsConnection,
+    refresh: refreshRobloxData 
+  } = useRobloxMonetization();
 
   const fetchData = useCallback(async () => {
     const result = await getMonetizationStats(selectedGameId);
@@ -139,7 +165,7 @@ export default function MonetizationPage() {
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    await fetchData();
+    await Promise.all([fetchData(), refreshRobloxData()]);
     setRefreshing(false);
   };
 
@@ -212,8 +238,51 @@ export default function MonetizationPage() {
     );
   }
 
+  // Merge Roblox API data with local event data
+  const displayStats = {
+    totalRevenue: robloxData?.totalRevenue || stats?.totalRevenue || 0,
+    passesRevenue: robloxData?.gamepassRevenue || stats?.passesRevenue || 0,
+    devProductsRevenue: robloxData?.devproductRevenue || stats?.devProductsRevenue || 0,
+    totalPurchases: stats?.totalPurchases || 0,
+    payingUsers: stats?.payingUsers || 0,
+    uniquePlayers: stats?.uniquePlayers || 0,
+    payerConversionRate: stats?.payerConversionRate || 0,
+    arppu: stats?.arppu || 0,
+    arpdau: stats?.arpdau || 0,
+  };
+
+  const hasRobloxData = robloxData && robloxData.totalRevenue > 0;
+
   return (
     <div className="space-y-6">
+      {/* Roblox Connection Banner */}
+      {robloxNeedsConnection && (
+        <Alert className="border-blue-500/30 bg-blue-500/5">
+          <Gamepad2 className="h-4 w-4 text-blue-500" />
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-blue-700 dark:text-blue-300">
+              Connect your Roblox account to see real revenue data from the Roblox API.
+            </span>
+            <Button variant="outline" size="sm" className="ml-4 gap-2" asChild>
+              <a href="/dashboard/settings">
+                Connect Roblox
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Roblox Data Available Banner */}
+      {hasRobloxData && (
+        <Alert className="border-green-500/30 bg-green-500/5">
+          <Gamepad2 className="h-4 w-4 text-green-500" />
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Showing real-time revenue data from Roblox API. Total lifetime revenue: <strong>R${robloxData.totalRevenue.toLocaleString()}</strong>
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -295,9 +364,10 @@ export default function MonetizationPage() {
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
               <DollarSign className="w-4 h-4" />
               Total Revenue
+              {hasRobloxData && <span className="text-[10px] text-green-500 ml-1">(Roblox API)</span>}
             </div>
             <div className="text-2xl font-bold text-foreground">
-              <RobuxValue value={stats?.totalRevenue.toLocaleString() || "0"} />
+              <RobuxValue value={displayStats.totalRevenue.toLocaleString()} />
             </div>
           </CardContent>
         </Card>
@@ -309,7 +379,7 @@ export default function MonetizationPage() {
               Total Purchases
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {stats?.totalPurchases.toLocaleString() || "0"}
+              {displayStats.totalPurchases.toLocaleString()}
             </div>
           </CardContent>
         </Card>
@@ -321,7 +391,7 @@ export default function MonetizationPage() {
               Paying Users
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {stats?.payingUsers.toLocaleString() || "0"}
+              {displayStats.payingUsers.toLocaleString()}
             </div>
           </CardContent>
         </Card>
@@ -333,7 +403,7 @@ export default function MonetizationPage() {
               Conversion Rate
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {stats?.payerConversionRate.toFixed(1) || "0"}%
+              {displayStats.payerConversionRate.toFixed(1)}%
             </div>
           </CardContent>
         </Card>
@@ -343,18 +413,24 @@ export default function MonetizationPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="border-border bg-card">
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground mb-1">Gamepasses Revenue</div>
+            <div className="text-sm text-muted-foreground mb-1">
+              Gamepasses Revenue
+              {hasRobloxData && <span className="text-[10px] text-green-500 ml-1">(Roblox API)</span>}
+            </div>
             <div className="text-xl font-bold text-foreground">
-              <RobuxValue value={stats?.passesRevenue.toLocaleString() || "0"} />
+              <RobuxValue value={displayStats.passesRevenue.toLocaleString()} />
             </div>
           </CardContent>
         </Card>
 
         <Card className="border-border bg-card">
           <CardContent className="pt-6">
-            <div className="text-sm text-muted-foreground mb-1">Dev Products Revenue</div>
+            <div className="text-sm text-muted-foreground mb-1">
+              Dev Products Revenue
+              {hasRobloxData && <span className="text-[10px] text-green-500 ml-1">(Roblox API)</span>}
+            </div>
             <div className="text-xl font-bold text-foreground">
-              <RobuxValue value={stats?.devProductsRevenue.toLocaleString() || "0"} />
+              <RobuxValue value={displayStats.devProductsRevenue.toLocaleString()} />
             </div>
           </CardContent>
         </Card>
@@ -363,7 +439,7 @@ export default function MonetizationPage() {
           <CardContent className="pt-6">
             <div className="text-sm text-muted-foreground mb-1">ARPPU</div>
             <div className="text-xl font-bold text-foreground">
-              <RobuxValue value={stats?.arppu.toFixed(0) || "0"} />
+              <RobuxValue value={displayStats.arppu.toFixed(0)} />
             </div>
             <div className="text-xs text-muted-foreground">Avg per paying user</div>
           </CardContent>
@@ -373,7 +449,7 @@ export default function MonetizationPage() {
           <CardContent className="pt-6">
             <div className="text-sm text-muted-foreground mb-1">ARPDAU</div>
             <div className="text-xl font-bold text-foreground">
-              <RobuxValue value={stats?.arpdau.toFixed(2) || "0"} />
+              <RobuxValue value={displayStats.arpdau.toFixed(2)} />
             </div>
             <div className="text-xs text-muted-foreground">Avg per active user</div>
           </CardContent>
@@ -702,7 +778,7 @@ export default function MonetizationPage() {
                         {product.purchases.toLocaleString()}
                       </td>
                       <td className="py-3 px-2 text-right text-muted-foreground">
-                        {product.conversion.toFixed(1)}%
+                        {product.conversion > 0 ? `${product.conversion.toFixed(1)}%` : "Needs tracking"}
                       </td>
                     </tr>
                   ))}

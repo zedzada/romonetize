@@ -9,9 +9,46 @@ export interface PricingPlan {
     games: number;
     eventsPerMonth: number;
     teamMembers: number;
+    aiCreditsPerMonth: number;
   };
   popular?: boolean;
 }
+
+// AI Credit packages for purchase
+export interface CreditPackage {
+  id: string;
+  credits: number;
+  priceInCents: number;
+  stripePriceEnvVar: string;
+}
+
+export const CREDIT_PACKAGES: CreditPackage[] = [
+  {
+    id: "credits_100",
+    credits: 100,
+    priceInCents: 1999, // $19.99
+    stripePriceEnvVar: "STRIPE_CREDITS_100_PRICE_ID",
+  },
+  {
+    id: "credits_250",
+    credits: 250,
+    priceInCents: 4499, // $44.99
+    stripePriceEnvVar: "STRIPE_CREDITS_250_PRICE_ID",
+  },
+  {
+    id: "credits_500",
+    credits: 500,
+    priceInCents: 7499, // $74.99
+    stripePriceEnvVar: "STRIPE_CREDITS_500_PRICE_ID",
+  },
+];
+
+// AI credit costs
+export const AI_CREDIT_COSTS = {
+  text: 1,      // Text prompt costs 1 credit
+  image: 3,     // Image analysis costs 3 credits
+  textImage: 3, // Text + image costs 3 credits total (not 4)
+};
 
 export const PRICING_PLANS: PricingPlan[] = [
   {
@@ -25,11 +62,14 @@ export const PRICING_PLANS: PricingPlan[] = [
       "Basic live analytics",
       "24-hour data history",
       "Basic monetization overview",
+      "AI Assistant (with purchased credits)",
+      "0 AI credits/month",
     ],
     limits: {
       games: 1,
       eventsPerMonth: 1000,
       teamMembers: 1,
+      aiCreditsPerMonth: 0,
     },
   },
   {
@@ -44,12 +84,14 @@ export const PRICING_PLANS: PricingPlan[] = [
       "Revenue analytics",
       "Product performance analytics",
       "Live events feed",
-      "AI insights",
+      "AI Assistant included",
+      "100 AI credits/month",
     ],
     limits: {
       games: 5,
       eventsPerMonth: 100000,
       teamMembers: 3,
+      aiCreditsPerMonth: 100,
     },
     popular: true,
   },
@@ -66,11 +108,14 @@ export const PRICING_PLANS: PricingPlan[] = [
       "Multi-game dashboard",
       "Priority support",
       "Data export",
+      "AI Assistant included",
+      "500 AI credits/month",
     ],
     limits: {
       games: 25,
       eventsPerMonth: 1000000,
       teamMembers: 10,
+      aiCreditsPerMonth: 500,
     },
   },
 ];
@@ -89,4 +134,13 @@ export function formatPrice(cents: number): string {
     style: "currency",
     currency: "USD",
   }).format(cents / 100);
+}
+
+export function getCreditPackageById(packageId: string): CreditPackage | undefined {
+  return CREDIT_PACKAGES.find((pkg) => pkg.id === packageId);
+}
+
+export function getAiCreditsForPlan(planId: string): number {
+  const plan = getPlanById(planId);
+  return plan?.limits.aiCreditsPerMonth || 0;
 }

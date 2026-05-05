@@ -16,7 +16,9 @@ const plans = [
       "1 connected game",
       "Basic live analytics",
       "24-hour data history",
-      "Basic monetization overview"
+      "Basic monetization overview",
+      "AI Assistant (with purchased credits)",
+      "0 AI credits/month"
     ],
     cta: "Start Free",
     variant: "free" as const
@@ -32,7 +34,8 @@ const plans = [
       "Revenue analytics",
       "Product performance analytics",
       "Live events feed",
-      "AI insights"
+      "AI Assistant included",
+      "100 AI credits/month"
     ],
     cta: "Get Pro",
     variant: "pro" as const,
@@ -49,7 +52,9 @@ const plans = [
       "Advanced monetization analytics",
       "Multi-game dashboard",
       "Priority support",
-      "Data export"
+      "Data export",
+      "AI Assistant included",
+      "500 AI credits/month"
     ],
     cta: "Get Studio",
     variant: "studio" as const

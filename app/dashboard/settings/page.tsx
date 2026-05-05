@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, useEffect, Suspense, useCallback } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTheme } from "next-themes";
 import {
@@ -21,6 +21,7 @@ import {
   Loader2,
   AlertCircle,
   CheckCircle,
+  Send,
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
@@ -34,12 +35,20 @@ interface RobloxProfile {
   roblox_username: string | null;
 }
 
+interface NotificationSettings {
+  emailAlerts: boolean;
+  revenueDrops: boolean;
+  weeklyReports: boolean;
+  newFeatures: boolean;
+}
+
 function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [username, setUsername] = useState("");
@@ -47,6 +56,12 @@ function SettingsPageContent() {
   const [connectingRoblox, setConnectingRoblox] = useState(false);
   const [robloxError, setRobloxError] = useState<string | null>(null);
   const [robloxSuccess, setRobloxSuccess] = useState(false);
+  const [sendingTestEmail, setSendingTestEmail] = useState(false);
+  const [testEmailSent, setTestEmailSent] = useState(false);
+  const [passwordResetSent, setPasswordResetSent] = useState(false);
+  const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
+  const [isOAuthUser, setIsOAuthUser] = useState(false);
+  const [userPlan, setUserPlan] = useState("free");
   const [profile, setProfile] = useState({
     name: "",
     email: "",
@@ -54,12 +69,60 @@ function SettingsPageContent() {
     discordUsername: "",
   });
 
-  const [notifications, setNotifications] = useState({
+  const [notifications, setNotifications] = useState<NotificationSettings>({
     emailAlerts: true,
     revenueDrops: true,
     weeklyReports: true,
     newFeatures: false,
   });
+  const [loadingNotifications, setLoadingNotifications] = useState(true);
+
+  // Load notification settings from Supabase
+  const loadNotificationSettings = useCallback(async (userId: string) => {
+    if (!isSupabaseConfigured) return;
+    
+    const supabase = createClient();
+    const { data, error } = await supabase
+      .from("user_notification_settings")
+      .select("email_alerts, revenue_drop_alerts, weekly_reports, new_features")
+      .eq("user_id", userId)
+      .single();
+    
+    if (!error && data) {
+      setNotifications({
+        emailAlerts: data.email_alerts ?? true,
+        revenueDrops: data.revenue_drop_alerts ?? true,
+        weeklyReports: data.weekly_reports ?? true,
+        newFeatures: data.new_features ?? false,
+      });
+    }
+    setLoadingNotifications(false);
+  }, []);
+
+  // Save notification settings to Supabase
+  const saveNotificationSettings = useCallback(async (userId: string, settings: NotificationSettings) => {
+    if (!isSupabaseConfigured) return;
+    
+    const supabase = createClient();
+    const { error } = await supabase
+      .from("user_notification_settings")
+      .upsert({
+        user_id: userId,
+        email_alerts: settings.emailAlerts,
+        revenue_drop_alerts: settings.revenueDrops,
+        weekly_reports: settings.weeklyReports,
+        new_features: settings.newFeatures,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: "user_id",
+      });
+    
+    if (error) {
+      console.error("[v0] Error saving notification settings:", error);
+      return false;
+    }
+    return true;
+  }, []);
 
   useEffect(() => {
     setMounted(true);
@@ -70,14 +133,12 @@ function SettingsPageContent() {
     
     if (robloxStatus === "connected") {
       setRobloxSuccess(true);
-      // Clear the URL params
       router.replace("/dashboard/settings", { scroll: false });
       setTimeout(() => setRobloxSuccess(false), 5000);
     }
     
     if (error) {
       setRobloxError(decodeURIComponent(error));
-      // Clear the URL params
       router.replace("/dashboard/settings", { scroll: false });
       setTimeout(() => setRobloxError(null), 10000);
     }
@@ -102,21 +163,29 @@ function SettingsPageContent() {
       supabase.auth.getUser().then(({ data: { user } }) => {
         setUser(user);
         if (user) {
+          // Check if user logged in via OAuth (Roblox, Google, etc.)
+          const provider = user.app_metadata?.provider;
+          setIsOAuthUser(provider !== "email" && provider !== undefined);
+          
           setProfile((prev) => ({
             ...prev,
             name: prev.name || user.user_metadata?.full_name || user.user_metadata?.name || "",
             email: prev.email || user.email || "",
           }));
           
-          // Fetch Roblox connection status from profiles table
+          // Load notification settings
+          loadNotificationSettings(user.id);
+          
+          // Fetch Roblox connection status and plan from profiles table
           supabase
             .from("profiles")
-            .select("roblox_user_id, roblox_username")
+            .select("roblox_user_id, roblox_username, plan")
             .eq("id", user.id)
             .single()
             .then(({ data, error }) => {
               if (!error && data) {
                 setRobloxProfile(data);
+                setUserPlan(data.plan || "free");
                 if (data.roblox_username) {
                   setProfile((prev) => ({
                     ...prev,
@@ -127,17 +196,25 @@ function SettingsPageContent() {
             });
         }
       }).catch((error) => {
-        console.error('[v0] Error getting user:', error);
+        console.error("[v0] Error getting user:", error);
       });
     }
-  }, [searchParams, router]);
+  }, [searchParams, router, loadNotificationSettings]);
 
-  const handleSave = () => {
+  const handleSave = async () => {
+    setSaving(true);
+    
     // Save username to localStorage
     localStorage.setItem("romonetize_username", username);
     // Save profile to localStorage
     localStorage.setItem("romonetize_profile", JSON.stringify(profile));
     
+    // Save notification settings to Supabase
+    if (user) {
+      await saveNotificationSettings(user.id, notifications);
+    }
+    
+    setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
     
@@ -145,10 +222,62 @@ function SettingsPageContent() {
     window.dispatchEvent(new Event("storage"));
   };
 
+  const handleToggleNotification = async (key: keyof NotificationSettings) => {
+    const newSettings = { ...notifications, [key]: !notifications[key] };
+    setNotifications(newSettings);
+    
+    // Auto-save notification changes
+    if (user) {
+      await saveNotificationSettings(user.id, newSettings);
+    }
+  };
+
+  const handleSendTestEmail = async () => {
+    if (!user?.email) return;
+    
+    setSendingTestEmail(true);
+    try {
+      const res = await fetch("/api/email/test", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: user.email }),
+      });
+      
+      if (res.ok) {
+        setTestEmailSent(true);
+        setTimeout(() => setTestEmailSent(false), 5000);
+      }
+    } catch (error) {
+      console.error("[v0] Error sending test email:", error);
+    } finally {
+      setSendingTestEmail(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!user?.email) return;
+    
+    setSendingPasswordReset(true);
+    try {
+      const supabase = createClient();
+      const { error } = await supabase.auth.resetPasswordForEmail(user.email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/dashboard/settings`,
+      });
+      
+      if (!error) {
+        setPasswordResetSent(true);
+        setTimeout(() => setPasswordResetSent(false), 10000);
+      }
+    } catch (error) {
+      console.error("[v0] Error sending password reset:", error);
+    } finally {
+      setSendingPasswordReset(false);
+    }
+  };
+
   const handleConnectRoblox = () => {
     setConnectingRoblox(true);
     setRobloxError(null);
-    // Redirect to Roblox OAuth
     window.location.href = "/api/auth/roblox";
   };
 
@@ -195,9 +324,25 @@ function SettingsPageContent() {
       router.push("/");
       router.refresh();
     } catch (error) {
-      console.error('[v0] Logout error:', error);
+      console.error("[v0] Logout error:", error);
       router.push("/");
       router.refresh();
+    }
+  };
+
+  const getPlanDisplayName = () => {
+    switch (userPlan) {
+      case "studio": return "Studio Plan";
+      case "pro": return "Pro Plan";
+      default: return "Free Plan";
+    }
+  };
+
+  const getPlanPrice = () => {
+    switch (userPlan) {
+      case "studio": return "$49/month";
+      case "pro": return "$19/month";
+      default: return "Free";
     }
   };
 
@@ -405,31 +550,67 @@ function SettingsPageContent() {
               <CardDescription>Configure how you receive alerts</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {[
-                { key: "emailAlerts", label: "Email Alerts", description: "Receive alerts via email" },
-                { key: "revenueDrops", label: "Revenue Drop Alerts", description: "Get notified when revenue drops significantly" },
-                { key: "weeklyReports", label: "Weekly Reports", description: "Receive weekly monetization summaries" },
-                { key: "newFeatures", label: "New Features", description: "Be the first to know about new features" },
-              ].map((item) => (
-                <div key={item.key} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                  <div>
-                    <div className="font-medium text-foreground">{item.label}</div>
-                    <div className="text-sm text-muted-foreground">{item.description}</div>
-                  </div>
-                  <button
-                    onClick={() => setNotifications({ ...notifications, [item.key]: !notifications[item.key as keyof typeof notifications] })}
-                    className={`relative w-11 h-6 rounded-full transition-colors ${
-                      notifications[item.key as keyof typeof notifications] ? "bg-primary" : "bg-secondary"
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        notifications[item.key as keyof typeof notifications] ? "left-6" : "left-1"
-                      }`}
-                    />
-                  </button>
+              {loadingNotifications ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
                 </div>
-              ))}
+              ) : (
+                <>
+                  {[
+                    { key: "emailAlerts" as const, label: "Email Alerts", description: "Receive alerts via email" },
+                    { key: "revenueDrops" as const, label: "Revenue Drop Alerts", description: "Get notified when revenue drops significantly" },
+                    { key: "weeklyReports" as const, label: "Weekly Reports", description: "Receive weekly monetization summaries" },
+                    { key: "newFeatures" as const, label: "New Features", description: "Be the first to know about new features" },
+                  ].map((item) => (
+                    <div key={item.key} className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                      <div>
+                        <div className="font-medium text-foreground">{item.label}</div>
+                        <div className="text-sm text-muted-foreground">{item.description}</div>
+                      </div>
+                      <button
+                        onClick={() => handleToggleNotification(item.key)}
+                        className={`relative w-11 h-6 rounded-full transition-colors ${
+                          notifications[item.key] ? "bg-primary" : "bg-secondary"
+                        }`}
+                      >
+                        <span
+                          className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                            notifications[item.key] ? "left-6" : "left-1"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  ))}
+                  
+                  {/* Test email button */}
+                  <div className="pt-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleSendTestEmail}
+                      disabled={sendingTestEmail || !user?.email}
+                      className="gap-2"
+                    >
+                      {sendingTestEmail ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Sending...
+                        </>
+                      ) : testEmailSent ? (
+                        <>
+                          <Check className="w-4 h-4" />
+                          Test Email Sent!
+                        </>
+                      ) : (
+                        <>
+                          <Send className="w-4 h-4" />
+                          Send Test Email
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
 
@@ -446,17 +627,71 @@ function SettingsPageContent() {
               <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
                 <div>
                   <div className="font-medium text-foreground">Password</div>
-                  <div className="text-sm text-muted-foreground">Last changed 30 days ago</div>
+                  <div className="text-sm text-muted-foreground">
+                    {isOAuthUser 
+                      ? "You signed in with Roblox OAuth" 
+                      : "Reset your password via email"
+                    }
+                  </div>
                 </div>
-                <Button variant="outline" size="sm">Change Password</Button>
+                {isOAuthUser ? (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handlePasswordReset}
+                    disabled={sendingPasswordReset || passwordResetSent}
+                    className="gap-2"
+                  >
+                    {sendingPasswordReset ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : passwordResetSent ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Email Sent!
+                      </>
+                    ) : (
+                      <>
+                        <Mail className="w-4 h-4" />
+                        Set Password
+                      </>
+                    )}
+                  </Button>
+                ) : (
+                  <Button 
+                    variant="outline" 
+                    size="sm"
+                    onClick={handlePasswordReset}
+                    disabled={sendingPasswordReset || passwordResetSent}
+                    className="gap-2"
+                  >
+                    {sendingPasswordReset ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Sending...
+                      </>
+                    ) : passwordResetSent ? (
+                      <>
+                        <Check className="w-4 h-4" />
+                        Email Sent!
+                      </>
+                    ) : (
+                      "Reset Password"
+                    )}
+                  </Button>
+                )}
               </div>
-              <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                <div>
-                  <div className="font-medium text-foreground">Two-Factor Authentication</div>
-                  <div className="text-sm text-muted-foreground">Add an extra layer of security</div>
-                </div>
-                <Button variant="outline" size="sm">Enable</Button>
-              </div>
+              
+              {passwordResetSent && (
+                <Alert className="border-green-500/50 bg-green-500/10">
+                  <CheckCircle className="h-4 w-4 text-green-500" />
+                  <AlertDescription className="text-green-700 dark:text-green-400">
+                    Password reset email sent! Check your inbox.
+                  </AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -473,44 +708,36 @@ function SettingsPageContent() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-blue-400/10 border border-primary/20">
-                <div className="text-lg font-bold text-foreground">Pro Plan</div>
-                <div className="text-sm text-muted-foreground">$19/month</div>
+                <div className="text-lg font-bold text-foreground">{getPlanDisplayName()}</div>
+                <div className="text-sm text-muted-foreground">{getPlanPrice()}</div>
               </div>
               <ul className="space-y-2 text-sm">
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />
-                  5 games
+                  {userPlan === "studio" ? "25 games" : userPlan === "pro" ? "5 games" : "1 game"}
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />
-                  100,000 events/month
+                  {userPlan === "studio" ? "1,000,000" : userPlan === "pro" ? "100,000" : "1,000"} events/month
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />
-                  AI Assistant
+                  AI Assistant {userPlan === "free" ? "(with purchased credits)" : "included"}
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />
-                  Priority support
+                  {userPlan === "studio" ? "500" : userPlan === "pro" ? "100" : "0"} AI credits/month
                 </li>
               </ul>
-              <Button variant="outline" className="w-full">Upgrade to Studio</Button>
-            </CardContent>
-          </Card>
-
-          {/* Support */}
-          <Card className="border-border bg-card">
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Mail className="w-5 h-5 text-primary" />
-                Need Help?
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <p className="text-sm text-muted-foreground">
-                Contact our support team for any questions or issues.
-              </p>
-              <Button variant="outline" className="w-full">Contact Support</Button>
+              {userPlan !== "studio" && (
+                <Button 
+                  variant="outline" 
+                  className="w-full"
+                  onClick={() => router.push("/dashboard/billing")}
+                >
+                  {userPlan === "free" ? "Upgrade to Pro" : "Upgrade to Studio"}
+                </Button>
+              )}
             </CardContent>
           </Card>
 
@@ -541,11 +768,16 @@ function SettingsPageContent() {
 
       {/* Save button */}
       <div className="flex justify-end">
-        <Button onClick={handleSave} className="gap-2">
+        <Button onClick={handleSave} disabled={saving} className="gap-2">
           {saved ? (
             <>
               <Check className="w-4 h-4" />
               Saved!
+            </>
+          ) : saving ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving...
             </>
           ) : (
             <>
