@@ -23,9 +23,11 @@ import { getProductStats, type ProductStats } from "@/lib/actions/products";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
+import { useRobloxProducts } from "@/hooks/use-roblox-monetization";
 import { getUserGameIds } from "@/lib/actions/analytics";
-import { Radio } from "lucide-react";
+import { Radio, Gamepad2, ExternalLink } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 type SortField = "name" | "revenue" | "purchases" | "clicks" | "conversion" | "revenue_per_player";
 type SortOrder = "asc" | "desc";
@@ -66,6 +68,15 @@ export default function ProductsPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [activeTab, setActiveTab] = useState<"all" | "gamepass" | "devproduct">("all");
   const [gameIds, setGameIds] = useState<string[]>([]);
+
+  // Fetch real Roblox products data
+  const {
+    products: robloxProducts,
+    summary: robloxSummary,
+    isLoading: robloxLoading,
+    needsConnection: robloxNeedsConnection,
+    refresh: refreshRobloxProducts
+  } = useRobloxProducts();
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -231,8 +242,39 @@ export default function ProductsPage() {
     );
   }
 
+  // Check if we have Roblox products data
+  const hasRobloxProducts = robloxProducts && robloxProducts.length > 0;
+
   return (
     <div className="space-y-6">
+      {/* Roblox Connection Banner */}
+      {robloxNeedsConnection && (
+        <Alert className="border-blue-500/30 bg-blue-500/5">
+          <Gamepad2 className="h-4 w-4 text-blue-500" />
+          <AlertDescription className="flex items-center justify-between">
+            <span className="text-blue-700 dark:text-blue-300">
+              Connect your Roblox account to see your gamepasses and developer products directly from Roblox.
+            </span>
+            <Button variant="outline" size="sm" className="ml-4 gap-2" asChild>
+              <a href="/dashboard/settings">
+                Connect Roblox
+                <ExternalLink className="w-3 h-3" />
+              </a>
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Roblox Products Available Banner */}
+      {hasRobloxProducts && (
+        <Alert className="border-green-500/30 bg-green-500/5">
+          <Gamepad2 className="h-4 w-4 text-green-500" />
+          <AlertDescription className="text-green-700 dark:text-green-300">
+            Found <strong>{robloxSummary?.totalGamepasses || 0} gamepasses</strong> and <strong>{robloxSummary?.totalDevProducts || 0} developer products</strong> from Roblox API.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -259,7 +301,7 @@ export default function ProductsPage() {
           </div>
           <p className="text-muted-foreground">Analyze performance of all your gamepasses and developer products</p>
         </div>
-        <Button variant="outline" onClick={fetchProducts} className="gap-2">
+        <Button variant="outline" onClick={() => { fetchProducts(); refreshRobloxProducts(); }} className="gap-2">
           <RefreshCw className="w-4 h-4" />
           Refresh
         </Button>
