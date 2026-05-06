@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getSelectedGameId } from "./analytics";
 
 export interface MonetizationStats {
   totalRevenue: number;
@@ -78,18 +79,15 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     };
   }
 
-  // Get user's games
-  let gamesQuery = supabase
-    .from("games")
-    .select("id")
-    .eq("user_id", user.id);
-
-  if (gameId) {
-    gamesQuery = gamesQuery.eq("id", gameId);
+  // Get the selected game (use passed gameId or get from DB)
+  let targetGameId = gameId;
+  if (!targetGameId) {
+    const { gameId: selectedId } = await getSelectedGameId();
+    targetGameId = selectedId || undefined;
   }
 
-  const { data: games } = await gamesQuery;
-  const gameIds = games?.map((g) => g.id) || [];
+  // If no game selected, return empty stats
+  const gameIds = targetGameId ? [targetGameId] : [];
 
   if (gameIds.length === 0) {
     return {
@@ -116,33 +114,48 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     };
   }
 
-  // Get all events for these games
-  const { data: allEvents } = await supabase
+  // Purchase event types (legacy + new Roblox events)
+  const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+
+  // Use server-side count for total purchases (no 1000 row limit)
+  const { count: totalPurchasesCount } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .in("game_id", gameIds)
+    .in("event_type", purchaseTypes);
+
+  // Get all purchase events for revenue calculation and breakdown
+  const { data: purchaseEvents } = await supabase
     .from("events")
     .select("*")
+    .in("game_id", gameIds)
+    .in("event_type", purchaseTypes);
+
+  // Get all other events for player tracking
+  const { data: allEvents } = await supabase
+    .from("events")
+    .select("player_id, created_at, event_type")
     .in("game_id", gameIds)
     .order("created_at", { ascending: false });
 
   const events = allEvents || [];
+  const purchases = purchaseEvents || [];
 
-  // Purchase event types (legacy + new Roblox events)
-  const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
-  
-  // Calculate stats
-  const purchaseEvents = events.filter((e) => purchaseTypes.includes(e.event_type));
-  const totalRevenue = purchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+  // Calculate revenue from purchase events
+  const totalRevenue = purchases.reduce((sum, e) => sum + (e.robux || 0), 0);
   // Gamepass revenue: explicit gamepass type OR gamepass_purchase event type
-  const passesRevenue = purchaseEvents
+  const passesRevenue = purchases
     .filter((e) => e.product_type === "gamepass" || e.event_type === "gamepass_purchase")
     .reduce((sum, e) => sum + (e.robux || 0), 0);
   // Dev product revenue: explicit devproduct type OR devproduct_purchase event type  
-  const devProductsRevenue = purchaseEvents
+  const devProductsRevenue = purchases
     .filter((e) => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
     .reduce((sum, e) => sum + (e.robux || 0), 0);
-  const totalPurchases = purchaseEvents.length;
+  // Use server-side count for total purchases
+  const totalPurchases = totalPurchasesCount || 0;
 
   // Unique paying users
-  const payingUserIds = new Set(purchaseEvents.map((e) => e.player_id).filter(Boolean));
+  const payingUserIds = new Set(purchases.map((e) => e.player_id).filter(Boolean));
   const payingUsers = payingUserIds.size;
 
   // Unique players (all events)
@@ -167,7 +180,7 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     const hourStr = hourStart.getHours();
     const dayStr = hourStart.toLocaleDateString("en-US", { weekday: "short" });
 
-    const hourEvents = purchaseEvents.filter((e) => {
+    const hourEvents = purchases.filter((e) => {
       const eventTime = new Date(e.created_at);
       return eventTime >= hourStart && eventTime < hourEnd;
     });
@@ -198,12 +211,12 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     const dayEnd = new Date(dayStart);
     dayEnd.setDate(dayEnd.getDate() + 1);
 
-    const dayEvents = purchaseEvents.filter((e) => {
+    const dayPurchaseEvents = purchases.filter((e) => {
       const eventTime = new Date(e.created_at);
       return eventTime >= dayStart && eventTime < dayEnd;
     });
 
-    const revenue = dayEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+    const revenue = dayPurchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
 
     dailyRevenue.push({
       date: dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
@@ -231,15 +244,18 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     dayEnd.setDate(dayEnd.getDate() + 1);
     const dateStr = dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-    const dayEvents = events.filter((e) => {
+    const dayAllEvents = events.filter((e) => {
       const eventTime = new Date(e.created_at);
       return eventTime >= dayStart && eventTime < dayEnd;
     });
 
-    const dayPurchases = dayEvents.filter((e) => purchaseTypes.includes(e.event_type));
-    const dayPayingUsers = new Set(dayPurchases.map((e) => e.player_id).filter(Boolean)).size;
-    const dayUniquePlayers = new Set(dayEvents.map((e) => e.player_id).filter(Boolean)).size;
-    const dayRevenue = dayPurchases.reduce((sum, e) => sum + (e.robux || 0), 0);
+    const dayPurchasesForMetrics = purchases.filter((e) => {
+      const eventTime = new Date(e.created_at);
+      return eventTime >= dayStart && eventTime < dayEnd;
+    });
+    const dayPayingUsers = new Set(dayPurchasesForMetrics.map((e) => e.player_id).filter(Boolean)).size;
+    const dayUniquePlayers = new Set(dayAllEvents.map((e) => e.player_id).filter(Boolean)).size;
+    const dayRevenue = dayPurchasesForMetrics.reduce((sum, e) => sum + (e.robux || 0), 0);
 
     payingUsersOverTime.push({ date: dateStr, value: dayPayingUsers });
     conversionOverTime.push({
@@ -259,7 +275,7 @@ export async function getMonetizationStats(gameId?: string): Promise<{
   // Top products from events
   const productMap = new Map<string, { name: string; type: string; revenue: number; purchases: number; clicks: number }>();
   
-  purchaseEvents.forEach((e) => {
+  purchases.forEach((e) => {
     const key = e.product_id || e.product_name || "unknown";
     const existing = productMap.get(key);
     if (existing) {

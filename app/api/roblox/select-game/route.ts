@@ -31,19 +31,58 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // First, deselect all current games for this user
-    await supabase
-      .from("games")
-      .update({ is_selected: false })
-      .eq("user_id", user.id);
-
     // Check if this game already exists for this user
-    const { data: existingGame, error: existingError } = await supabase
+    const { data: existingGame } = await supabase
       .from("games")
       .select("*")
       .eq("user_id", user.id)
       .eq("roblox_game_id", String(roblox_game_id))
       .single();
+
+    // If game doesn't exist, check plan limits before creating
+    if (!existingGame) {
+      // Get user's plan
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("plan")
+        .eq("id", user.id)
+        .single();
+
+      const plan = profile?.plan || "free";
+      const planLimits: Record<string, number> = {
+        free: 1,
+        pro: 5,
+        studio: 25,
+      };
+      const limit = planLimits[plan] || 1;
+
+      // Count current games
+      const { count } = await supabase
+        .from("games")
+        .select("*", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .neq("status", "deleted");
+
+      const currentCount = count || 0;
+
+      if (currentCount >= limit) {
+        return NextResponse.json(
+          { 
+            error: "Plan limit reached",
+            message: `You've reached your plan limit of ${limit} game${limit > 1 ? "s" : ""}. Upgrade your plan to connect more games.`,
+            limit,
+            current: currentCount,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
+    // Deselect all current games for this user
+    await supabase
+      .from("games")
+      .update({ is_selected: false })
+      .eq("user_id", user.id);
 
     if (existingGame) {
       // Game exists - just select it

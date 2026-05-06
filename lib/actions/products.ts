@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getSelectedGameId } from "./analytics";
 
 export interface ProductStats {
   product_id: string;
@@ -10,6 +11,7 @@ export interface ProductStats {
   purchases: number;
   clicks: number;
   conversion_rate: number;
+  conversion_needs_tracking: boolean; // true if clicks = 0, show "Needs tracking" instead of 0%
   unique_buyers: number;
   revenue_per_player: number;
   avg_price: number;
@@ -31,28 +33,39 @@ export async function getProductStats(): Promise<{
     return { products: null, error: "Not authenticated" };
   }
 
-  // Get user's games
-  const { data: games, error: gamesError } = await supabase
-    .from("games")
-    .select("id, name")
-    .eq("user_id", user.id);
-
-  if (gamesError) {
-    return { products: null, error: gamesError.message };
-  }
-
-  if (!games || games.length === 0) {
+  // Get the selected game
+  const { gameId: selectedGameId } = await getSelectedGameId();
+  
+  if (!selectedGameId) {
     return { products: [], error: null };
   }
 
-  const gameIds = games.map((g) => g.id);
-  const gameMap = new Map(games.map((g) => [g.id, g.name]));
+  // Get the selected game's name
+  const { data: game } = await supabase
+    .from("games")
+    .select("id, name")
+    .eq("id", selectedGameId)
+    .single();
+
+  if (!game) {
+    return { products: [], error: null };
+  }
+
+  const gameIds = [selectedGameId];
+  const gameMap = new Map([[game.id, game.name]]);
 
   // Purchase event types (legacy + new Roblox events)
   const purchaseEventTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
   const clickEventTypes = ["gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
 
-  // Get all purchase events for revenue calculation
+  // Get total purchase count using server-side aggregation (no 1000 row limit)
+  const { count: totalPurchaseCount } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .in("game_id", gameIds)
+    .in("event_type", purchaseEventTypes);
+
+  // Get all purchase events for revenue calculation and product breakdown
   const { data: purchaseEvents } = await supabase
     .from("events")
     .select("product_id, product_name, product_type, robux, game_id, player_id")
@@ -149,6 +162,8 @@ export async function getProductStats(): Promise<{
   // Convert to array with calculated metrics
   const productsRaw = Array.from(productStatsMap.values()).map((p) => {
     const totalPlayers = uniquePlayersPerGame.get(p.game_id)?.size || 1;
+    // Conversion rate: if no clicks tracked, mark as needs_tracking
+    const conversionNeedsTracking = p.clicks === 0;
     const conversionRate = p.clicks > 0 ? (p.purchases / p.clicks) * 100 : 0;
     const uniqueBuyers = p.unique_buyers.size;
     const revenuePerPlayer = totalPlayers > 0 ? p.revenue / totalPlayers : 0;
@@ -162,6 +177,7 @@ export async function getProductStats(): Promise<{
       purchases: p.purchases,
       clicks: p.clicks,
       conversion_rate: conversionRate,
+      conversion_needs_tracking: conversionNeedsTracking,
       unique_buyers: uniqueBuyers,
       revenue_per_player: revenuePerPlayer,
       avg_price: avgPrice,

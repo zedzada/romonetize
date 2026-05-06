@@ -135,20 +135,34 @@ async function getAnalyticsContext(
   userId: string,
   gameId?: string
 ) {
-  // Get user's active game
+  // Get user's selected game (is_selected = true)
   let targetGameId = gameId;
 
   if (!targetGameId) {
-    const { data: games } = await supabase
+    // First try to get the selected game
+    const { data: selectedGame } = await supabase
       .from("games")
       .select("id, name")
       .eq("user_id", userId)
-      .eq("status", "active")
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .eq("is_selected", true)
+      .neq("status", "deleted")
+      .single();
 
-    if (games && games.length > 0) {
-      targetGameId = games[0].id;
+    if (selectedGame) {
+      targetGameId = selectedGame.id;
+    } else {
+      // Fallback: auto-select the first active game
+      const { data: games } = await supabase
+        .from("games")
+        .select("id, name")
+        .eq("user_id", userId)
+        .neq("status", "deleted")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (games && games.length > 0) {
+        targetGameId = games[0].id;
+      }
     }
   }
 

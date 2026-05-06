@@ -2,7 +2,54 @@
 
 import { createClient } from "@/lib/supabase/server";
 
-// Get user's game IDs for realtime subscriptions
+// Get the selected game's ID (is_selected = true)
+// If no game is selected but user has games, auto-select the first one
+export async function getSelectedGameId(): Promise<{ gameId: string | null; error: string | null }> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    return { gameId: null, error: "Not authenticated" };
+  }
+
+  // Try to get the selected game
+  const { data: selectedGame } = await supabase
+    .from("games")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("is_selected", true)
+    .neq("status", "deleted")
+    .single();
+
+  if (selectedGame) {
+    return { gameId: selectedGame.id, error: null };
+  }
+
+  // No selected game - auto-select the first active game
+  const { data: firstGame } = await supabase
+    .from("games")
+    .select("id")
+    .eq("user_id", user.id)
+    .neq("status", "deleted")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (!firstGame) {
+    return { gameId: null, error: null }; // No games at all
+  }
+
+  // Auto-select this game
+  await supabase
+    .from("games")
+    .update({ is_selected: true })
+    .eq("id", firstGame.id);
+
+  return { gameId: firstGame.id, error: null };
+}
+
+// Get user's selected game ID for realtime subscriptions (uses is_selected = true)
 export async function getUserGameIds(): Promise<{ gameIds: string[]; error: string | null }> {
   const supabase = await createClient();
   
@@ -12,14 +59,11 @@ export async function getUserGameIds(): Promise<{ gameIds: string[]; error: stri
     return { gameIds: [], error: "Not authenticated" };
   }
 
-  const { data: games } = await supabase
-    .from("games")
-    .select("id")
-    .eq("user_id", user.id)
-    .neq("status", "deleted");
-
+  // Get the selected game ID only
+  const { gameId } = await getSelectedGameId();
+  
   return { 
-    gameIds: games?.map(g => g.id) || [], 
+    gameIds: gameId ? [gameId] : [], 
     error: null 
   };
 }
@@ -61,7 +105,7 @@ export interface DailyRevenue {
   purchases: number;
 }
 
-// Get dashboard overview stats
+// Get dashboard overview stats (uses selected game only)
 export async function getDashboardStats(): Promise<{ stats: DashboardStats | null; error: string | null }> {
   const supabase = await createClient();
   
@@ -71,20 +115,23 @@ export async function getDashboardStats(): Promise<{ stats: DashboardStats | nul
     return { stats: null, error: "Not authenticated" };
   }
 
-  // Get all user's games
-  const { data: games } = await supabase
+  // Get all user's games for the total count
+  const { data: allGames } = await supabase
     .from("games")
     .select("id, name")
     .eq("user_id", user.id)
     .neq("status", "deleted");
 
-  const gameIds = games?.map(g => g.id) || [];
-  const gameMap = new Map(games?.map(g => [g.id, g.name]) || []);
+  const totalGamesCount = allGames?.length || 0;
 
-  if (gameIds.length === 0) {
+  // Get the selected game for analytics
+  const { gameId: selectedGameId } = await getSelectedGameId();
+
+  // If no selected game, return empty stats with total games count
+  if (!selectedGameId) {
     return {
       stats: {
-        totalGames: 0,
+        totalGames: totalGamesCount,
         totalEvents: 0,
         totalRevenue: 0,
         totalProducts: 0,
@@ -97,22 +144,38 @@ export async function getDashboardStats(): Promise<{ stats: DashboardStats | nul
     };
   }
 
+  // Use only the selected game for analytics
+  const gameIds = [selectedGameId];
+  const selectedGameName = allGames?.find(g => g.id === selectedGameId)?.name || "Unknown";
+  const gameMap = new Map([[selectedGameId, selectedGameName]]);
+
+  
+
   // Get total events
   const { count: totalEvents } = await supabase
     .from("events")
     .select("*", { count: "exact", head: true })
     .in("game_id", gameIds);
 
-  // Get all purchase events for revenue, purchases count, and products
-  // Support both legacy (purchase_success) and new Roblox events (gamepass_purchase, devproduct_purchase)
+  // Use server-side aggregation for purchases count and revenue (no 1000 row limit)
+  const purchaseEventTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+  
+  // Get total purchases count using exact count
+  const { count: totalPurchases } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .in("game_id", gameIds)
+    .in("event_type", purchaseEventTypes);
+
+  // Get all purchase events for revenue calculation and top products
+  // Note: For very large datasets, this should use a database aggregate function
   const { data: purchaseEvents } = await supabase
     .from("events")
     .select("robux, product_id, product_name, product_type, game_id")
     .in("game_id", gameIds)
-    .in("event_type", ["purchase_success", "gamepass_purchase", "devproduct_purchase"]);
+    .in("event_type", purchaseEventTypes);
 
   const totalRevenue = purchaseEvents?.reduce((sum, e) => sum + (e.robux || 0), 0) || 0;
-  const totalPurchases = purchaseEvents?.length || 0;
 
   // Count unique products from events (by product_id)
   const uniqueProductIds = new Set(purchaseEvents?.map(e => e.product_id).filter(Boolean) || []);
@@ -214,7 +277,7 @@ export async function getDashboardStats(): Promise<{ stats: DashboardStats | nul
 
   return {
     stats: {
-      totalGames: gameIds.length,
+      totalGames: totalGamesCount,
       totalEvents: totalEvents || 0,
       totalRevenue,
       totalProducts,
