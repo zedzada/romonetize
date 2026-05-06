@@ -10,7 +10,16 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body = await request.json();
-    const { roblox_game_id, name } = body;
+    const { roblox_game_id, name, rootPlaceId, source, groupId, groupName } = body;
+
+    console.log("[API] /api/roblox/select-game called with:", {
+      roblox_game_id,
+      name,
+      rootPlaceId,
+      source,
+      groupId,
+      groupName,
+    });
 
     // Validate required fields
     if (!roblox_game_id || !name) {
@@ -25,19 +34,28 @@ export async function POST(request: NextRequest) {
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError || !user) {
+      console.log("[API] Auth error:", authError);
       return NextResponse.json(
         { error: "Unauthorized" },
         { status: 401 }
       );
     }
 
+    console.log("[API] Authenticated user:", user.id);
+
     // Check if this game already exists for this user
-    const { data: existingGame } = await supabase
+    const { data: existingGame, error: existingError } = await supabase
       .from("games")
       .select("*")
       .eq("user_id", user.id)
       .eq("roblox_game_id", String(roblox_game_id))
-      .single();
+      .maybeSingle();
+
+    if (existingError) {
+      console.log("[API] Error checking existing game:", existingError);
+    }
+
+    console.log("[API] Existing game check:", existingGame ? "Found" : "Not found");
 
     // If game doesn't exist, check plan limits before creating
     if (!existingGame) {
@@ -57,13 +75,19 @@ export async function POST(request: NextRequest) {
       const limit = planLimits[plan] || 1;
 
       // Count current games
-      const { count } = await supabase
+      const { count, error: countError } = await supabase
         .from("games")
         .select("*", { count: "exact", head: true })
         .eq("user_id", user.id)
         .neq("status", "deleted");
 
+      if (countError) {
+        console.log("[API] Error counting games:", countError);
+      }
+
       const currentCount = count || 0;
+
+      console.log("[API] Plan check:", { plan, limit, currentCount });
 
       if (currentCount >= limit) {
         return NextResponse.json(
@@ -78,28 +102,76 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Deselect all current games for this user
-    await supabase
+    // Build update object - only include columns that exist in the schema
+    // Note: is_selected may not exist yet, we'll handle the error gracefully
+    const updateFields: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    // Try to deselect all current games for this user
+    // This may fail if is_selected column doesn't exist
+    const { error: deselectError } = await supabase
       .from("games")
-      .update({ is_selected: false })
+      .update({ is_selected: false, updated_at: new Date().toISOString() })
       .eq("user_id", user.id);
+
+    if (deselectError) {
+      console.log("[API] Warning: Could not deselect games (is_selected column may not exist):", deselectError.message);
+      // Continue anyway - the column might not exist yet
+    }
 
     if (existingGame) {
       // Game exists - just select it
+      const updateData: Record<string, unknown> = {
+        updated_at: new Date().toISOString(),
+      };
+
+      // Try to set is_selected if the column exists
       const { data: updatedGame, error: updateError } = await supabase
         .from("games")
         .update({ 
+          ...updateData,
           is_selected: true,
-          updated_at: new Date().toISOString(),
         })
         .eq("id", existingGame.id)
         .select("*")
         .single();
 
       if (updateError) {
-        console.error("[API] Error selecting game:", updateError);
+        console.error("[API] Error selecting game:", {
+          message: updateError.message,
+          code: updateError.code,
+          details: updateError.details,
+          hint: updateError.hint,
+        });
+        
+        // If is_selected doesn't exist, try without it
+        if (updateError.message.includes("is_selected")) {
+          const { data: fallbackGame, error: fallbackError } = await supabase
+            .from("games")
+            .update(updateData)
+            .eq("id", existingGame.id)
+            .select("*")
+            .single();
+
+          if (fallbackError) {
+            return NextResponse.json(
+              { error: `Failed to select game: ${fallbackError.message}` },
+              { status: 500 }
+            );
+          }
+
+          return NextResponse.json({
+            success: true,
+            game: fallbackGame,
+            message: `Selected ${name}`,
+            action: "selected",
+            warning: "is_selected column not found - run migration",
+          });
+        }
+
         return NextResponse.json(
-          { error: "Failed to select game" },
+          { error: `Failed to select game: ${updateError.message}` },
           { status: 500 }
         );
       }
@@ -112,42 +184,93 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Game doesn't exist - create new entry with is_selected = true
+    // Game doesn't exist - create new entry
     const apiKey = generateApiKey();
 
+    // Build insert object with only existing columns
+    // Based on schema: user_id, roblox_game_id, name, api_key, status, created_at, updated_at
+    // Optional columns that may exist: is_selected, root_place_id, source, group_id, group_name
+    const insertData: Record<string, unknown> = {
+      user_id: user.id,
+      roblox_game_id: String(roblox_game_id),
+      name: name.trim(),
+      api_key: apiKey,
+      status: "active",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    console.log("[API] Inserting game with data:", insertData);
+
+    // First try with is_selected
     const { data: newGame, error: insertError } = await supabase
       .from("games")
       .insert({
-        user_id: user.id,
-        roblox_game_id: String(roblox_game_id),
-        name: name.trim(),
-        api_key: apiKey,
-        status: "active",
+        ...insertData,
         is_selected: true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
       })
       .select("*")
       .single();
 
     if (insertError) {
-      console.error("[API] Error creating game:", insertError);
+      console.error("[API] Error creating game:", {
+        message: insertError.message,
+        code: insertError.code,
+        details: insertError.details,
+        hint: insertError.hint,
+      });
+
+      // If is_selected column doesn't exist, try without it
+      if (insertError.message.includes("is_selected")) {
+        console.log("[API] Retrying insert without is_selected column...");
+        
+        const { data: fallbackGame, error: fallbackError } = await supabase
+          .from("games")
+          .insert(insertData)
+          .select("*")
+          .single();
+
+        if (fallbackError) {
+          console.error("[API] Fallback insert also failed:", {
+            message: fallbackError.message,
+            code: fallbackError.code,
+            details: fallbackError.details,
+            hint: fallbackError.hint,
+          });
+          return NextResponse.json(
+            { error: `Failed to create game: ${fallbackError.message}` },
+            { status: 500 }
+          );
+        }
+
+        return NextResponse.json({
+          success: true,
+          game: fallbackGame,
+          message: `Connected ${name}`,
+          action: "created",
+          warning: "is_selected column not found - run migration to add it",
+        });
+      }
+
       return NextResponse.json(
-        { error: "Failed to create game" },
+        { error: `Failed to create game: ${insertError.message}` },
         { status: 500 }
       );
     }
 
+    console.log("[API] Game created successfully:", newGame.id);
+
     return NextResponse.json({
       success: true,
       game: newGame,
-      message: `Selected ${name}`,
+      message: `Connected ${name}`,
       action: "created",
     });
   } catch (error) {
-    console.error("[API] /api/roblox/select-game error:", error);
+    console.error("[API] /api/roblox/select-game unexpected error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: "Internal server error" },
+      { error: `Internal server error: ${errorMessage}` },
       { status: 500 }
     );
   }
