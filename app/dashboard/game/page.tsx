@@ -81,6 +81,10 @@ export default function GamePage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [showFullScript, setShowFullScript] = useState(false);
+  
+  // Debug state - shows click feedback and API response
+  const [debugMessage, setDebugMessage] = useState<string | null>(null);
+  const [debugApiResponse, setDebugApiResponse] = useState<string | null>(null);
 
   // Get selected game
   const selectedGame = connectedGames.find(g => g.is_selected) || null;
@@ -216,10 +220,12 @@ export default function GamePage() {
 
   // Connect a new game from Roblox list
   const handleConnectGame = async (robloxGame: RobloxGame) => {
-    if (process.env.NODE_ENV === "development") {
-      console.log("[v0] Connect game clicked:", robloxGame);
-    }
+    // Debug: immediate visual feedback
+    setDebugMessage(`Clicked Connect Game: ${robloxGame.name} (ID: ${robloxGame.id})`);
+    setDebugApiResponse(null);
+    console.log("[v0] Connect game clicked:", robloxGame);
     
+    // Set loading state
     setConnectingGameId(robloxGame.id);
     setLimitError(null);
     
@@ -232,9 +238,8 @@ export default function GamePage() {
       groupName: robloxGame.groupName,
     };
     
-    if (process.env.NODE_ENV === "development") {
-      console.log("[v0] Request payload:", payload);
-    }
+    console.log("[v0] Request payload:", payload);
+    setDebugApiResponse(`Sending request to /api/roblox/select-game...`);
     
     try {
       const response = await fetch("/api/roblox/select-game", {
@@ -243,15 +248,12 @@ export default function GamePage() {
         body: JSON.stringify(payload),
       });
       
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Response status:", response.status);
-      }
+      console.log("[v0] Response status:", response.status);
       
       const data = await response.json();
       
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Response JSON:", data);
-      }
+      console.log("[v0] Response JSON:", data);
+      setDebugApiResponse(`Status: ${response.status} | Response: ${JSON.stringify(data)}`);
       
       if (response.status === 403) {
         const errorMessage = data.message || "You reached your plan limit. Upgrade to connect more games.";
@@ -273,15 +275,14 @@ export default function GamePage() {
           })));
         }
         setLimitError(null);
-        toast.success("Game connected");
+        toast.success("Game connected successfully!");
         router.refresh();
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect game";
+      setDebugApiResponse(`Error: ${errorMessage}`);
       toast.error(errorMessage);
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Connect game error:", error);
-      }
+      console.log("[v0] Connect game error:", error);
     }
     
     setConnectingGameId(null);
@@ -354,6 +355,24 @@ print("[RoMonetize] Tracker initialized!")` : "";
         <h1 className="text-2xl font-bold text-foreground">My Game</h1>
         <p className="text-muted-foreground">Connect and manage your Roblox games</p>
       </div>
+
+      {/* Debug display box - temporary */}
+      {(debugMessage || debugApiResponse) && (
+        <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg space-y-2">
+          <div className="text-sm font-mono">
+            <span className="font-bold text-yellow-600">Debug:</span>
+            {debugMessage && <p className="text-foreground">{debugMessage}</p>}
+            {debugApiResponse && <p className="text-muted-foreground break-all">{debugApiResponse}</p>}
+          </div>
+          <button 
+            type="button"
+            onClick={() => { setDebugMessage(null); setDebugApiResponse(null); }}
+            className="text-xs text-yellow-600 underline"
+          >
+            Clear debug
+          </button>
+        </div>
+      )}
 
       {/* Plan limit error */}
       {limitError && (
@@ -678,10 +697,13 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                 Connected
                               </div>
                             ) : (
-                              <Button 
-                                size="sm" 
-                                className="w-full gap-2"
-                                onClick={() => handleConnectGame(robloxGame)}
+                              <button 
+                                type="button"
+                                className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                                onClick={() => {
+                                  console.log("[v0] Button onClick fired for:", robloxGame.name);
+                                  handleConnectGame(robloxGame);
+                                }}
                                 disabled={isConnecting || isAtLimit}
                               >
                                 {isConnecting ? (
@@ -700,7 +722,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                     Connect Game
                                   </>
                                 )}
-                              </Button>
+                              </button>
                             )}
                           </div>
                         </div>
