@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getSelectedGameId } from "./analytics";
 
 export interface MonetizationStats {
   totalRevenue: number;
@@ -78,18 +79,15 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     };
   }
 
-  // Get user's games
-  let gamesQuery = supabase
-    .from("games")
-    .select("id")
-    .eq("user_id", user.id);
-
-  if (gameId) {
-    gamesQuery = gamesQuery.eq("id", gameId);
+  // Get the selected game (use passed gameId or get from DB)
+  let targetGameId = gameId;
+  if (!targetGameId) {
+    const { gameId: selectedId } = await getSelectedGameId();
+    targetGameId = selectedId || undefined;
   }
 
-  const { data: games } = await gamesQuery;
-  const gameIds = games?.map((g) => g.id) || [];
+  // If no game selected, return empty stats
+  const gameIds = targetGameId ? [targetGameId] : [];
 
   if (gameIds.length === 0) {
     return {

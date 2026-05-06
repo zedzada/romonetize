@@ -305,7 +305,102 @@ export async function updateRobloxApiKey(
   return { success: true, error: null, connected: true };
 }
 
-// Get first active game's API key (for test events)
+// Get the currently selected game (is_selected = true)
+// If no game is selected but user has games, auto-select the first one
+export async function getSelectedGame(): Promise<{ game: Game | null; error: string | null }> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    return { game: null, error: "Not authenticated" };
+  }
+
+  // Try to get the selected game
+  const { data: selectedGame } = await supabase
+    .from("games")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("is_selected", true)
+    .neq("status", "deleted")
+    .single();
+
+  if (selectedGame) {
+    return { game: selectedGame, error: null };
+  }
+
+  // No selected game - auto-select the first active game
+  const { data: firstGame, error: firstError } = await supabase
+    .from("games")
+    .select("*")
+    .eq("user_id", user.id)
+    .neq("status", "deleted")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (firstError || !firstGame) {
+    return { game: null, error: null }; // No games at all
+  }
+
+  // Auto-select this game
+  await supabase
+    .from("games")
+    .update({ is_selected: true })
+    .eq("id", firstGame.id);
+
+  return { game: { ...firstGame, is_selected: true }, error: null };
+}
+
+// Select a game (set is_selected = true and deselect others)
+export async function selectGame(gameId: string): Promise<{ success: boolean; error: string | null }> {
+  const supabase = await createClient();
+  
+  const { data: { user } } = await supabase.auth.getUser();
+  
+  if (!user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  // Verify ownership
+  const { data: game } = await supabase
+    .from("games")
+    .select("id")
+    .eq("id", gameId)
+    .eq("user_id", user.id)
+    .single();
+
+  if (!game) {
+    return { success: false, error: "Game not found" };
+  }
+
+  // Deselect all games first
+  await supabase
+    .from("games")
+    .update({ is_selected: false })
+    .eq("user_id", user.id);
+
+  // Select the target game
+  const { error } = await supabase
+    .from("games")
+    .update({ is_selected: true })
+    .eq("id", gameId);
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/game");
+  revalidatePath("/dashboard/performance");
+  revalidatePath("/dashboard/monetization");
+  revalidatePath("/dashboard/products");
+  revalidatePath("/dashboard/ai");
+  
+  return { success: true, error: null };
+}
+
+// Get selected game's API key (for test events) - uses is_selected = true game
 export async function getFirstGameApiKey(): Promise<{ 
   apiKey: string | null; 
   gameId: string | null;
@@ -320,12 +415,30 @@ export async function getFirstGameApiKey(): Promise<{
     return { apiKey: null, gameId: null, gameName: null, error: "Not authenticated" };
   }
 
-  // Fetch exactly one active game with just the fields we need
+  // First try to get the selected game
+  const { data: selectedGame } = await supabase
+    .from("games")
+    .select("id, name, api_key")
+    .eq("user_id", user.id)
+    .eq("is_selected", true)
+    .neq("status", "deleted")
+    .single();
+
+  if (selectedGame) {
+    return { 
+      apiKey: selectedGame.api_key, 
+      gameId: selectedGame.id, 
+      gameName: selectedGame.name,
+      error: null 
+    };
+  }
+
+  // Fallback: auto-select the first active game
   const { data: game, error } = await supabase
     .from("games")
     .select("id, name, api_key")
     .eq("user_id", user.id)
-    .eq("status", "active")
+    .neq("status", "deleted")
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
@@ -335,8 +448,14 @@ export async function getFirstGameApiKey(): Promise<{
   }
 
   if (!game) {
-    return { apiKey: null, gameId: null, gameName: null, error: "No active game found" };
+    return { apiKey: null, gameId: null, gameName: null, error: "No game found" };
   }
+
+  // Auto-select this game
+  await supabase
+    .from("games")
+    .update({ is_selected: true })
+    .eq("id", game.id);
 
   return { 
     apiKey: game.api_key, 

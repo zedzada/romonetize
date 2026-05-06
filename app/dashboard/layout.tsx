@@ -32,7 +32,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Toaster } from "@/components/ui/toaster";
-import { getUserGames } from "@/lib/actions/games";
+import { getUserGames, getSelectedGame, selectGame } from "@/lib/actions/games";
 
 const sidebarItems = [
   { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -51,6 +51,7 @@ type Game = {
   roblox_game_id: string;
   status: string;
   api_key: string;
+  is_selected?: boolean;
 };
 
 export default function DashboardLayout({
@@ -63,6 +64,7 @@ export default function DashboardLayout({
   const [games, setGames] = useState<Game[]>([]);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
   const [loadingGames, setLoadingGames] = useState(true);
+  const [switchingGame, setSwitchingGame] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
@@ -70,21 +72,48 @@ export default function DashboardLayout({
   const [loggingOut, setLoggingOut] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
 
-  // Fetch real games from Supabase
+  // Fetch real games from Supabase and get selected game from DB
   useEffect(() => {
     async function fetchGames() {
       setLoadingGames(true);
-      const { games: fetchedGames, error } = await getUserGames();
-      if (!error && fetchedGames && fetchedGames.length > 0) {
-        setGames(fetchedGames);
-        // Select first active game by default
-        const activeGame = fetchedGames.find(g => g.status === "active") || fetchedGames[0];
-        setSelectedGame(activeGame);
+      
+      // Fetch all games and the selected game in parallel
+      const [gamesResult, selectedResult] = await Promise.all([
+        getUserGames(),
+        getSelectedGame(),
+      ]);
+      
+      if (!gamesResult.error && gamesResult.games && gamesResult.games.length > 0) {
+        setGames(gamesResult.games);
       }
+      
+      // Use the selected game from DB (which auto-selects first if needed)
+      if (!selectedResult.error && selectedResult.game) {
+        setSelectedGame(selectedResult.game);
+      }
+      
       setLoadingGames(false);
     }
     fetchGames();
   }, []);
+
+  // Handle game switching
+  const handleSelectGame = async (game: Game) => {
+    if (game.id === selectedGame?.id) return;
+    
+    setSwitchingGame(true);
+    const { success, error } = await selectGame(game.id);
+    
+    if (success) {
+      setSelectedGame(game);
+      // Refresh the current page to load new data
+      router.refresh();
+    } else {
+      console.error("[v0] Failed to select game:", error);
+    }
+    
+    setSwitchingGame(false);
+  };
 
   useEffect(() => {
     // Load username from localStorage
@@ -299,10 +328,10 @@ export default function DashboardLayout({
           ) : (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="gap-2 hidden md:flex">
+                <Button variant="outline" className="gap-2 hidden md:flex" disabled={switchingGame}>
                   <Gamepad2 className="w-4 h-4" />
-                  {selectedGame?.name || "Select game"}
-                  {selectedGame?.status === "active" && (
+                  {switchingGame ? "Switching..." : (selectedGame?.name || "Select game")}
+                  {selectedGame?.status === "active" && !switchingGame && (
                     <span className="w-2 h-2 rounded-full bg-green-500" />
                   )}
                   <ChevronDown className="w-4 h-4 ml-1" />
@@ -312,10 +341,15 @@ export default function DashboardLayout({
                 {games.map((game) => (
                   <DropdownMenuItem
                     key={game.id}
-                    onClick={() => setSelectedGame(game)}
+                    onClick={() => handleSelectGame(game)}
                     className="flex justify-between"
                   >
-                    <span>{game.name}</span>
+                    <div className="flex items-center gap-2">
+                      {game.id === selectedGame?.id && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-primary" />
+                      )}
+                      <span className={game.id === selectedGame?.id ? "font-medium" : ""}>{game.name}</span>
+                    </div>
                     <span className={`text-xs ${game.status === "active" ? "text-green-500" : "text-muted-foreground"}`}>
                       {game.status}
                     </span>

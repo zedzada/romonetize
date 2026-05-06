@@ -39,7 +39,7 @@ import {
   LineChart,
   Line,
 } from "recharts";
-import { getUserGames } from "@/lib/actions/games";
+import { getSelectedGame } from "@/lib/actions/games";
 import { getPerformanceStats, type PerformanceData, type DataSource } from "@/lib/actions/performance";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
@@ -142,14 +142,13 @@ export default function PerformancePage() {
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
-      const { games, error } = await getUserGames();
+      const { game: selectedGame, error } = await getSelectedGame();
 
-      if (!error && games && games.length > 0) {
-        const activeGame = games.find((g) => g.status === "active") || games[0];
-        setGame(activeGame);
-        await fetchPerformanceData(activeGame.id);
+      if (!error && selectedGame) {
+        setGame(selectedGame);
+        await fetchPerformanceData(selectedGame.id);
         // Also fetch live Roblox data
-        fetchRobloxLiveData(activeGame.id);
+        fetchRobloxLiveData(selectedGame.id);
       }
 
       setLoading(false);

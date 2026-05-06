@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient } from "@/lib/supabase/server";
+import { getSelectedGameId } from "./analytics";
 
 export interface ProductStats {
   product_id: string;
@@ -31,22 +32,26 @@ export async function getProductStats(): Promise<{
     return { products: null, error: "Not authenticated" };
   }
 
-  // Get user's games
-  const { data: games, error: gamesError } = await supabase
-    .from("games")
-    .select("id, name")
-    .eq("user_id", user.id);
-
-  if (gamesError) {
-    return { products: null, error: gamesError.message };
-  }
-
-  if (!games || games.length === 0) {
+  // Get the selected game
+  const { gameId: selectedGameId } = await getSelectedGameId();
+  
+  if (!selectedGameId) {
     return { products: [], error: null };
   }
 
-  const gameIds = games.map((g) => g.id);
-  const gameMap = new Map(games.map((g) => [g.id, g.name]));
+  // Get the selected game's name
+  const { data: game } = await supabase
+    .from("games")
+    .select("id, name")
+    .eq("id", selectedGameId)
+    .single();
+
+  if (!game) {
+    return { products: [], error: null };
+  }
+
+  const gameIds = [selectedGameId];
+  const gameMap = new Map([[game.id, game.name]]);
 
   // Purchase event types (legacy + new Roblox events)
   const purchaseEventTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];

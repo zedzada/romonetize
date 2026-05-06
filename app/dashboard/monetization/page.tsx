@@ -46,7 +46,7 @@ import {
   type DailyMetric,
   type TopProduct,
 } from "@/lib/actions/monetization";
-import { getUserGames } from "@/lib/actions/games";
+import { getSelectedGame } from "@/lib/actions/games";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
 import { useRobloxMonetization } from "@/hooks/use-roblox-monetization";
@@ -104,7 +104,6 @@ export default function MonetizationPage() {
   const [arppuOverTime, setArppuOverTime] = useState<DailyMetric[]>([]);
   const [arpdauOverTime, setArpdauOverTime] = useState<DailyMetric[]>([]);
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
-  const [games, setGames] = useState<{ id: string; name: string }[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | undefined>();
   const [userPlan, setUserPlan] = useState<string>("free");
   const [planLoading, setPlanLoading] = useState(true);
@@ -119,7 +118,8 @@ export default function MonetizationPage() {
   } = useRobloxMonetization();
 
   const fetchData = useCallback(async () => {
-    const result = await getMonetizationStats(selectedGameId);
+    // Get monetization stats (uses selected game from DB)
+    const result = await getMonetizationStats();
     if (!result.error) {
       setStats(result.stats);
       setHourlyRevenue(result.hourlyRevenue);
@@ -131,7 +131,7 @@ export default function MonetizationPage() {
       setArpdauOverTime(result.arpdauOverTime);
       setTopProducts(result.topProducts);
     }
-  }, [selectedGameId]);
+  }, []);
 
   useEffect(() => {
     async function loadInitial() {
@@ -151,10 +151,10 @@ export default function MonetizationPage() {
       }
       setPlanLoading(false);
       
-      // Load games
-      const { games: userGames } = await getUserGames();
-      if (userGames && userGames.length > 0) {
-        setGames(userGames.map((g) => ({ id: g.id, name: g.name })));
+      // Get selected game ID for realtime subscription
+      const { game: selectedGame } = await getSelectedGame();
+      if (selectedGame) {
+        setSelectedGameId(selectedGame.id);
       }
       // Load stats
       await fetchData();
@@ -163,17 +163,13 @@ export default function MonetizationPage() {
     loadInitial();
   }, [fetchData]);
 
-  useEffect(() => {
-    if (!loading) {
-      fetchData();
-    }
-  }, [selectedGameId, fetchData, loading]);
+  
 
   // Listen for global stats refresh
   useStatsRefresh(fetchData);
 
-  // Get game IDs for realtime subscription
-  const gameIds = selectedGameId ? [selectedGameId] : games.map(g => g.id);
+  // Get game ID for realtime subscription
+  const gameIds = selectedGameId ? [selectedGameId] : [];
 
   // Setup Supabase Realtime subscription
   const { isLive, status: realtimeStatus } = useRealtimeStats({
@@ -352,28 +348,6 @@ export default function MonetizationPage() {
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3 p-4 bg-card border border-border rounded-lg">
-        {/* Game selector */}
-        {games.length > 1 && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-2">
-                {selectedGameId ? games.find((g) => g.id === selectedGameId)?.name : "All Games"}
-                <ChevronDown className="w-4 h-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => setSelectedGameId(undefined)}>
-                All Games
-              </DropdownMenuItem>
-              {games.map((game) => (
-                <DropdownMenuItem key={game.id} onClick={() => setSelectedGameId(game.id)}>
-                  {game.name}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-
         {/* Date Range */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
