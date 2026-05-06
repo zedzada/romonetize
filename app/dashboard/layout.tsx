@@ -175,11 +175,11 @@ export default function DashboardLayout({
   };
 
   return (
-    <div className="min-h-screen bg-background flex">
-      {/* Desktop Sidebar */}
-      <aside className="hidden md:flex w-64 flex-col border-r border-border bg-sidebar">
+    <div className="h-screen bg-background flex overflow-hidden">
+      {/* Desktop Sidebar - Fixed, never scrolls */}
+      <aside className="hidden md:flex w-64 h-screen flex-col border-r border-border bg-sidebar sticky top-0 overflow-hidden">
         {/* Logo */}
-        <div className="p-6 border-b border-border">
+        <div className="p-6 border-b border-border shrink-0">
           <Link href="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
               <span className="text-sm font-bold text-primary-foreground">R</span>
@@ -188,8 +188,8 @@ export default function DashboardLayout({
           </Link>
         </div>
 
-        {/* Navigation */}
-        <nav className="flex-1 p-4 space-y-1">
+        {/* Navigation - can scroll internally if needed */}
+        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {sidebarItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
             return (
@@ -209,11 +209,13 @@ export default function DashboardLayout({
           })}
         </nav>
 
-        {/* AI Credits Widget */}
-        <CreditsWidget />
+        {/* Bottom section - always visible */}
+        <div className="shrink-0">
+          {/* AI Credits Widget */}
+          <CreditsWidget />
 
-        {/* User section */}
-        <div className="p-4 border-t border-border">
+          {/* User section */}
+          <div className="p-4 border-t border-border">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-3 w-full p-2 rounded-lg hover:bg-secondary/50 transition-colors">
@@ -253,12 +255,13 @@ export default function DashboardLayout({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        </div>
       </aside>
 
       {/* Main content area */}
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden">
         {/* Top bar */}
-        <header className="h-16 border-b border-border bg-background/95 backdrop-blur-sm flex items-center justify-between px-4 md:px-6">
+        <header className="h-16 shrink-0 border-b border-border bg-background/95 backdrop-blur-sm flex items-center justify-between px-4 md:px-6">
           {/* Mobile menu button */}
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
