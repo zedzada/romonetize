@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import Image from "next/image";
 import {
   Gamepad2,
   Copy,
@@ -24,13 +25,14 @@ import {
   ThumbsDown,
   Key,
   Save,
+  Link2,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { 
   getUserGames, 
-  createGame, 
   deleteGame, 
   updateGame,
   regenerateApiKey,
@@ -38,6 +40,7 @@ import {
   type Game 
 } from "@/lib/actions/games";
 import { syncRobloxData } from "@/lib/actions/roblox-sync";
+import { getPlanLimits } from "@/lib/products";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -48,15 +51,35 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { createClient } from "@/lib/supabase/client";
+
+// Roblox game from API
+interface RobloxGame {
+  id: number;
+  name: string;
+  rootPlaceId: number;
+}
 
 export default function GamePage() {
-  const [gameId, setGameId] = useState("");
-  const [gameName, setGameName] = useState("");
-  const [copied, setCopied] = useState<string | null>(null);
-  const [isConnecting, setIsConnecting] = useState(false);
+  // Connected games state
   const [games, setGames] = useState<Game[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  
+  // Roblox games state
+  const [robloxGames, setRobloxGames] = useState<RobloxGame[]>([]);
+  const [loadingRobloxGames, setLoadingRobloxGames] = useState(false);
+  const [robloxError, setRobloxError] = useState<string | null>(null);
+  const [hasRobloxAccount, setHasRobloxAccount] = useState<boolean | null>(null);
+  
+  // Connect game state
+  const [connectingGameId, setConnectingGameId] = useState<number | null>(null);
+  
+  // Plan limits
+  const [planLimit, setPlanLimit] = useState(1);
+  
+  // UI state
+  const [copied, setCopied] = useState<string | null>(null);
   const [visibleApiKeys, setVisibleApiKeys] = useState<Set<string>>(new Set());
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [gameToDelete, setGameToDelete] = useState<Game | null>(null);
@@ -72,36 +95,111 @@ export default function GamePage() {
     message?: string 
   }>>({});
 
-  // Fetch games on mount
+  // Fetch connected games and user plan
   useEffect(() => {
-    async function fetchGames() {
+    async function fetchData() {
       setLoading(true);
+      
+      // Fetch connected games
       const { games: fetchedGames, error: fetchError } = await getUserGames();
       if (fetchError) {
         setError(fetchError);
       } else {
         setGames(fetchedGames);
       }
+      
+      // Fetch user plan to get limits
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("plan, roblox_user_id")
+          .eq("id", user.id)
+          .single();
+        
+        if (profile) {
+          const limits = getPlanLimits(profile.plan || "free");
+          setPlanLimit(limits.games);
+          setHasRobloxAccount(!!profile.roblox_user_id);
+        }
+      }
+      
       setLoading(false);
     }
-    fetchGames();
+    fetchData();
   }, []);
 
-  const handleConnectGame = async () => {
-    if (!gameId.trim() || !gameName.trim()) return;
-    setIsConnecting(true);
+  // Fetch Roblox games when we know user has Roblox account
+  const fetchRobloxGames = useCallback(async () => {
+    if (hasRobloxAccount === false) return;
+    
+    setLoadingRobloxGames(true);
+    setRobloxError(null);
+    
+    try {
+      const response = await fetch("/api/roblox/games");
+      const data = await response.json();
+      
+      if (!response.ok) {
+        if (data.error === "Roblox account not connected") {
+          setHasRobloxAccount(false);
+        } else {
+          setRobloxError(data.error || "Failed to fetch games");
+        }
+      } else {
+        setRobloxGames(data.games || []);
+      }
+    } catch (err) {
+      setRobloxError("Failed to fetch Roblox games");
+    }
+    
+    setLoadingRobloxGames(false);
+  }, [hasRobloxAccount]);
+
+  useEffect(() => {
+    if (hasRobloxAccount === true) {
+      fetchRobloxGames();
+    }
+  }, [hasRobloxAccount, fetchRobloxGames]);
+
+  // Check if a Roblox game is already connected
+  const isGameConnected = (robloxGameId: number) => {
+    return games.some(g => g.roblox_game_id === String(robloxGameId));
+  };
+
+  // Connect a Roblox game
+  const handleConnectGame = async (robloxGame: RobloxGame) => {
+    if (games.length >= planLimit) {
+      setError(`Plan limit reached. Upgrade to connect more games.`);
+      return;
+    }
+    
+    setConnectingGameId(robloxGame.id);
     setError(null);
     
-    const { game, error: createError } = await createGame(gameId.trim(), gameName.trim());
-    
-    if (createError) {
-      setError(createError);
-    } else if (game) {
-      setGames([game, ...games]);
-      setGameId("");
-      setGameName("");
+    try {
+      const response = await fetch("/api/roblox/connect-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roblox_game_id: String(robloxGame.id),
+          name: robloxGame.name,
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setError(data.error || "Failed to connect game");
+      } else if (data.game) {
+        setGames([data.game, ...games]);
+      }
+    } catch (err) {
+      setError("Failed to connect game");
     }
-    setIsConnecting(false);
+    
+    setConnectingGameId(null);
   };
 
   const handleDeleteGame = async () => {
@@ -152,7 +250,6 @@ export default function GamePage() {
     if (!result.success) {
       setSyncError(result.error || "Failed to sync");
     } else if (result.data) {
-      // Update the game in state with new Roblox data
       setGames(games.map(g => g.id === game.id ? { 
         ...g, 
         universe_id: result.data!.universeId,
@@ -200,7 +297,6 @@ export default function GamePage() {
     setRobloxKeyStatus(prev => ({ ...prev, [game.id]: { status: "saving" } }));
     const keyValue = robloxApiKeyInputs[game.id] ?? game.roblox_api_key ?? "";
     
-    // Save the key first
     const { success, error: saveError } = await updateRobloxApiKey(
       game.id, 
       keyValue.trim() || null
@@ -213,20 +309,17 @@ export default function GamePage() {
       return;
     }
     
-    // Update local state
     setGames(games.map(g => g.id === game.id ? { 
       ...g, 
       roblox_api_key: keyValue.trim() || null 
     } : g));
 
-    // If key was cleared, we're done
     if (!keyValue.trim()) {
       setRobloxKeyStatus(prev => ({ ...prev, [game.id]: { status: "cleared" } }));
       setSavingRobloxKey(null);
       return;
     }
 
-    // Test the connection by calling the API
     setRobloxKeyStatus(prev => ({ ...prev, [game.id]: { status: "testing" } }));
     
     try {
@@ -235,7 +328,6 @@ export default function GamePage() {
       
       if (data.success) {
         setRobloxKeyStatus(prev => ({ ...prev, [game.id]: { status: "connected" } }));
-        // Update game with fetched data
         if (data.data) {
           setGames(games.map(g => g.id === game.id ? { 
             ...g, 
@@ -288,6 +380,30 @@ export default function GamePage() {
         <p className="text-muted-foreground">Manage your connected Roblox games</p>
       </div>
 
+      {/* Connected Games count */}
+      <Card className="border-border bg-card">
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <Gamepad2 className="w-5 h-5 text-primary" />
+              </div>
+              <div>
+                <div className="font-medium text-foreground">Connected Games</div>
+                <div className="text-sm text-muted-foreground">
+                  {loading ? "Loading..." : `${games.length} / ${planLimit}`}
+                </div>
+              </div>
+            </div>
+            {games.length >= planLimit && (
+              <Button variant="outline" size="sm" asChild>
+                <a href="/dashboard/billing">Upgrade Plan</a>
+              </Button>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Error display */}
       {error && (
         <div className="flex items-center gap-2 p-4 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive">
@@ -304,53 +420,102 @@ export default function GamePage() {
         </div>
       )}
 
-      {/* Connect new game */}
+      {/* Your Roblox Games */}
       <Card className="border-border bg-card">
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
             <Gamepad2 className="w-5 h-5 text-primary" />
-            Connect a New Game
+            Your Roblox Games
           </CardTitle>
-          <CardDescription>Add your Roblox Game ID to start tracking monetization</CardDescription>
+          <CardDescription>Select a game to connect to RoMonetize</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Roblox Game ID</label>
-              <Input
-                placeholder="e.g., 123456789"
-                value={gameId}
-                onChange={(e) => setGameId(e.target.value)}
-                className="bg-secondary/30"
-              />
+        <CardContent>
+          {hasRobloxAccount === false ? (
+            <div className="text-center py-8">
+              <Link2 className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+              <p className="text-foreground font-medium mb-2">Connect your Roblox account first</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Link your Roblox account to see your games here
+              </p>
+              <Button asChild>
+                <a href="/dashboard/settings">Connect Roblox Account</a>
+              </Button>
             </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Game Name</label>
-              <Input
-                placeholder="e.g., My Awesome Game"
-                value={gameName}
-                onChange={(e) => setGameName(e.target.value)}
-                className="bg-secondary/30"
-              />
+          ) : loadingRobloxGames ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
             </div>
-          </div>
-          <Button 
-            onClick={handleConnectGame} 
-            disabled={isConnecting || !gameId.trim() || !gameName.trim()}
-            className="gap-2"
-          >
-            {isConnecting ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Connecting...
-              </>
-            ) : (
-              <>
-                <Gamepad2 className="w-4 h-4" />
-                Connect Game
-              </>
-            )}
-          </Button>
+          ) : robloxError ? (
+            <div className="text-center py-8">
+              <AlertCircle className="w-12 h-12 mx-auto mb-3 text-destructive opacity-50" />
+              <p className="text-foreground font-medium mb-2">Failed to load games</p>
+              <p className="text-sm text-muted-foreground mb-4">{robloxError}</p>
+              <Button onClick={fetchRobloxGames}>Try Again</Button>
+            </div>
+          ) : robloxGames.length === 0 ? (
+            <div className="text-center py-8">
+              <Gamepad2 className="w-12 h-12 mx-auto mb-3 text-muted-foreground opacity-50" />
+              <p className="text-foreground font-medium mb-2">No games found</p>
+              <p className="text-sm text-muted-foreground">
+                You don&apos;t have any public games on Roblox yet
+              </p>
+            </div>
+          ) : (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {robloxGames.map((robloxGame) => {
+                const connected = isGameConnected(robloxGame.id);
+                const isConnecting = connectingGameId === robloxGame.id;
+                
+                return (
+                  <div
+                    key={robloxGame.id}
+                    className={`p-4 rounded-lg border transition-colors ${
+                      connected 
+                        ? "bg-green-500/5 border-green-500/30" 
+                        : "bg-secondary/30 border-border hover:border-primary/30"
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-blue-400/20 flex items-center justify-center shrink-0">
+                        <Gamepad2 className="w-6 h-6 text-primary" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="font-medium text-foreground truncate">{robloxGame.name}</div>
+                        <div className="text-xs text-muted-foreground">ID: {robloxGame.id}</div>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      {connected ? (
+                        <Button variant="outline" size="sm" className="w-full gap-2" disabled>
+                          <Check className="w-4 h-4 text-green-500" />
+                          Connected
+                        </Button>
+                      ) : (
+                        <Button 
+                          size="sm" 
+                          className="w-full gap-2"
+                          onClick={() => handleConnectGame(robloxGame)}
+                          disabled={isConnecting || games.length >= planLimit}
+                        >
+                          {isConnecting ? (
+                            <>
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Connecting...
+                            </>
+                          ) : (
+                            <>
+                              <Link2 className="w-4 h-4" />
+                              Connect Game
+                            </>
+                          )}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -585,26 +750,16 @@ return RoMonetize`}
         </CardContent>
       </Card>
 
-      {/* Connected games */}
-      <Card className="border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-lg">Connected Games</CardTitle>
-          <CardDescription>
-            {loading ? "Loading..." : `${games.length} game${games.length !== 1 ? "s" : ""} connected`}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex items-center justify-center py-8">
-              <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : games.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground">
-              <Gamepad2 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-              <p>No games connected yet</p>
-              <p className="text-sm">Add your first game above to get started</p>
-            </div>
-          ) : (
+      {/* Connected games list */}
+      {games.length > 0 && (
+        <Card className="border-border bg-card">
+          <CardHeader>
+            <CardTitle className="text-lg">Connected Games</CardTitle>
+            <CardDescription>
+              {`${games.length} game${games.length !== 1 ? "s" : ""} connected`}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-4">
               {games.map((game) => (
                 <div
@@ -615,7 +770,17 @@ return RoMonetize`}
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-blue-400/20 flex items-center justify-center">
-                        <Gamepad2 className="w-6 h-6 text-primary" />
+                        {game.thumbnail_url ? (
+                          <Image 
+                            src={game.thumbnail_url} 
+                            alt={game.name}
+                            width={48}
+                            height={48}
+                            className="w-full h-full object-cover rounded-lg"
+                          />
+                        ) : (
+                          <Gamepad2 className="w-6 h-6 text-primary" />
+                        )}
                       </div>
                       <div>
                         <div className="font-medium text-foreground">{game.name}</div>
@@ -882,9 +1047,9 @@ return RoMonetize`}
                 </div>
               ))}
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Delete confirmation dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
