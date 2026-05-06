@@ -46,6 +46,12 @@ interface ConnectedGame {
   name: string;
   api_key: string;
   is_selected: boolean;
+  source?: string;
+  group_id?: string;
+  group_name?: string;
+  root_place_id?: string;
+  role_name?: string;
+  role_rank?: number;
 }
 
 // Plan limits
@@ -115,10 +121,10 @@ export default function GamePage() {
       setUserPlan(profile?.plan || "free");
       setHasRobloxAccount(!!profile?.roblox_user_id);
       
-      // Fetch connected games
+      // Fetch connected games with group metadata
       const { data: games } = await supabase
         .from("games")
-        .select("id, roblox_game_id, name, api_key, is_selected")
+        .select("id, roblox_game_id, name, api_key, is_selected, source, group_id, group_name, root_place_id, role_name, role_rank")
         .eq("user_id", user.id)
         .neq("status", "deleted")
         .order("created_at", { ascending: false });
@@ -232,14 +238,16 @@ export default function GamePage() {
     const payload = {
       roblox_game_id: String(robloxGame.id),
       name: robloxGame.name,
-      rootPlaceId: robloxGame.rootPlaceId,
+      rootPlaceId: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
       source: robloxGame.source,
-      groupId: robloxGame.groupId,
-      groupName: robloxGame.groupName,
+      groupId: robloxGame.groupId ? String(robloxGame.groupId) : null,
+      groupName: robloxGame.groupName ?? null,
+      roleName: robloxGame.roleName ?? null,
+      roleRank: robloxGame.roleRank ?? null,
     };
     
     console.log("[v0] Request payload:", payload);
-    setDebugApiResponse(`Sending request to /api/roblox/select-game...`);
+    setDebugApiResponse(`Payload: ${JSON.stringify(payload)}`);
     
     try {
       const response = await fetch("/api/roblox/select-game", {
@@ -446,13 +454,38 @@ print("[RoMonetize] Tracker initialized!")` : "";
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                              isSelected ? "bg-green-500/20" : "bg-primary/10"
+                              game.source === "group" 
+                                ? "bg-purple-500/20" 
+                                : isSelected 
+                                  ? "bg-green-500/20" 
+                                  : "bg-primary/10"
                             }`}>
-                              <Gamepad2 className={`w-5 h-5 ${isSelected ? "text-green-500" : "text-primary"}`} />
+                              <Gamepad2 className={`w-5 h-5 ${
+                                game.source === "group" 
+                                  ? "text-purple-500" 
+                                  : isSelected 
+                                    ? "text-green-500" 
+                                    : "text-primary"
+                              }`} />
                             </div>
                             <div className="min-w-0">
                               <div className="font-medium text-foreground truncate">{game.name}</div>
                               <div className="text-xs text-muted-foreground">ID: {game.roblox_game_id}</div>
+                              {/* Source badge */}
+                              <div className="mt-1">
+                                {game.source === "group" ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                                    Group: {game.group_name || "Unknown"}
+                                    {game.role_name && (
+                                      <span className="opacity-70">({game.role_name})</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                    Personal Game
+                                  </span>
+                                )}
+                              </div>
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">

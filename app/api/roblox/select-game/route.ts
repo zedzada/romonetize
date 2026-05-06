@@ -10,7 +10,7 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body = await request.json();
-    const { roblox_game_id, name, rootPlaceId, source, groupId, groupName } = body;
+    const { roblox_game_id, name, rootPlaceId, source, groupId, groupName, roleName, roleRank } = body;
 
     console.log("[API] /api/roblox/select-game called with:", {
       roblox_game_id,
@@ -19,6 +19,8 @@ export async function POST(request: NextRequest) {
       source,
       groupId,
       groupName,
+      roleName,
+      roleRank,
     });
 
     // Validate required fields
@@ -121,18 +123,38 @@ export async function POST(request: NextRequest) {
     }
 
     if (existingGame) {
-      // Game exists - just select it
+      // Game exists - select it and update metadata if provided (allows fixing missing group metadata)
       const updateData: Record<string, unknown> = {
         updated_at: new Date().toISOString(),
+        is_selected: true,
       };
 
-      // Try to set is_selected if the column exists
+      // Update group metadata if provided (allows re-connecting to fix missing metadata)
+      if (source) {
+        updateData.source = source === "group" ? "group" : "user";
+      }
+      if (groupId) {
+        updateData.group_id = String(groupId);
+      }
+      if (groupName) {
+        updateData.group_name = groupName;
+      }
+      if (rootPlaceId) {
+        updateData.root_place_id = String(rootPlaceId);
+      }
+      if (roleName) {
+        updateData.role_name = roleName;
+      }
+      if (roleRank !== undefined && roleRank !== null) {
+        updateData.role_rank = Number(roleRank);
+      }
+
+      console.log("[API] Updating existing game with:", updateData);
+
+      // Try to update with all fields
       const { data: updatedGame, error: updateError } = await supabase
         .from("games")
-        .update({ 
-          ...updateData,
-          is_selected: true,
-        })
+        .update(updateData)
         .eq("id", existingGame.id)
         .select("*")
         .single();
@@ -187,28 +209,31 @@ export async function POST(request: NextRequest) {
     // Game doesn't exist - create new entry
     const apiKey = generateApiKey();
 
-    // Build insert object with only existing columns
-    // Based on schema: user_id, roblox_game_id, name, api_key, status, created_at, updated_at
-    // Optional columns that may exist: is_selected, root_place_id, source, group_id, group_name
+    // Build insert object with all fields including group metadata
     const insertData: Record<string, unknown> = {
       user_id: user.id,
       roblox_game_id: String(roblox_game_id),
       name: name.trim(),
       api_key: apiKey,
       status: "active",
+      is_selected: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
+      // Group metadata
+      source: source === "group" ? "group" : "user",
+      group_id: groupId ? String(groupId) : null,
+      group_name: groupName || null,
+      root_place_id: rootPlaceId ? String(rootPlaceId) : null,
+      role_name: roleName || null,
+      role_rank: roleRank !== undefined && roleRank !== null ? Number(roleRank) : null,
     };
 
     console.log("[API] Inserting game with data:", insertData);
 
-    // First try with is_selected
+    // Insert the game
     const { data: newGame, error: insertError } = await supabase
       .from("games")
-      .insert({
-        ...insertData,
-        is_selected: true,
-      })
+      .insert(insertData)
       .select("*")
       .single();
 
