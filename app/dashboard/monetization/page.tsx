@@ -53,6 +53,8 @@ import { useRobloxMonetization } from "@/hooks/use-roblox-monetization";
 import { Tooltip as UITooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Gamepad2, ExternalLink } from "lucide-react";
+import { PlanLock } from "@/components/dashboard/plan-lock";
+import { createClient } from "@/lib/supabase/client";
 
 // Filter options
 const dateRanges = ["Last 7 days", "Last 14 days", "Last 28 days"];
@@ -104,6 +106,8 @@ export default function MonetizationPage() {
   const [topProducts, setTopProducts] = useState<TopProduct[]>([]);
   const [games, setGames] = useState<{ id: string; name: string }[]>([]);
   const [selectedGameId, setSelectedGameId] = useState<string | undefined>();
+  const [userPlan, setUserPlan] = useState<string>("free");
+  const [planLoading, setPlanLoading] = useState(true);
 
   // Fetch real Roblox monetization data
   const { 
@@ -132,6 +136,21 @@ export default function MonetizationPage() {
   useEffect(() => {
     async function loadInitial() {
       setLoading(true);
+      setPlanLoading(true);
+      
+      // Check user plan
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("plan")
+          .eq("id", user.id)
+          .single();
+        setUserPlan(profile?.plan || "free");
+      }
+      setPlanLoading(false);
+      
       // Load games
       const { games: userGames } = await getUserGames();
       if (userGames && userGames.length > 0) {
@@ -195,10 +214,26 @@ export default function MonetizationPage() {
   // Check if we have any data
   const hasData = stats && (stats.totalRevenue > 0 || stats.totalPurchases > 0);
 
-  if (loading) {
+  if (loading || planLoading) {
     return (
       <div className="flex items-center justify-center h-64">
         <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Plan lock for free users
+  if (userPlan === "free") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Monetization Analytics</h1>
+          <p className="text-muted-foreground">Revenue performance and player spending insights</p>
+        </div>
+        <PlanLock 
+          feature="Monetization Analytics" 
+          description="Track revenue, paying users, conversion rates, and more with detailed monetization analytics. Available on Pro and Studio plans."
+        />
       </div>
     );
   }
