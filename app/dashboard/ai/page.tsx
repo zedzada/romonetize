@@ -76,16 +76,16 @@ class AIErrorBoundary extends Component<{ children: ReactNode }, { hasError: boo
   }
 }
 
-// Quick prompt suggestions
+// Quick prompt suggestions with category colors
 const quickPrompts = [
-  { text: "Show me my stats overview", icon: BarChart3 },
-  { text: "What should I improve first?", icon: Lightbulb },
-  { text: "Which product needs improvement?", icon: TrendingUp },
-  { text: "How can I increase conversion?", icon: DollarSign },
-  { text: "Why is my revenue low?", icon: DollarSign },
-  { text: "Analyze my monetization", icon: BarChart3 },
-  { text: "Give me 3 monetization ideas", icon: Lightbulb },
-  { text: "How can I improve retention?", icon: TrendingUp },
+  { text: "Show me my stats overview", icon: BarChart3, color: "text-blue-500 border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10" },
+  { text: "What should I improve first?", icon: Lightbulb, color: "text-yellow-500 border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10" },
+  { text: "Which product needs improvement?", icon: TrendingUp, color: "text-green-500 border-green-500/30 bg-green-500/5 hover:bg-green-500/10" },
+  { text: "How can I increase conversion?", icon: DollarSign, color: "text-emerald-500 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10" },
+  { text: "Why is my revenue low?", icon: DollarSign, color: "text-emerald-500 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10" },
+  { text: "Analyze my monetization", icon: BarChart3, color: "text-blue-500 border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10" },
+  { text: "Give me 3 monetization ideas", icon: Lightbulb, color: "text-yellow-500 border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10" },
+  { text: "How can I improve retention?", icon: TrendingUp, color: "text-green-500 border-green-500/30 bg-green-500/5 hover:bg-green-500/10" },
 ];
 
 interface Message {
@@ -166,13 +166,7 @@ function AIAssistantContent() {
       return;
     }
 
-    // Check credits
-    const cost = imagePreview ? AI_CREDIT_COSTS.image : AI_CREDIT_COSTS.text;
-    if (totalCredits < cost) {
-      console.log("[v0] Insufficient credits, opening modal");
-      setShowBuyCreditsModal(true);
-      return;
-    }
+    // Do NOT block on credits client-side - let server handle it
 
     // Build user message content
     let userContent = text;
@@ -293,27 +287,22 @@ function AIAssistantContent() {
       {/* Quick prompts */}
       <div className="flex flex-wrap gap-2">
         {quickPrompts.map((prompt) => (
-          <Button
+          <button
             key={prompt.text}
-            variant="outline"
-            size="sm"
-            className="gap-2"
             onClick={() => {
-              if (process.env.NODE_ENV === "development") {
-                console.log("[v0] Quick prompt clicked:", prompt.text);
-              }
               handleSend(prompt.text);
             }}
             disabled={isLoading}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${prompt.color}`}
           >
             <prompt.icon className="w-4 h-4" />
             {prompt.text}
-          </Button>
+          </button>
         ))}
       </div>
 
       {/* Chat card */}
-      <Card className="border-border bg-card flex flex-col" style={{ minHeight: "500px" }}>
+      <Card className="border-border bg-card flex flex-col min-h-[500px]">
         {/* Chat header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div>
@@ -427,7 +416,13 @@ function AIAssistantContent() {
 
         {/* Input area */}
         <div className="p-4 border-t border-border">
-          <div className="flex gap-2">
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleSend();
+            }}
+            className="flex gap-2"
+          >
             <input
               type="file"
               ref={fileInputRef}
@@ -436,6 +431,7 @@ function AIAssistantContent() {
               className="hidden"
             />
             <Button
+              type="button"
               variant="outline"
               size="icon"
               onClick={() => fileInputRef.current?.click()}
@@ -454,19 +450,19 @@ function AIAssistantContent() {
               rows={1}
             />
             <Button 
-              onClick={() => handleSend()} 
-              disabled={isLoading || (!input.trim() && !selectedImage)} 
+              type="submit"
+              disabled={isLoading || (!input.trim() && !imagePreview)} 
               className="gap-2"
             >
               <Send className="w-4 h-4" />
               Ask AI
             </Button>
-          </div>
+          </form>
           <p className="text-xs text-muted-foreground mt-2 text-center">
-            {selectedImage ? "Costs 3 credits with image" : "Costs 1 credit"}
+            {imagePreview ? "Costs 3 credits with image" : "Costs 1 credit"}
             {!creditsLoading && totalCredits < creditCost && (
               <span className="text-destructive ml-2">
-                (Not enough credits - <button onClick={() => setShowBuyCreditsModal(true)} className="underline">buy more</button>)
+                (Not enough credits - <button type="button" onClick={() => setShowBuyCreditsModal(true)} className="underline">buy more</button>)
               </span>
             )}
           </p>
