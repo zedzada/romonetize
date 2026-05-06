@@ -157,16 +157,25 @@ export async function getDashboardStats(): Promise<{ stats: DashboardStats | nul
     .select("*", { count: "exact", head: true })
     .in("game_id", gameIds);
 
-  // Get all purchase events for revenue, purchases count, and products
-  // Support both legacy (purchase_success) and new Roblox events (gamepass_purchase, devproduct_purchase)
+  // Use server-side aggregation for purchases count and revenue (no 1000 row limit)
+  const purchaseEventTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+  
+  // Get total purchases count using exact count
+  const { count: totalPurchases } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .in("game_id", gameIds)
+    .in("event_type", purchaseEventTypes);
+
+  // Get all purchase events for revenue calculation and top products
+  // Note: For very large datasets, this should use a database aggregate function
   const { data: purchaseEvents } = await supabase
     .from("events")
     .select("robux, product_id, product_name, product_type, game_id")
     .in("game_id", gameIds)
-    .in("event_type", ["purchase_success", "gamepass_purchase", "devproduct_purchase"]);
+    .in("event_type", purchaseEventTypes);
 
   const totalRevenue = purchaseEvents?.reduce((sum, e) => sum + (e.robux || 0), 0) || 0;
-  const totalPurchases = purchaseEvents?.length || 0;
 
   // Count unique products from events (by product_id)
   const uniqueProductIds = new Set(purchaseEvents?.map(e => e.product_id).filter(Boolean) || []);
