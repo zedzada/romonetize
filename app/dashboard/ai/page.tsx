@@ -76,16 +76,16 @@ class AIErrorBoundary extends Component<{ children: ReactNode }, { hasError: boo
   }
 }
 
-// Quick prompt suggestions
+// Quick prompt suggestions with category colors
 const quickPrompts = [
-  { text: "Show me my stats overview", icon: BarChart3 },
-  { text: "What should I improve first?", icon: Lightbulb },
-  { text: "Which product needs improvement?", icon: TrendingUp },
-  { text: "How can I increase conversion?", icon: DollarSign },
-  { text: "Why is my revenue low?", icon: DollarSign },
-  { text: "Analyze my monetization", icon: BarChart3 },
-  { text: "Give me 3 monetization ideas", icon: Lightbulb },
-  { text: "How can I improve retention?", icon: TrendingUp },
+  { text: "Show me my stats overview", icon: BarChart3, color: "text-blue-500 border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10" },
+  { text: "What should I improve first?", icon: Lightbulb, color: "text-yellow-500 border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10" },
+  { text: "Which product needs improvement?", icon: TrendingUp, color: "text-green-500 border-green-500/30 bg-green-500/5 hover:bg-green-500/10" },
+  { text: "How can I increase conversion?", icon: DollarSign, color: "text-emerald-500 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10" },
+  { text: "Why is my revenue low?", icon: DollarSign, color: "text-emerald-500 border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10" },
+  { text: "Analyze my monetization", icon: BarChart3, color: "text-blue-500 border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10" },
+  { text: "Give me 3 monetization ideas", icon: Lightbulb, color: "text-yellow-500 border-yellow-500/30 bg-yellow-500/5 hover:bg-yellow-500/10" },
+  { text: "How can I improve retention?", icon: TrendingUp, color: "text-green-500 border-green-500/30 bg-green-500/5 hover:bg-green-500/10" },
 ];
 
 interface Message {
@@ -287,27 +287,22 @@ function AIAssistantContent() {
       {/* Quick prompts */}
       <div className="flex flex-wrap gap-2">
         {quickPrompts.map((prompt) => (
-          <Button
+          <button
             key={prompt.text}
-            variant="outline"
-            size="sm"
-            className="gap-2"
             onClick={() => {
-              if (process.env.NODE_ENV === "development") {
-                console.log("[v0] Quick prompt clicked:", prompt.text);
-              }
               handleSend(prompt.text);
             }}
             disabled={isLoading}
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-medium border transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${prompt.color}`}
           >
             <prompt.icon className="w-4 h-4" />
             {prompt.text}
-          </Button>
+          </button>
         ))}
       </div>
 
       {/* Chat card */}
-      <Card className="border-border bg-card flex flex-col" style={{ minHeight: "500px" }}>
+      <Card className="border-border bg-card flex flex-col min-h-[500px]">
         {/* Chat header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <div>
@@ -424,7 +419,6 @@ function AIAssistantContent() {
           <form 
             onSubmit={(e) => {
               e.preventDefault();
-              console.log("[v0] Form submitted");
               handleSend();
             }}
             className="flex gap-2"
@@ -464,12 +458,6 @@ function AIAssistantContent() {
               Ask AI
             </Button>
           </form>
-          {/* Debug info (development only) */}
-          {process.env.NODE_ENV === "development" && (
-            <p className="text-[10px] text-muted-foreground/50 mt-1 font-mono">
-              input: {input.length} | hasImage: {imagePreview ? "true" : "false"} | isLoading: {isLoading ? "true" : "false"} | disabled: {(isLoading || (!input.trim() && !imagePreview)) ? "true" : "false"}
-            </p>
-          )}
           <p className="text-xs text-muted-foreground mt-2 text-center">
             {imagePreview ? "Costs 3 credits with image" : "Costs 1 credit"}
             {!creditsLoading && totalCredits < creditCost && (
