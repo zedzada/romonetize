@@ -1,7 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   Gamepad2,
   Copy,
@@ -54,6 +56,8 @@ const PLAN_LIMITS: Record<string, number> = {
 };
 
 export default function GamePage() {
+  const router = useRouter();
+  
   // User plan
   const [userPlan, setUserPlan] = useState<string>("free");
   
@@ -190,15 +194,21 @@ export default function GamePage() {
       
       const data = await response.json();
       
-      if (response.ok && data.game) {
+      if (!response.ok) {
+        const errorMessage = data.error || data.message || "Failed to select game";
+        toast.error(errorMessage);
+      } else if (data.game) {
         // Update local state
         setConnectedGames(connectedGames.map(g => ({
           ...g,
           is_selected: g.id === data.game.id,
         })));
+        toast.success(`Selected ${game.name}`);
+        router.refresh();
       }
-    } catch {
-      // Error handled silently
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to select game";
+      toast.error(errorMessage);
     }
     
     setSelectingGameId(null);
@@ -206,32 +216,72 @@ export default function GamePage() {
 
   // Connect a new game from Roblox list
   const handleConnectGame = async (robloxGame: RobloxGame) => {
+    if (process.env.NODE_ENV === "development") {
+      console.log("[v0] Connect game clicked:", robloxGame);
+    }
+    
     setConnectingGameId(robloxGame.id);
     setLimitError(null);
+    
+    const payload = {
+      roblox_game_id: String(robloxGame.id),
+      name: robloxGame.name,
+      rootPlaceId: robloxGame.rootPlaceId,
+      source: robloxGame.source,
+      groupId: robloxGame.groupId,
+      groupName: robloxGame.groupName,
+    };
+    
+    if (process.env.NODE_ENV === "development") {
+      console.log("[v0] Request payload:", payload);
+    }
     
     try {
       const response = await fetch("/api/roblox/select-game", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roblox_game_id: String(robloxGame.id),
-          name: robloxGame.name,
-        }),
+        body: JSON.stringify(payload),
       });
+      
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Response status:", response.status);
+      }
       
       const data = await response.json();
       
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Response JSON:", data);
+      }
+      
       if (response.status === 403) {
-        setLimitError(data.message || "Plan limit reached");
-      } else if (response.ok && data.game) {
-        // Add to connected games list
+        const errorMessage = data.message || "You reached your plan limit. Upgrade to connect more games.";
+        setLimitError(errorMessage);
+        toast.error(errorMessage);
+      } else if (!response.ok) {
+        const errorMessage = data.error || data.message || "Failed to connect game";
+        toast.error(errorMessage);
+      } else if (data.game) {
+        // Success - update local state
         if (data.action === "created") {
+          // New game created - add to list and deselect others
           setConnectedGames([data.game, ...connectedGames.map(g => ({ ...g, is_selected: false }))]);
+        } else if (data.action === "selected") {
+          // Existing game selected - update selection
+          setConnectedGames(connectedGames.map(g => ({
+            ...g,
+            is_selected: g.id === data.game.id,
+          })));
         }
         setLimitError(null);
+        toast.success("Game connected");
+        router.refresh();
       }
-    } catch {
-      // Error handled silently
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Failed to connect game";
+      toast.error(errorMessage);
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Connect game error:", error);
+      }
     }
     
     setConnectingGameId(null);
