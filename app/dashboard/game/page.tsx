@@ -25,11 +25,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 
-// Roblox game from API
+// Roblox game from API (now includes group games)
 interface RobloxGame {
   id: number;
   name: string;
   rootPlaceId: number;
+  source: "user" | "group";
+  groupName?: string;
+  groupId?: number;
+  roleName?: string;
+  roleRank?: number;
 }
 
 // Game from database
@@ -60,6 +65,7 @@ export default function GamePage() {
   const [robloxGames, setRobloxGames] = useState<RobloxGame[]>([]);
   const [loadingRobloxGames, setLoadingRobloxGames] = useState(false);
   const [robloxError, setRobloxError] = useState<string | null>(null);
+  const [groupWarning, setGroupWarning] = useState<string | null>(null);
   const [hasRobloxAccount, setHasRobloxAccount] = useState<boolean | null>(null);
   
   // Selection/connection state
@@ -124,6 +130,7 @@ export default function GamePage() {
     
     setLoadingRobloxGames(true);
     setRobloxError(null);
+    setGroupWarning(null);
     
     try {
       const response = await fetch("/api/roblox/games");
@@ -137,6 +144,9 @@ export default function GamePage() {
         }
       } else {
         setRobloxGames(data.games || []);
+        if (data.warning) {
+          setGroupWarning(data.warning);
+        }
       }
     } catch {
       setRobloxError("Failed to fetch Roblox games");
@@ -559,66 +569,95 @@ print("[RoMonetize] Tracker initialized!")` : "";
                   </p>
                 </div>
               ) : (
-                <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {robloxGames.map((robloxGame) => {
-                    const connected = isGameConnected(robloxGame.id);
-                    const connectedGame = getConnectedGame(robloxGame.id);
-                    const isConnecting = connectingGameId === robloxGame.id;
-                    
-                    return (
-                      <div
-                        key={robloxGame.id}
-                        className={`p-4 rounded-lg border transition-colors ${
-                          connected 
-                            ? "bg-green-500/5 border-green-500/30" 
-                            : "bg-secondary/30 border-border hover:border-primary/30"
-                        }`}
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="w-12 h-12 rounded-lg bg-gradient-to-br from-primary/20 to-blue-400/20 flex items-center justify-center shrink-0">
-                            <Gamepad2 className="w-6 h-6 text-primary" />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <div className="font-medium text-foreground truncate">{robloxGame.name}</div>
-                            <div className="text-xs text-muted-foreground">ID: {robloxGame.id}</div>
-                          </div>
-                        </div>
-                        <div className="mt-3">
-                          {connected ? (
-                            <div className="flex items-center justify-center gap-2 py-1.5 text-sm text-green-500">
-                              <Check className="w-4 h-4" />
-                              Connected
+                <>
+                  {groupWarning && (
+                    <div className="flex items-center gap-2 p-3 mb-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm text-yellow-600 dark:text-yellow-400">
+                      <AlertCircle className="w-4 h-4 shrink-0" />
+                      {groupWarning}
+                    </div>
+                  )}
+                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {robloxGames.map((robloxGame) => {
+                      const connected = isGameConnected(robloxGame.id);
+                      const connectedGame = getConnectedGame(robloxGame.id);
+                      const isConnecting = connectingGameId === robloxGame.id;
+                      
+                      return (
+                        <div
+                          key={robloxGame.id}
+                          className={`p-4 rounded-lg border transition-colors ${
+                            connected 
+                              ? "bg-green-500/5 border-green-500/30" 
+                              : "bg-secondary/30 border-border hover:border-primary/30"
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${
+                              robloxGame.source === "group" 
+                                ? "bg-gradient-to-br from-purple-500/20 to-pink-400/20" 
+                                : "bg-gradient-to-br from-primary/20 to-blue-400/20"
+                            }`}>
+                              <Gamepad2 className={`w-6 h-6 ${
+                                robloxGame.source === "group" ? "text-purple-500" : "text-primary"
+                              }`} />
                             </div>
-                          ) : (
-                            <Button 
-                              size="sm" 
-                              className="w-full gap-2"
-                              onClick={() => handleConnectGame(robloxGame)}
-                              disabled={isConnecting || isAtLimit}
-                            >
-                              {isConnecting ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                  Connecting...
-                                </>
-                              ) : isAtLimit ? (
-                                <>
-                                  <Crown className="w-4 h-4" />
-                                  Upgrade to Connect
-                                </>
-                              ) : (
-                                <>
-                                  <Link2 className="w-4 h-4" />
-                                  Connect Game
-                                </>
-                              )}
-                            </Button>
-                          )}
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-foreground truncate">{robloxGame.name}</div>
+                              <div className="text-xs text-muted-foreground">ID: {robloxGame.id}</div>
+                              {/* Source badge */}
+                              <div className="mt-1">
+                                {robloxGame.source === "group" ? (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                                    Group: {robloxGame.groupName}
+                                    {robloxGame.roleName && (
+                                      <span className="opacity-70">({robloxGame.roleName})</span>
+                                    )}
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
+                                    Personal Game
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="mt-3">
+                            {connected ? (
+                              <div className="flex items-center justify-center gap-2 py-1.5 text-sm text-green-500">
+                                <Check className="w-4 h-4" />
+                                Connected
+                              </div>
+                            ) : (
+                              <Button 
+                                size="sm" 
+                                className="w-full gap-2"
+                                onClick={() => handleConnectGame(robloxGame)}
+                                disabled={isConnecting || isAtLimit}
+                              >
+                                {isConnecting ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                    Connecting...
+                                  </>
+                                ) : isAtLimit ? (
+                                  <>
+                                    <Crown className="w-4 h-4" />
+                                    Upgrade to Connect
+                                  </>
+                                ) : (
+                                  <>
+                                    <Link2 className="w-4 h-4" />
+                                    Connect Game
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
             </CardContent>
           </Card>
