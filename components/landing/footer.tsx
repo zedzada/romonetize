@@ -1,3 +1,5 @@
+import Link from "next/link";
+
 const footerLinks = {
   Product: ["Features", "Pricing", "Dashboard", "Changelog"],
   Resources: ["Documentation", "API Reference", "Community", "Blog"],
@@ -44,12 +46,12 @@ export function Footer() {
             © 2026 RoMonetize. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <Link href="/privacy" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Privacy Policy
-            </a>
-            <a href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+            </Link>
+            <Link href="/terms" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
               Terms of Service
-            </a>
+            </Link>
           </div>
         </div>
       </div>
