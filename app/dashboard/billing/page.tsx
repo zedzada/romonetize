@@ -7,7 +7,6 @@ import {
   Zap,
   Building2,
   Crown,
-  TrendingUp,
   Gamepad2,
   CalendarDays,
   ExternalLink,
@@ -15,12 +14,12 @@ import {
   AlertCircle,
   Sparkles,
   Plus,
-  X,
+  RefreshCw,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -43,10 +42,12 @@ export default function BillingPage() {
 
 function BillingContent() {
   const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const [billingPeriod, setBillingPeriod] = useState<"monthly" | "yearly">("monthly");
   const [processingPlan, setProcessingPlan] = useState<string | null>(null);
   const [showCreditsModal, setShowCreditsModal] = useState(false);
   const [purchasingPackage, setPurchasingPackage] = useState<string | null>(null);
+  const [lastSyncMessage, setLastSyncMessage] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<{
     plan: PricingPlan;
     status: string;
@@ -60,7 +61,7 @@ function BillingContent() {
   } | null>(null);
   
   // AI Credits
-  const { monthlyCredits, extraCredits, totalCredits, refresh: refreshCredits } = useCredits();
+  const { monthlyCredits, extraCredits, totalCredits, refresh: refreshCredits, isLoading: creditsLoading } = useCredits();
   const { purchaseCredits } = useCreditPackages();
   
   const searchParams = useSearchParams();
@@ -77,16 +78,26 @@ function BillingContent() {
     }
   }, [creditsSuccess, refreshCredits]);
 
-  useEffect(() => {
-    async function loadSubscription() {
-      const result = await getSubscriptionStatus();
-      if (!("error" in result)) {
-        setSubscription(result);
-      }
-      setLoading(false);
+  const loadSubscription = async () => {
+    const result = await getSubscriptionStatus();
+    if (!("error" in result)) {
+      setSubscription(result);
     }
+    setLoading(false);
+  };
+
+  useEffect(() => {
     loadSubscription();
   }, []);
+
+  const handleSync = async () => {
+    setSyncing(true);
+    setLastSyncMessage(null);
+    await loadSubscription();
+    await refreshCredits();
+    setLastSyncMessage(`Last synced at ${new Date().toLocaleTimeString()}`);
+    setSyncing(false);
+  };
 
   const handleSubscribe = async (planId: string) => {
     setProcessingPlan(planId);
@@ -102,6 +113,8 @@ function BillingContent() {
     const result = await createPortalSession();
     if (result.url) {
       window.location.href = result.url;
+    } else if (result.error) {
+      alert(result.error === "No billing account found" ? "No Stripe customer found yet." : result.error);
     }
     setProcessingPlan(null);
   };
@@ -131,6 +144,42 @@ function BillingContent() {
     return formatPrice(price);
   };
 
+  // Get plan button text and action
+  const getPlanButton = (plan: PricingPlan, currentPlan: PricingPlan) => {
+    const isCurrentPlan = currentPlan.id === plan.id;
+    const currentPlanIndex = PRICING_PLANS.findIndex(p => p.id === currentPlan.id);
+    const targetPlanIndex = PRICING_PLANS.findIndex(p => p.id === plan.id);
+    const isUpgrade = targetPlanIndex > currentPlanIndex;
+    const isDowngrade = targetPlanIndex < currentPlanIndex;
+    const hasPaidPlan = currentPlan.id !== "free";
+
+    if (isCurrentPlan) {
+      return { text: "Current Plan", disabled: true, action: () => {}, variant: "secondary" as const };
+    }
+
+    // For free plan target
+    if (plan.id === "free") {
+      if (hasPaidPlan) {
+        return { text: "Manage Billing", disabled: false, action: handleManageBilling, variant: "outline" as const };
+      }
+      return { text: "Free", disabled: true, action: () => {}, variant: "outline" as const };
+    }
+
+    // For paid plan targets
+    if (hasPaidPlan) {
+      // Already on a paid plan - use Manage Billing for any change
+      return { text: "Manage Billing", disabled: false, action: handleManageBilling, variant: "outline" as const };
+    }
+
+    // Free user upgrading to a paid plan
+    return { 
+      text: isUpgrade ? `Upgrade to ${plan.name}` : `Get ${plan.name}`, 
+      disabled: false, 
+      action: () => handleSubscribe(plan.id), 
+      variant: plan.popular ? "default" as const : "outline" as const 
+    };
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
@@ -140,10 +189,6 @@ function BillingContent() {
   }
 
   const currentPlan = subscription?.plan || PRICING_PLANS[0];
-  const eventsUsagePercent = subscription ? (subscription.usage.events / subscription.usage.eventsLimit) * 100 : 0;
-  const gamesUsagePercent = subscription && subscription.usage.gamesLimit > 0 
-    ? (subscription.usage.games / subscription.usage.gamesLimit) * 100 
-    : 0;
 
   return (
     <div className="space-y-8">
@@ -153,17 +198,32 @@ function BillingContent() {
           <h1 className="text-2xl font-bold text-foreground">Billing</h1>
           <p className="text-muted-foreground">Manage your subscription and usage</p>
         </div>
-        {subscription?.status === "active" && currentPlan.id !== "free" && (
-          <Button variant="outline" onClick={handleManageBilling} disabled={processingPlan === "manage"}>
-            {processingPlan === "manage" ? (
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleSync} disabled={syncing}>
+            {syncing ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              <ExternalLink className="w-4 h-4 mr-2" />
+              <RefreshCw className="w-4 h-4 mr-2" />
             )}
-            Manage Billing
+            Sync
           </Button>
-        )}
+          {currentPlan.id !== "free" && (
+            <Button variant="outline" onClick={handleManageBilling} disabled={processingPlan === "manage"}>
+              {processingPlan === "manage" ? (
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+              ) : (
+                <ExternalLink className="w-4 h-4 mr-2" />
+              )}
+              Manage Billing
+            </Button>
+          )}
+        </div>
       </div>
+
+      {/* Sync message */}
+      {lastSyncMessage && (
+        <p className="text-xs text-muted-foreground">{lastSyncMessage}</p>
+      )}
 
       {/* Success/Cancel alerts */}
       {success && (
@@ -199,17 +259,18 @@ function BillingContent() {
         </Alert>
       )}
 
-      {/* Current Plan & Usage */}
+      {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        {/* Current Plan */}
         <Card className="border-border bg-card">
           <CardHeader className="pb-2">
             <CardDescription>Current Plan</CardDescription>
             <CardTitle className="flex items-center gap-2">
               {getPlanIcon(currentPlan.id)}
               {currentPlan.name}
-              {currentPlan.id !== "free" && (
-                <Badge variant="secondary" className="ml-2">
-                  {subscription?.status === "active" ? "Active" : subscription?.status || "Inactive"}
+              {(subscription?.status === "active" || currentPlan.id === "free") && (
+                <Badge variant="secondary" className="ml-2 bg-green-500/10 text-green-500 border-green-500/30">
+                  Active
                 </Badge>
               )}
             </CardTitle>
@@ -224,69 +285,56 @@ function BillingContent() {
           </CardContent>
         </Card>
 
+        {/* Tracked Actions - Now Unlimited */}
         <Card className="border-border bg-card">
           <CardHeader className="pb-2">
-            <CardDescription>Events This Month</CardDescription>
+            <CardDescription>Tracked Actions This Month</CardDescription>
             <CardTitle className="flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-blue-500" />
-              {subscription?.usage.events.toLocaleString()} / {subscription?.usage.eventsLimit.toLocaleString()}
+              Unlimited
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <Progress value={Math.min(eventsUsagePercent, 100)} className="h-2" />
-            <p className="text-xs text-muted-foreground mt-1">
-              {eventsUsagePercent >= 80 ? (
-                <span className="text-amber-500">
-                  {eventsUsagePercent >= 100 ? "Limit reached" : "Approaching limit"}
-                </span>
-              ) : (
-                `${(100 - eventsUsagePercent).toFixed(0)}% remaining`
-              )}
+            <p className="text-xs text-muted-foreground">
+              Tracked actions are unlimited on all plans. Track as many player joins, clicks, and purchases as you need.
             </p>
           </CardContent>
         </Card>
 
+        {/* Connected Games */}
         <Card className="border-border bg-card">
           <CardHeader className="pb-2">
             <CardDescription>Connected Games</CardDescription>
             <CardTitle className="flex items-center gap-2">
               <Gamepad2 className="w-5 h-5 text-green-500" />
-              {subscription?.usage.games} / {subscription?.usage.gamesLimit === -1 ? "Unlimited" : subscription?.usage.gamesLimit}
+              {subscription?.usage.games || 0} / {currentPlan.limits.games}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {subscription?.usage.gamesLimit !== -1 && (
-              <>
-                <Progress value={Math.min(gamesUsagePercent, 100)} className="h-2" />
-                <p className="text-xs text-muted-foreground mt-1">
-                  {gamesUsagePercent >= 100 ? (
-                    <span className="text-amber-500">Limit reached</span>
-                  ) : (
-                    `${subscription?.usage.gamesLimit - subscription?.usage.games} slot${(subscription?.usage.gamesLimit - subscription?.usage.games) !== 1 ? "s" : ""} available`
-                  )}
-                </p>
-              </>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {currentPlan.limits.games - (subscription?.usage.games || 0)} slot{currentPlan.limits.games - (subscription?.usage.games || 0) !== 1 ? "s" : ""} available
+            </p>
           </CardContent>
         </Card>
 
+        {/* AI Credits */}
         <Card className="border-border bg-card">
           <CardHeader className="pb-2">
-            <CardDescription>AI Credits</CardDescription>
+            <CardDescription>AI Assistant Credits</CardDescription>
             <CardTitle className="flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-purple-500" />
-              {totalCredits}
+              {creditsLoading ? "..." : totalCredits} credits
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-1">
+            <div className="space-y-2">
               <p className="text-xs text-muted-foreground">
-                Monthly: {monthlyCredits} | Extra: {extraCredits}
+                Monthly: {creditsLoading ? "..." : monthlyCredits} | Extra: {creditsLoading ? "..." : extraCredits}
               </p>
               <Button
                 variant="outline"
                 size="sm"
-                className="w-full gap-1 mt-2"
+                className="w-full gap-1"
                 onClick={() => setShowCreditsModal(true)}
               >
                 <Plus className="w-3 h-3" />
@@ -315,8 +363,7 @@ function BillingContent() {
       {/* Pricing Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {PRICING_PLANS.map((plan) => {
-          const isCurrentPlan = currentPlan.id === plan.id;
-          const isDowngrade = PRICING_PLANS.findIndex(p => p.id === plan.id) < PRICING_PLANS.findIndex(p => p.id === currentPlan.id);
+          const button = getPlanButton(plan, currentPlan);
           
           return (
             <Card 
@@ -352,29 +399,20 @@ function BillingContent() {
                 </ul>
               </CardContent>
               <CardFooter>
-                {isCurrentPlan ? (
-                  <Button className="w-full" variant="secondary" disabled>
-                    Current Plan
-                  </Button>
-                ) : plan.id === "free" ? (
-                  <Button className="w-full" variant="outline" disabled={isDowngrade || processingPlan !== null}>
-                    {isDowngrade ? "Contact Support" : "Free"}
-                  </Button>
-                ) : (
-                  <Button 
-                    className="w-full" 
-                    variant={plan.popular ? "default" : "outline"}
-                    onClick={() => handleSubscribe(plan.id)}
-                    disabled={processingPlan !== null}
-                  >
-                    {processingPlan === plan.id ? (
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    ) : (
-                      <CreditCard className="w-4 h-4 mr-2" />
-                    )}
-                    {isDowngrade ? "Downgrade" : "Upgrade"}
-                  </Button>
-                )}
+                <Button 
+                  className="w-full" 
+                  variant={button.variant}
+                  onClick={button.action}
+                  disabled={button.disabled || processingPlan !== null}
+                >
+                  {processingPlan === plan.id && (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  )}
+                  {!button.disabled && processingPlan !== plan.id && plan.priceInCents > 0 && (
+                    <CreditCard className="w-4 h-4 mr-2" />
+                  )}
+                  {button.text}
+                </Button>
               </CardFooter>
             </Card>
           );
@@ -388,31 +426,35 @@ function BillingContent() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div>
-            <h4 className="font-medium">What happens when I reach my event limit?</h4>
+            <h4 className="font-medium">Are tracked actions limited?</h4>
             <p className="text-sm text-muted-foreground">
-              New events will be rejected until the next billing cycle or you upgrade your plan. 
-              Your existing data remains intact.
+              No. Tracked actions are unlimited on all plans.
             </p>
           </div>
           <div>
             <h4 className="font-medium">Can I cancel anytime?</h4>
             <p className="text-sm text-muted-foreground">
-              Yes! You can cancel your subscription at any time. You&apos;ll continue to have access 
-              until the end of your current billing period.
+              Yes. You can cancel from Manage Billing. You will keep access until the end of the billing period.
             </p>
           </div>
           <div>
             <h4 className="font-medium">What payment methods do you accept?</h4>
             <p className="text-sm text-muted-foreground">
-              We accept all major credit cards through Stripe, including Visa, Mastercard, 
-              American Express, and more.
+              Stripe supports major cards and supported payment methods.
             </p>
           </div>
           <div>
             <h4 className="font-medium">How do AI credits work?</h4>
             <p className="text-sm text-muted-foreground">
-              Text AI prompts cost 1 credit. Image analysis costs 3 credits. 
-              Monthly credits refresh each billing cycle. Extra purchased credits never expire.
+              Text prompts cost 1 credit. Image analysis costs 3 credits. 
+              Pro includes 100 credits/month and Studio includes 500 credits/month. 
+              Extra purchased credits never expire.
+            </p>
+          </div>
+          <div>
+            <h4 className="font-medium">Can free users access the AI Assistant?</h4>
+            <p className="text-sm text-muted-foreground">
+              Yes. Free users can use AI Assistant with purchased credits.
             </p>
           </div>
         </CardContent>
@@ -431,34 +473,55 @@ function BillingContent() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
-            {CREDIT_PACKAGES.map((pkg) => (
-              <button
-                key={pkg.id}
-                onClick={() => handlePurchaseCredits(pkg.id)}
-                disabled={purchasingPackage !== null}
-                className="w-full p-4 rounded-lg border border-border bg-card hover:bg-secondary/50 transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center">
-                    <Sparkles className="w-5 h-5 text-purple-500" />
-                  </div>
-                  <div className="text-left">
-                    <div className="font-semibold">{pkg.credits} Credits</div>
-                    <div className="text-sm text-muted-foreground">
-                      ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+            {CREDIT_PACKAGES.map((pkg) => {
+              const badge = pkg.credits === 250 
+                ? { text: "Best Value • Save 10%", color: "text-green-600 bg-green-500/10" }
+                : pkg.credits === 500
+                  ? { text: "Save 25%", color: "text-blue-600 bg-blue-500/10" }
+                  : null;
+              
+              return (
+                <button
+                  key={pkg.id}
+                  onClick={() => handlePurchaseCredits(pkg.id)}
+                  disabled={purchasingPackage !== null}
+                  className={`w-full p-4 rounded-lg border transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed ${
+                    pkg.credits === 250
+                      ? "border-green-500/30 bg-green-500/5 hover:bg-green-500/10"
+                      : "border-border bg-card hover:bg-secondary/50"
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                      pkg.credits === 250 ? "bg-green-500/10" : "bg-purple-500/10"
+                    }`}>
+                      <Sparkles className={`w-5 h-5 ${pkg.credits === 250 ? "text-green-500" : "text-purple-500"}`} />
+                    </div>
+                    <div className="text-left">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold">{pkg.credits} Credits</span>
+                        {badge && (
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.color}`}>
+                            {badge.text}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-sm text-muted-foreground">
+                        ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+                      </div>
                     </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
-                  {purchasingPackage === pkg.id ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <CreditCard className="w-4 h-4 text-muted-foreground" />
-                  )}
-                </div>
-              </button>
-            ))}
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
+                    {purchasingPackage === pkg.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <CreditCard className="w-4 h-4 text-muted-foreground" />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
           </div>
           <div className="text-xs text-muted-foreground text-center">
             Secure payment via Stripe. Credits are added instantly after purchase.
