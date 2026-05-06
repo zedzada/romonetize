@@ -28,6 +28,8 @@ import { getUserGameIds } from "@/lib/actions/analytics";
 import { Radio, Gamepad2, ExternalLink } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { PlanLock } from "@/components/dashboard/plan-lock";
+import { createClient } from "@/lib/supabase/client";
 
 type SortField = "name" | "revenue" | "purchases" | "clicks" | "conversion" | "revenue_per_player";
 type SortOrder = "asc" | "desc";
@@ -68,6 +70,8 @@ export default function ProductsPage() {
   const [sortOrder, setSortOrder] = useState<SortOrder>("desc");
   const [activeTab, setActiveTab] = useState<"all" | "gamepass" | "devproduct">("all");
   const [gameIds, setGameIds] = useState<string[]>([]);
+  const [userPlan, setUserPlan] = useState<string>("free");
+  const [planLoading, setPlanLoading] = useState(true);
 
   // Fetch real Roblox products data
   const {
@@ -81,6 +85,21 @@ export default function ProductsPage() {
   const fetchProducts = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setPlanLoading(true);
+    
+    // Check user plan
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("plan")
+        .eq("id", user.id)
+        .single();
+      setUserPlan(profile?.plan || "free");
+    }
+    setPlanLoading(false);
+    
     const [productsResult, gameIdsResult] = await Promise.all([
       getProductStats(),
       getUserGameIds(),
@@ -183,7 +202,7 @@ export default function ProductsPage() {
   const highConverters = products.filter((p) => p.badges.includes("high_conversion"));
   const lowPerformers = products.filter((p) => p.badges.includes("low_performer"));
 
-  if (loading) {
+  if (loading || planLoading) {
     return (
       <div className="space-y-6">
         <div>
@@ -194,6 +213,22 @@ export default function ProductsPage() {
           <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
           <span className="ml-2 text-muted-foreground">Loading products...</span>
         </div>
+      </div>
+    );
+  }
+
+  // Plan lock for free users
+  if (userPlan === "free") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Products</h1>
+          <p className="text-muted-foreground">Analyze performance of all your gamepasses and developer products</p>
+        </div>
+        <PlanLock 
+          feature="Product Analytics" 
+          description="Track product performance, conversion rates, and revenue per product. Available on Pro and Studio plans."
+        />
       </div>
     );
   }
