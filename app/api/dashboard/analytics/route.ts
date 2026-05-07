@@ -19,9 +19,16 @@ function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: numbe
   }
 }
 
+/**
+ * Central Analytics API
+ * 
+ * All dashboard tabs use this single endpoint for consistent data.
+ * Uses the selected game (is_selected = true) as the single source of truth.
+ * 
+ * GET /api/dashboard/analytics?range=7d
+ */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const gameId = searchParams.get("gameId");
   const range = (searchParams.get("range") || "7d") as DateRange;
 
   const supabase = await createClient();
@@ -32,34 +39,69 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
   }
 
-  // Get game and verify ownership
-  let gameQuery = supabase
+  // Section errors tracking
+  const sectionErrors: Record<string, string> = {};
+
+  // 1. Get selected game (is_selected = true)
+  let selectedGame: {
+    id: string;
+    name: string;
+    roblox_game_id: string | null;
+    universe_id: string | null;
+  } | null = null;
+
+  const { data: selectedGameData } = await supabase
     .from("games")
     .select("id, name, roblox_game_id, universe_id")
     .eq("user_id", user.id)
-    .neq("status", "deleted");
+    .eq("is_selected", true)
+    .neq("status", "deleted")
+    .single();
 
-  if (gameId) {
-    gameQuery = gameQuery.eq("id", gameId);
+  if (selectedGameData) {
+    selectedGame = selectedGameData;
+  } else {
+    // No game selected - auto-select the first active game
+    const { data: firstGame } = await supabase
+      .from("games")
+      .select("id, name, roblox_game_id, universe_id")
+      .eq("user_id", user.id)
+      .neq("status", "deleted")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (firstGame) {
+      // Auto-select this game
+      await supabase
+        .from("games")
+        .update({ is_selected: true })
+        .eq("id", firstGame.id);
+      
+      selectedGame = firstGame;
+    }
   }
 
-  const { data: games, error: gamesError } = await gameQuery;
-
-  if (gamesError) {
-    return NextResponse.json({ success: false, error: gamesError.message }, { status: 500 });
-  }
-
-  if (!games || games.length === 0) {
+  // No games at all - return empty state
+  if (!selectedGame) {
     return NextResponse.json({
       success: true,
       data: {
         game: null,
         range,
+        overview: {
+          totalRevenue: 0,
+          totalPurchases: 0,
+          uniquePlayers: 0,
+          playerJoins: 0,
+          conversionRate: null,
+        },
         trackerStats: null,
         revenueStats: null,
         productStats: null,
         retentionStats: null,
         ccuStats: null,
+        robloxStats: null,
         charts: null,
         sectionErrors: {},
         lastUpdated: new Date().toISOString(),
@@ -67,18 +109,18 @@ export async function GET(request: NextRequest) {
     });
   }
 
-  // Use first game if multiple or specific game
-  const selectedGame = games[0];
-  const gameIds = games.map((g) => g.id);
-
+  const gameId = selectedGame.id;
   const rangeConfig = getRangeConfig(range);
   const now = new Date();
   const startDate = new Date(now.getTime() - rangeConfig.hours * 60 * 60 * 1000);
 
-  // Section errors tracking
-  const sectionErrors: Record<string, string> = {};
+  // Event type constants
+  const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+  const sessionStartTypes = ["player_join", "session_start"];
+  const sessionEndTypes = ["player_leave", "session_end"];
+  const clickTypes = ["gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
 
-  // Fetch all events for the game(s) in range - NO LIMIT
+  // 2. Fetch all events for the selected game in range - paginated to avoid caps
   let allEvents: Array<{
     id: string;
     event_type: string;
@@ -93,7 +135,6 @@ export async function GET(request: NextRequest) {
   }> = [];
 
   try {
-    // Paginate to get ALL events without cap
     let page = 0;
     const pageSize = 1000;
     let hasMore = true;
@@ -102,7 +143,7 @@ export async function GET(request: NextRequest) {
       const { data: events, error } = await supabase
         .from("events")
         .select("id, event_type, player_id, product_id, product_name, product_type, robux, created_at, game_id, metadata")
-        .in("game_id", gameIds)
+        .eq("game_id", gameId)
         .gte("created_at", startDate.toISOString())
         .order("created_at", { ascending: true })
         .range(page * pageSize, (page + 1) * pageSize - 1);
@@ -124,13 +165,7 @@ export async function GET(request: NextRequest) {
     sectionErrors.events = err instanceof Error ? err.message : "Failed to fetch events";
   }
 
-  // Event type constants
-  const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
-  const sessionStartTypes = ["player_join", "session_start"];
-  const sessionEndTypes = ["player_leave", "session_end"];
-  const clickTypes = ["gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
-
-  // === TRACKER STATS ===
+  // === BASIC STATS ===
   const purchaseEvents = allEvents.filter((e) => purchaseTypes.includes(e.event_type));
   const sessionEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
   const endEvents = allEvents.filter((e) => sessionEndTypes.includes(e.event_type));
@@ -166,7 +201,7 @@ export async function GET(request: NextRequest) {
     ? Math.round(sessionDurations.reduce((a, b) => a + b, 0) / sessionDurations.length)
     : null;
 
-  // === NEW VS RETURNING PLAYERS (requires all-time data) ===
+  // === NEW VS RETURNING PLAYERS ===
   let newPlayers = 0;
   let returningPlayers = 0;
   const playerFirstSeen = new Map<string, Date>();
@@ -176,7 +211,7 @@ export async function GET(request: NextRequest) {
     const { data: allTimeJoins } = await supabase
       .from("events")
       .select("player_id, created_at")
-      .in("game_id", gameIds)
+      .eq("game_id", gameId)
       .in("event_type", sessionStartTypes)
       .order("created_at", { ascending: true });
 
@@ -198,8 +233,8 @@ export async function GET(request: NextRequest) {
     sectionErrors.newReturning = err instanceof Error ? err.message : "Failed to calculate";
   }
 
-  // === RETENTION STATS (real cohort-based) ===
-  let retentionStats = {
+  // === RETENTION STATS (cohort-based) ===
+  const retentionStats = {
     day1: null as number | null,
     day7: null as number | null,
     day30: null as number | null,
@@ -209,29 +244,14 @@ export async function GET(request: NextRequest) {
   };
 
   try {
-    // D1 retention: cohort from 2 days ago
-    const d1CohortStart = new Date(now);
-    d1CohortStart.setDate(d1CohortStart.getDate() - 2);
-    d1CohortStart.setHours(0, 0, 0, 0);
-    const d1CohortEnd = new Date(d1CohortStart);
-    d1CohortEnd.setDate(d1CohortEnd.getDate() + 1);
+    // D1 retention: cohort from 2 days ago, check if they returned on day 1
+    const calculateRetention = async (daysAgo: number, returnDay: number) => {
+      const cohortStart = new Date(now);
+      cohortStart.setDate(cohortStart.getDate() - daysAgo);
+      cohortStart.setHours(0, 0, 0, 0);
+      const cohortEnd = new Date(cohortStart);
+      cohortEnd.setDate(cohortEnd.getDate() + 1);
 
-    // D7 retention: cohort from 8 days ago
-    const d7CohortStart = new Date(now);
-    d7CohortStart.setDate(d7CohortStart.getDate() - 8);
-    d7CohortStart.setHours(0, 0, 0, 0);
-    const d7CohortEnd = new Date(d7CohortStart);
-    d7CohortEnd.setDate(d7CohortEnd.getDate() + 1);
-
-    // D30 retention: cohort from 31 days ago
-    const d30CohortStart = new Date(now);
-    d30CohortStart.setDate(d30CohortStart.getDate() - 31);
-    d30CohortStart.setHours(0, 0, 0, 0);
-    const d30CohortEnd = new Date(d30CohortStart);
-    d30CohortEnd.setDate(d30CohortEnd.getDate() + 1);
-
-    // Helper to calculate retention for a cohort
-    const calculateCohortRetention = (cohortStart: Date, cohortEnd: Date, dayOffset: number) => {
       // Players whose first join is in the cohort window
       const cohortPlayers = new Set<string>();
       playerFirstSeen.forEach((firstSeen, playerId) => {
@@ -244,25 +264,46 @@ export async function GET(request: NextRequest) {
         return { rate: null, message: "Not enough data yet" };
       }
 
-      // Check if they returned on day D+offset
-      const returnWindow = new Date(cohortStart);
-      returnWindow.setDate(returnWindow.getDate() + dayOffset);
-      const returnWindowEnd = new Date(returnWindow);
-      returnWindowEnd.setDate(returnWindowEnd.getDate() + 1);
+      // Check how many returned on the target day
+      const returnStart = new Date(cohortStart);
+      returnStart.setDate(returnStart.getDate() + returnDay);
+      const returnEnd = new Date(returnStart);
+      returnEnd.setDate(returnEnd.getDate() + 1);
 
-      // Need to check all-time joins again for return visits
-      let returnedCount = 0;
-      playerFirstSeen.forEach((firstSeen, playerId) => {
-        if (!cohortPlayers.has(playerId)) return;
-        // Check if this player has any join after firstSeen on the return day
+      // Fetch return visits
+      const { data: returnVisits } = await supabase
+        .from("events")
+        .select("player_id")
+        .eq("game_id", gameId)
+        .in("event_type", sessionStartTypes)
+        .gte("created_at", returnStart.toISOString())
+        .lt("created_at", returnEnd.toISOString());
+
+      const returnedPlayers = new Set<string>();
+      (returnVisits || []).forEach((e) => {
+        if (e.player_id && cohortPlayers.has(e.player_id)) {
+          returnedPlayers.add(e.player_id);
+        }
       });
 
-      // This requires another query for return visits
-      return { rate: null, message: "Collecting data..." };
+      const rate = Math.round((returnedPlayers.size / cohortPlayers.size) * 100);
+      return { rate, message: null };
     };
 
-    // For now, use simplified calculation from playerFirstSeen map
-    // Full retention requires checking all joins, not just first seen
+    // D1: cohort from 2 days ago, returned on day 1 after
+    const d1Result = await calculateRetention(2, 1);
+    retentionStats.day1 = d1Result.rate;
+    retentionStats.day1Message = d1Result.message;
+
+    // D7: cohort from 8 days ago, returned on day 7 after
+    const d7Result = await calculateRetention(8, 7);
+    retentionStats.day7 = d7Result.rate;
+    retentionStats.day7Message = d7Result.message;
+
+    // D30: cohort from 31 days ago, returned on day 30 after
+    const d30Result = await calculateRetention(31, 30);
+    retentionStats.day30 = d30Result.rate;
+    retentionStats.day30Message = d30Result.message;
   } catch (err) {
     sectionErrors.retention = err instanceof Error ? err.message : "Failed to calculate retention";
   }
@@ -279,7 +320,8 @@ export async function GET(request: NextRequest) {
 
   const arpdau = uniquePlayers > 0 ? totalRevenue / uniquePlayers : 0;
   const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
-  const conversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : 0;
+  const conversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : null;
+  const purchaseRate = uniquePlayers > 0 ? (totalPurchases / uniquePlayers) * 100 : null;
 
   // === PRODUCT STATS ===
   const productMap = new Map<string, {
@@ -342,6 +384,7 @@ export async function GET(request: NextRequest) {
       uniqueBuyers: p.uniqueBuyers.size,
       clicks: p.clicks,
       conversionRate: p.clicks > 0 ? (p.purchases / p.clicks) * 100 : null,
+      conversionNeedsTracking: p.clicks === 0 && p.purchases > 0,
       revPerBuyer: p.uniqueBuyers.size > 0 ? p.revenue / p.uniqueBuyers.size : 0,
     }))
     .sort((a, b) => b.revenue - a.revenue);
@@ -366,7 +409,7 @@ export async function GET(request: NextRequest) {
     const { data: ccuSnapshots } = await supabase
       .from("ccu_snapshots")
       .select("ccu, created_at")
-      .eq("game_id", selectedGame.id)
+      .eq("game_id", gameId)
       .gte("created_at", startDate.toISOString())
       .order("created_at", { ascending: true });
 
@@ -391,7 +434,11 @@ export async function GET(request: NextRequest) {
     const eventDate = new Date(e.created_at);
     let bucketKey: string;
 
-    if (range === "1h" || range === "1d") {
+    if (range === "1h") {
+      // 5-minute buckets
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (range === "1d") {
       // Hourly buckets
       bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
     } else {
@@ -415,26 +462,28 @@ export async function GET(request: NextRequest) {
     .sort((a, b) => a.time.localeCompare(b.time));
 
   // Players chart
-  const playerBuckets = new Map<string, { total: number; new: number; returning: number }>();
+  const playerBuckets = new Map<string, { total: Set<string>; new: number; returning: number }>();
 
   allEvents.filter((e) => e.player_id).forEach((e) => {
     const eventDate = new Date(e.created_at);
     let bucketKey: string;
 
-    if (range === "1h" || range === "1d") {
+    if (range === "1h") {
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (range === "1d") {
       bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
     } else {
       bucketKey = eventDate.toISOString().slice(0, 10);
     }
 
-    const existing = playerBuckets.get(bucketKey) || { total: 0, new: 0, returning: 0 };
-    // This is simplified - for accurate new/returning per bucket need more complex logic
-    existing.total += 1;
+    const existing = playerBuckets.get(bucketKey) || { total: new Set<string>(), new: 0, returning: 0 };
+    existing.total.add(e.player_id!);
     playerBuckets.set(bucketKey, existing);
   });
 
   const playersChart = Array.from(playerBuckets.entries())
-    .map(([time, data]) => ({ time, ...data }))
+    .map(([time, data]) => ({ time, players: data.total.size }))
     .sort((a, b) => a.time.localeCompare(b.time));
 
   return NextResponse.json({
@@ -447,6 +496,16 @@ export async function GET(request: NextRequest) {
         universe_id: selectedGame.universe_id,
       },
       range,
+      // Overview stats (for Overview tab)
+      overview: {
+        totalRevenue,
+        totalPurchases,
+        uniquePlayers,
+        playerJoins: totalSessions,
+        conversionRate, // purchases / unique players * 100
+        purchaseRate,
+      },
+      // Tracker stats (for Game Performance tab)
       trackerStats: {
         totalEvents: allEvents.length,
         uniquePlayers,
@@ -458,6 +517,7 @@ export async function GET(request: NextRequest) {
         totalPurchases,
         lastEventTime: allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null,
       },
+      // Revenue stats (for Monetization tab)
       revenueStats: {
         totalRevenue,
         gamepassRevenue,
@@ -468,15 +528,20 @@ export async function GET(request: NextRequest) {
         arpdau,
         arppu,
       },
+      // Product stats (for Products tab)
       productStats: {
         totalRevenue: totalProductRevenue,
         totalPurchases: totalProductPurchases,
         uniqueBuyers: totalUniqueBuyers,
         avgConversionRate,
-        products: products.slice(0, 20), // Top 20
+        avgConversionNeedsTracking: productsWithClicks.length === 0 && products.length > 0,
+        products: products.slice(0, 50), // Top 50
       },
+      // Retention stats
       retentionStats,
+      // CCU stats
       ccuStats,
+      // Charts
       charts: {
         revenue: revenueChart,
         players: playersChart,
