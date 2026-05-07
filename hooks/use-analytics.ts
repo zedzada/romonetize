@@ -1,11 +1,34 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useCallback } from "react";
 import useSWR from "swr";
 import { useRealtimeStats } from "./use-realtime-stats";
 import { useStatsRefresh } from "./use-stats-refresh";
 
 export type DateRange = "1h" | "1d" | "7d" | "30d";
+
+export interface DataHealth {
+  selectedGameId: string | null;
+  robloxGameId: string | null;
+  rootPlaceId: string | null;
+  gameName: string | null;
+  hasTrackerEvents: boolean;
+  trackerEventsCount: number;
+  lastTrackerEventAt: string | null;
+  hasRobloxApiData: boolean;
+  robloxApiLastSyncedAt: string | null;
+  missing: string[];
+}
+
+export interface RobloxStats {
+  ccu: number | null;
+  visits: number | null;
+  favorites: number | null;
+  likes: number | null;
+  dislikes: number | null;
+  likeRatio: number | null;
+  updatedAt: string | null;
+}
 
 export interface TrackerStats {
   totalEvents: number;
@@ -50,6 +73,7 @@ export interface ProductStats {
   avgConversionRate: number | null;
   avgConversionNeedsTracking: boolean;
   products: ProductInfo[];
+  hasTrackerData: boolean;
 }
 
 export interface RetentionStats {
@@ -66,6 +90,7 @@ export interface CCUStats {
   peak: number | null;
   avg: number | null;
   snapshots: Array<{ time: string; ccu: number }>;
+  message: string | null;
 }
 
 export interface OverviewStats {
@@ -79,7 +104,7 @@ export interface OverviewStats {
 
 export interface ChartData {
   revenue: Array<{ time: string; revenue: number; purchases: number; passes: number; devProducts: number }>;
-  players: Array<{ time: string; total: number; new: number; returning: number }>;
+  players: Array<{ time: string; players: number }>;
 }
 
 export interface AnalyticsData {
@@ -90,6 +115,8 @@ export interface AnalyticsData {
     universe_id: string | null;
   } | null;
   range: DateRange;
+  dataHealth: DataHealth | null;
+  robloxStats: RobloxStats | null;
   overview: OverviewStats | null;
   trackerStats: TrackerStats | null;
   revenueStats: RevenueStats | null;
@@ -196,10 +223,17 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     }
   }, []);
 
+  // Helper to check if tracking script is needed
+  const needsTrackingScript = data?.dataHealth?.missing.includes("tracking_script_not_installed") ?? false;
+  const hasRobloxData = data?.dataHealth?.hasRobloxApiData ?? false;
+  const hasTrackerData = data?.dataHealth?.hasTrackerEvents ?? false;
+
   return {
     // Data
     data,
     game: data?.game ?? null,
+    dataHealth: data?.dataHealth ?? null,
+    robloxStats: data?.robloxStats ?? null,
     overview: data?.overview ?? null,
     trackerStats: data?.trackerStats ?? null,
     revenueStats: data?.revenueStats ?? null,
@@ -209,6 +243,11 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     charts: data?.charts ?? null,
     sectionErrors: data?.sectionErrors ?? {},
     lastUpdated: data?.lastUpdated ?? null,
+
+    // Data health helpers
+    needsTrackingScript,
+    hasRobloxData,
+    hasTrackerData,
 
     // State
     isLoading,

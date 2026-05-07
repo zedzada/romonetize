@@ -55,6 +55,8 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Gamepad2, ExternalLink } from "lucide-react";
 import { PlanLock } from "@/components/dashboard/plan-lock";
 import { createClient } from "@/lib/supabase/client";
+import { DataStatusBanner } from "@/components/dashboard/data-status-banner";
+import { useAnalytics } from "@/hooks/use-analytics";
 
 // Filter options
 const dateRanges = ["Last 7 days", "Last 14 days", "Last 28 days"];
@@ -116,6 +118,9 @@ export default function MonetizationPage() {
     needsConnection: robloxNeedsConnection,
     refresh: refreshRobloxData 
   } = useRobloxMonetization();
+
+  // Get dataHealth for banner
+  const { dataHealth, refresh: refreshAnalytics } = useAnalytics({ enabled: !!selectedGameId });
 
   const fetchData = useCallback(async () => {
     // Get monetization stats (uses selected game from DB)
@@ -269,6 +274,12 @@ export default function MonetizationPage() {
     );
   }
 
+  // Banner sync handler
+  const handleBannerSync = () => {
+    handleRefresh();
+    refreshAnalytics();
+  };
+
   // Merge Roblox API data with local event data
   const displayStats = {
     totalRevenue: robloxData?.totalRevenue || stats?.totalRevenue || 0,
@@ -313,6 +324,9 @@ export default function MonetizationPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Data Status Banner */}
+      <DataStatusBanner dataHealth={dataHealth} onSync={handleBannerSync} />
 
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

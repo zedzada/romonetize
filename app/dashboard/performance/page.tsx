@@ -27,6 +27,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
 import { RobuxValue } from "@/components/ui/robux-icon";
+import { DataStatusBanner } from "@/components/dashboard/data-status-banner";
+import { useAnalytics } from "@/hooks/use-analytics";
 import Link from "next/link";
 import {
   XAxis,
@@ -110,6 +112,9 @@ export default function PerformancePage() {
   } | null>(null);
 
   const gameIds = game ? [game.id] : [];
+
+  // Get dataHealth for banner
+  const { dataHealth, refresh: refreshAnalytics } = useAnalytics({ enabled: !!game });
 
   const fetchPerformanceData = async (gameId: string) => {
     const { data } = await getPerformanceStats(gameId, 30); // Always fetch 30 days for comprehensive data
@@ -423,6 +428,15 @@ export default function PerformancePage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Data Status Banner */}
+      <DataStatusBanner 
+        dataHealth={dataHealth} 
+        onSync={() => {
+          handleRefresh();
+          refreshAnalytics();
+        }}
+      />
 
       {/* Data Sources Explanation */}
       <div className="p-4 bg-secondary/30 border border-border rounded-lg">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getRobloxGameStats, getUniverseIdFromPlaceId } from "@/lib/services/roblox-api";
 
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d";
@@ -26,6 +27,12 @@ function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: numbe
  * Uses the selected game (is_selected = true) as the single source of truth.
  * 
  * GET /api/dashboard/analytics?range=7d
+ * 
+ * Returns:
+ * - dataHealth: diagnostic info about data availability
+ * - robloxStats: public Roblox API stats (CCU, visits, favorites, etc)
+ * - trackerStats: deep analytics from tracking script
+ * - All other analytics data
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
@@ -42,17 +49,26 @@ export async function GET(request: NextRequest) {
   // Section errors tracking
   const sectionErrors: Record<string, string> = {};
 
-  // 1. Get selected game (is_selected = true)
+  // 1. Get selected game (is_selected = true) with full details
   let selectedGame: {
     id: string;
     name: string;
     roblox_game_id: string | null;
     universe_id: string | null;
+    root_place_id: string | null;
+    api_key: string | null;
+    last_event_at: string | null;
+    current_players: number | null;
+    total_visits: number | null;
+    favorites: number | null;
+    likes: number | null;
+    dislikes: number | null;
+    last_roblox_sync: string | null;
   } | null = null;
 
   const { data: selectedGameData } = await supabase
     .from("games")
-    .select("id, name, roblox_game_id, universe_id")
+    .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
     .eq("user_id", user.id)
     .eq("is_selected", true)
     .neq("status", "deleted")
@@ -64,7 +80,7 @@ export async function GET(request: NextRequest) {
     // No game selected - auto-select the first active game
     const { data: firstGame } = await supabase
       .from("games")
-      .select("id, name, roblox_game_id, universe_id")
+      .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", user.id)
       .neq("status", "deleted")
       .order("created_at", { ascending: false })
@@ -82,20 +98,26 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // No games at all - return empty state
+  // No games at all - return empty state with dataHealth
   if (!selectedGame) {
     return NextResponse.json({
       success: true,
       data: {
         game: null,
         range,
-        overview: {
-          totalRevenue: 0,
-          totalPurchases: 0,
-          uniquePlayers: 0,
-          playerJoins: 0,
-          conversionRate: null,
+        dataHealth: {
+          selectedGameId: null,
+          robloxGameId: null,
+          rootPlaceId: null,
+          gameName: null,
+          hasTrackerEvents: false,
+          trackerEventsCount: 0,
+          lastTrackerEventAt: null,
+          hasRobloxApiData: false,
+          robloxApiLastSyncedAt: null,
+          missing: ["no_game_connected"],
         },
+        overview: null,
         trackerStats: null,
         revenueStats: null,
         productStats: null,
@@ -164,6 +186,138 @@ export async function GET(request: NextRequest) {
   } catch (err) {
     sectionErrors.events = err instanceof Error ? err.message : "Failed to fetch events";
   }
+
+  // Get total event count for dataHealth (all-time, not just range)
+  let totalEventsCount = 0;
+  try {
+    const { count } = await supabase
+      .from("events")
+      .select("*", { count: "exact", head: true })
+      .eq("game_id", gameId);
+    totalEventsCount = count || 0;
+  } catch {
+    // Ignore count error
+  }
+
+  // === DATA HEALTH DIAGNOSTICS ===
+  const missing: string[] = [];
+  
+  // Check tracker events
+  const hasTrackerEvents = totalEventsCount > 0;
+  if (!hasTrackerEvents) {
+    missing.push("tracking_script_not_installed");
+  }
+
+  // Check for purchase events
+  const hasPurchaseEvents = allEvents.some(e => purchaseTypes.includes(e.event_type));
+  if (hasTrackerEvents && !hasPurchaseEvents) {
+    missing.push("no_purchase_events");
+  }
+
+  // Check for session/duration events
+  const hasSessionEvents = allEvents.some(e => [...sessionStartTypes, ...sessionEndTypes].includes(e.event_type));
+  if (hasTrackerEvents && !hasSessionEvents) {
+    missing.push("no_session_duration_events");
+  }
+
+  // Check for product view/click events
+  const hasProductViewEvents = allEvents.some(e => clickTypes.includes(e.event_type));
+  if (hasTrackerEvents && !hasProductViewEvents) {
+    missing.push("no_product_view_events");
+  }
+
+  // Check Roblox API data
+  const hasRobloxApiData = selectedGame.last_roblox_sync !== null;
+
+  // === ROBLOX PUBLIC STATS ===
+  let robloxStats: {
+    ccu: number | null;
+    visits: number | null;
+    favorites: number | null;
+    likes: number | null;
+    dislikes: number | null;
+    likeRatio: number | null;
+    updatedAt: string | null;
+  } | null = null;
+
+  // Resolve universe ID if needed
+  let universeId = selectedGame.universe_id;
+  if (!universeId && selectedGame.roblox_game_id) {
+    universeId = await getUniverseIdFromPlaceId(selectedGame.roblox_game_id);
+    if (universeId) {
+      // Store for future use
+      await supabase
+        .from("games")
+        .update({ universe_id: universeId })
+        .eq("id", gameId);
+    }
+  }
+
+  if (universeId) {
+    try {
+      const stats = await getRobloxGameStats(universeId);
+      if (stats.source === "roblox_api") {
+        robloxStats = {
+          ccu: stats.currentPlayers,
+          visits: stats.totalVisits,
+          favorites: stats.favorites,
+          likes: stats.likes,
+          dislikes: stats.dislikes,
+          likeRatio: stats.likeRatio,
+          updatedAt: stats.lastFetched,
+        };
+
+        // Update game record with fresh Roblox stats
+        await supabase
+          .from("games")
+          .update({
+            current_players: stats.currentPlayers ?? 0,
+            total_visits: stats.totalVisits ?? 0,
+            favorites: stats.favorites ?? 0,
+            likes: stats.likes ?? 0,
+            dislikes: stats.dislikes ?? 0,
+            last_roblox_sync: new Date().toISOString(),
+          })
+          .eq("id", gameId);
+
+        // Store CCU snapshot for chart history
+        if (stats.currentPlayers !== null) {
+          await supabase.from("ccu_snapshots").insert({
+            game_id: gameId,
+            ccu: stats.currentPlayers,
+          });
+        }
+      } else {
+        if (!hasRobloxApiData) {
+          missing.push("roblox_api_unavailable");
+        }
+        sectionErrors.robloxStats = "Could not fetch Roblox API data";
+      }
+    } catch (err) {
+      sectionErrors.robloxStats = err instanceof Error ? err.message : "Failed to fetch Roblox stats";
+      if (!hasRobloxApiData) {
+        missing.push("roblox_api_unavailable");
+      }
+    }
+  } else {
+    if (!hasRobloxApiData) {
+      missing.push("roblox_api_unavailable");
+    }
+  }
+
+  // Build dataHealth
+  const dataHealth = {
+    selectedGameId: selectedGame.id,
+    robloxGameId: selectedGame.roblox_game_id,
+    rootPlaceId: selectedGame.root_place_id,
+    gameName: selectedGame.name,
+    hasTrackerEvents,
+    trackerEventsCount: totalEventsCount,
+    lastTrackerEventAt: selectedGame.last_event_at,
+    hasRobloxApiData: hasRobloxApiData || robloxStats !== null,
+    robloxApiLastSyncedAt: selectedGame.last_roblox_sync || robloxStats?.updatedAt || null,
+    missing,
+  };
 
   // === BASIC STATS ===
   const purchaseEvents = allEvents.filter((e) => purchaseTypes.includes(e.event_type));
@@ -243,69 +397,75 @@ export async function GET(request: NextRequest) {
     day30Message: null as string | null,
   };
 
-  try {
-    // D1 retention: cohort from 2 days ago, check if they returned on day 1
-    const calculateRetention = async (daysAgo: number, returnDay: number) => {
-      const cohortStart = new Date(now);
-      cohortStart.setDate(cohortStart.getDate() - daysAgo);
-      cohortStart.setHours(0, 0, 0, 0);
-      const cohortEnd = new Date(cohortStart);
-      cohortEnd.setDate(cohortEnd.getDate() + 1);
+  if (!hasTrackerEvents) {
+    retentionStats.day1Message = "Install tracking script to unlock retention";
+    retentionStats.day7Message = "Install tracking script to unlock retention";
+    retentionStats.day30Message = "Install tracking script to unlock retention";
+  } else {
+    try {
+      // D1 retention: cohort from 2 days ago, check if they returned on day 1
+      const calculateRetention = async (daysAgo: number, returnDay: number) => {
+        const cohortStart = new Date(now);
+        cohortStart.setDate(cohortStart.getDate() - daysAgo);
+        cohortStart.setHours(0, 0, 0, 0);
+        const cohortEnd = new Date(cohortStart);
+        cohortEnd.setDate(cohortEnd.getDate() + 1);
 
-      // Players whose first join is in the cohort window
-      const cohortPlayers = new Set<string>();
-      playerFirstSeen.forEach((firstSeen, playerId) => {
-        if (firstSeen >= cohortStart && firstSeen < cohortEnd) {
-          cohortPlayers.add(playerId);
+        // Players whose first join is in the cohort window
+        const cohortPlayers = new Set<string>();
+        playerFirstSeen.forEach((firstSeen, playerId) => {
+          if (firstSeen >= cohortStart && firstSeen < cohortEnd) {
+            cohortPlayers.add(playerId);
+          }
+        });
+
+        if (cohortPlayers.size === 0) {
+          return { rate: null, message: "Not enough data yet" };
         }
-      });
 
-      if (cohortPlayers.size === 0) {
-        return { rate: null, message: "Not enough data yet" };
-      }
+        // Check how many returned on the target day
+        const returnStart = new Date(cohortStart);
+        returnStart.setDate(returnStart.getDate() + returnDay);
+        const returnEnd = new Date(returnStart);
+        returnEnd.setDate(returnEnd.getDate() + 1);
 
-      // Check how many returned on the target day
-      const returnStart = new Date(cohortStart);
-      returnStart.setDate(returnStart.getDate() + returnDay);
-      const returnEnd = new Date(returnStart);
-      returnEnd.setDate(returnEnd.getDate() + 1);
+        // Fetch return visits
+        const { data: returnVisits } = await supabase
+          .from("events")
+          .select("player_id")
+          .eq("game_id", gameId)
+          .in("event_type", sessionStartTypes)
+          .gte("created_at", returnStart.toISOString())
+          .lt("created_at", returnEnd.toISOString());
 
-      // Fetch return visits
-      const { data: returnVisits } = await supabase
-        .from("events")
-        .select("player_id")
-        .eq("game_id", gameId)
-        .in("event_type", sessionStartTypes)
-        .gte("created_at", returnStart.toISOString())
-        .lt("created_at", returnEnd.toISOString());
+        const returnedPlayers = new Set<string>();
+        (returnVisits || []).forEach((e) => {
+          if (e.player_id && cohortPlayers.has(e.player_id)) {
+            returnedPlayers.add(e.player_id);
+          }
+        });
 
-      const returnedPlayers = new Set<string>();
-      (returnVisits || []).forEach((e) => {
-        if (e.player_id && cohortPlayers.has(e.player_id)) {
-          returnedPlayers.add(e.player_id);
-        }
-      });
+        const rate = Math.round((returnedPlayers.size / cohortPlayers.size) * 100);
+        return { rate, message: null };
+      };
 
-      const rate = Math.round((returnedPlayers.size / cohortPlayers.size) * 100);
-      return { rate, message: null };
-    };
+      // D1: cohort from 2 days ago, returned on day 1 after
+      const d1Result = await calculateRetention(2, 1);
+      retentionStats.day1 = d1Result.rate;
+      retentionStats.day1Message = d1Result.message;
 
-    // D1: cohort from 2 days ago, returned on day 1 after
-    const d1Result = await calculateRetention(2, 1);
-    retentionStats.day1 = d1Result.rate;
-    retentionStats.day1Message = d1Result.message;
+      // D7: cohort from 8 days ago, returned on day 7 after
+      const d7Result = await calculateRetention(8, 7);
+      retentionStats.day7 = d7Result.rate;
+      retentionStats.day7Message = d7Result.message;
 
-    // D7: cohort from 8 days ago, returned on day 7 after
-    const d7Result = await calculateRetention(8, 7);
-    retentionStats.day7 = d7Result.rate;
-    retentionStats.day7Message = d7Result.message;
-
-    // D30: cohort from 31 days ago, returned on day 30 after
-    const d30Result = await calculateRetention(31, 30);
-    retentionStats.day30 = d30Result.rate;
-    retentionStats.day30Message = d30Result.message;
-  } catch (err) {
-    sectionErrors.retention = err instanceof Error ? err.message : "Failed to calculate retention";
+      // D30: cohort from 31 days ago, returned on day 30 after
+      const d30Result = await calculateRetention(31, 30);
+      retentionStats.day30 = d30Result.rate;
+      retentionStats.day30Message = d30Result.message;
+    } catch (err) {
+      sectionErrors.retention = err instanceof Error ? err.message : "Failed to calculate retention";
+    }
   }
 
   // === REVENUE STATS ===
@@ -397,12 +557,13 @@ export async function GET(request: NextRequest) {
     ? productsWithClicks.reduce((sum, p) => sum + (p.conversionRate || 0), 0) / productsWithClicks.length
     : null;
 
-  // === CCU STATS ===
+  // === CCU STATS (from snapshots) ===
   let ccuStats = {
-    current: null as number | null,
+    current: robloxStats?.ccu ?? null,
     peak: null as number | null,
     avg: null as number | null,
     snapshots: [] as Array<{ time: string; ccu: number }>,
+    message: null as string | null,
   };
 
   try {
@@ -421,6 +582,8 @@ export async function GET(request: NextRequest) {
       ccuStats.current = ccuSnapshots[ccuSnapshots.length - 1].ccu;
       ccuStats.peak = Math.max(...ccuSnapshots.map((s) => s.ccu));
       ccuStats.avg = Math.round(ccuSnapshots.reduce((sum, s) => sum + s.ccu, 0) / ccuSnapshots.length);
+    } else {
+      ccuStats.message = "CCU chart will appear after the first sync";
     }
   } catch (err) {
     sectionErrors.ccu = err instanceof Error ? err.message : "Failed to fetch CCU";
@@ -493,20 +656,24 @@ export async function GET(request: NextRequest) {
         id: selectedGame.id,
         name: selectedGame.name,
         roblox_game_id: selectedGame.roblox_game_id,
-        universe_id: selectedGame.universe_id,
+        universe_id: universeId || selectedGame.universe_id,
       },
       range,
+      // Data health diagnostics
+      dataHealth,
+      // Roblox public API stats
+      robloxStats,
       // Overview stats (for Overview tab)
       overview: {
         totalRevenue,
         totalPurchases,
         uniquePlayers,
         playerJoins: totalSessions,
-        conversionRate, // purchases / unique players * 100
+        conversionRate,
         purchaseRate,
       },
       // Tracker stats (for Game Performance tab)
-      trackerStats: {
+      trackerStats: hasTrackerEvents ? {
         totalEvents: allEvents.length,
         uniquePlayers,
         totalSessions,
@@ -516,9 +683,9 @@ export async function GET(request: NextRequest) {
         returningPlayers,
         totalPurchases,
         lastEventTime: allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null,
-      },
+      } : null,
       // Revenue stats (for Monetization tab)
-      revenueStats: {
+      revenueStats: hasTrackerEvents ? {
         totalRevenue,
         gamepassRevenue,
         devproductRevenue,
@@ -527,7 +694,7 @@ export async function GET(request: NextRequest) {
         conversionRate,
         arpdau,
         arppu,
-      },
+      } : null,
       // Product stats (for Products tab)
       productStats: {
         totalRevenue: totalProductRevenue,
@@ -536,16 +703,17 @@ export async function GET(request: NextRequest) {
         avgConversionRate,
         avgConversionNeedsTracking: productsWithClicks.length === 0 && products.length > 0,
         products: products.slice(0, 50), // Top 50
+        hasTrackerData: hasTrackerEvents,
       },
       // Retention stats
       retentionStats,
       // CCU stats
       ccuStats,
       // Charts
-      charts: {
+      charts: hasTrackerEvents ? {
         revenue: revenueChart,
         players: playersChart,
-      },
+      } : null,
       sectionErrors,
       lastUpdated: new Date().toISOString(),
     },

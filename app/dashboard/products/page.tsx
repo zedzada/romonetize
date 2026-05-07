@@ -30,6 +30,8 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PlanLock } from "@/components/dashboard/plan-lock";
 import { createClient } from "@/lib/supabase/client";
+import { DataStatusBanner } from "@/components/dashboard/data-status-banner";
+import { useAnalytics } from "@/hooks/use-analytics";
 
 type SortField = "name" | "revenue" | "purchases" | "clicks" | "conversion" | "revenue_per_player";
 type SortOrder = "asc" | "desc";
@@ -81,6 +83,9 @@ export default function ProductsPage() {
     needsConnection: robloxNeedsConnection,
     refresh: refreshRobloxProducts
   } = useRobloxProducts();
+
+  // Get dataHealth for banner
+  const { dataHealth, refresh: refreshAnalytics } = useAnalytics({ enabled: gameIds.length > 0 });
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -309,6 +314,16 @@ export default function ProductsPage() {
           </AlertDescription>
         </Alert>
       )}
+
+      {/* Data Status Banner */}
+      <DataStatusBanner 
+        dataHealth={dataHealth} 
+        onSync={() => { 
+          fetchProducts(); 
+          refreshRobloxProducts();
+          refreshAnalytics();
+        }} 
+      />
 
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">

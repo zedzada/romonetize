@@ -81,6 +81,7 @@ export default function GamePage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [showFullScript, setShowFullScript] = useState(false);
+  const [syncingStats, setSyncingStats] = useState(false);
 
   // Get selected game
   const selectedGame = connectedGames.find(g => g.is_selected) || null;
@@ -338,6 +339,29 @@ export default function GamePage() {
     setTimeout(() => setCopied(null), 2000);
   };
 
+  // Sync Roblox stats for selected game
+  const handleSyncRobloxStats = async () => {
+    setSyncingStats(true);
+    try {
+      const response = await fetch("/api/roblox/sync-selected-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeProducts: true }),
+      });
+      
+      const data = await response.json();
+      
+      if (data.success && data.synced) {
+        toast.success(`Synced! CCU: ${data.stats?.ccu ?? 0}, Visits: ${(data.stats?.visits || 0).toLocaleString()}`);
+      } else {
+        toast.error(data.error || "Could not sync Roblox stats");
+      }
+    } catch {
+      toast.error("Failed to sync Roblox stats");
+    }
+    setSyncingStats(false);
+  };
+
   // Tracking script
   const trackingScript = selectedGame ? `-- RoMonetize Analytics Tracker
 -- Add this to ServerScriptService
@@ -519,6 +543,16 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                 <span className="text-xs font-medium text-green-500 bg-green-500/10 px-2 py-1 rounded">
                                   Selected
                                 </span>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  className="gap-2"
+                                  onClick={handleSyncRobloxStats}
+                                  disabled={syncingStats}
+                                >
+                                  <RefreshCw className={`w-4 h-4 ${syncingStats ? "animate-spin" : ""}`} />
+                                  {syncingStats ? "Syncing..." : "Sync Stats"}
+                                </Button>
                                 <Dialog open={showTrackingModal} onOpenChange={setShowTrackingModal}>
                                   <DialogTrigger asChild>
                                     <Button variant="outline" size="sm" className="gap-2">
