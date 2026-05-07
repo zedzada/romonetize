@@ -1,10 +1,17 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 
+interface RobloxGameCreator {
+  id: number;
+  name: string;
+  type: "User" | "Group";
+}
+
 interface RobloxGame {
   id: number;
   name: string;
   rootPlaceId: number;
+  creator?: RobloxGameCreator;
 }
 
 interface RobloxGamesResponse {
@@ -73,39 +80,26 @@ export async function GET() {
     }
 
     const robloxUserId = profile.roblox_user_id;
-    const allGames: EnhancedGame[] = [];
-    const seenGameIds = new Set<number>();
+    // Use a Map to allow replacing user games with group games (group wins)
+    const gamesMap = new Map<number, EnhancedGame>();
     let groupWarning: string | null = null;
 
-    // 1. Fetch personal games
-    try {
-      const personalResponse = await fetch(
-        `https://games.roblox.com/v2/users/${robloxUserId}/games?accessFilter=Public&limit=50`,
-        {
-          headers: { "Accept": "application/json" },
-          next: { revalidate: 60 },
-        }
-      );
-
-      if (personalResponse.ok) {
-        const personalData: RobloxGamesResponse = await personalResponse.json();
-        for (const game of personalData.data || []) {
-          if (!seenGameIds.has(game.id)) {
-            seenGameIds.add(game.id);
-            allGames.push({
-              id: game.id,
-              name: game.name,
-              rootPlaceId: game.rootPlaceId,
-              source: "user",
-            });
-          }
-        }
+    // Helper to add/merge a game - group source always wins over user source
+    const addGame = (game: EnhancedGame) => {
+      const existing = gamesMap.get(game.id);
+      
+      if (!existing) {
+        // New game - add it
+        gamesMap.set(game.id, game);
+      } else if (existing.source === "user" && game.source === "group") {
+        // Existing is user, incoming is group - replace with group (group wins)
+        gamesMap.set(game.id, game);
       }
-    } catch (error) {
-      console.error("[Roblox API] Failed to fetch personal games:", error);
-    }
+      // If existing is group and incoming is user, keep existing (group wins)
+      // If both same source, keep first
+    };
 
-    // 2. Fetch user's groups
+    // 1. Fetch user's groups and their games FIRST (group games take priority)
     try {
       const groupsResponse = await fetch(
         `https://groups.roblox.com/v2/users/${robloxUserId}/groups/roles`,
@@ -118,15 +112,14 @@ export async function GET() {
       if (groupsResponse.ok) {
         const groupsData: GroupRolesResponse = await groupsResponse.json();
         
-        // Filter groups where user has meaningful access (rank >= 200)
+        // Filter groups where user has meaningful access (rank >= 200 or owner role)
         const eligibleGroups = (groupsData.data || []).filter(gr => {
-          // Include if rank >= 200 or if role name suggests ownership/high access
           const highRank = gr.role.rank >= 200;
           const ownerRole = gr.role.name.toLowerCase().includes("owner");
           return highRank || ownerRole;
         });
 
-        // 3. Fetch games for each eligible group
+        // Fetch games for each eligible group
         for (const groupRole of eligibleGroups) {
           try {
             const groupGamesResponse = await fetch(
@@ -140,19 +133,16 @@ export async function GET() {
             if (groupGamesResponse.ok) {
               const groupGamesData: RobloxGamesResponse = await groupGamesResponse.json();
               for (const game of groupGamesData.data || []) {
-                if (!seenGameIds.has(game.id)) {
-                  seenGameIds.add(game.id);
-                  allGames.push({
-                    id: game.id,
-                    name: game.name,
-                    rootPlaceId: game.rootPlaceId,
-                    source: "group",
-                    groupName: groupRole.group.name,
-                    groupId: groupRole.group.id,
-                    roleName: groupRole.role.name,
-                    roleRank: groupRole.role.rank,
-                  });
-                }
+                addGame({
+                  id: game.id,
+                  name: game.name,
+                  rootPlaceId: game.rootPlaceId,
+                  source: "group",
+                  groupName: groupRole.group.name,
+                  groupId: groupRole.group.id,
+                  roleName: groupRole.role.name,
+                  roleRank: groupRole.role.rank,
+                });
               }
             }
           } catch (error) {
@@ -166,6 +156,50 @@ export async function GET() {
       console.error("[Roblox API] Failed to fetch user groups:", error);
       groupWarning = "Could not fetch group games. Showing personal games only.";
     }
+
+    // 2. Fetch personal games (processed second - group games already in map take priority)
+    try {
+      const personalResponse = await fetch(
+        `https://games.roblox.com/v2/users/${robloxUserId}/games?accessFilter=Public&limit=50`,
+        {
+          headers: { "Accept": "application/json" },
+          next: { revalidate: 60 },
+        }
+      );
+
+      if (personalResponse.ok) {
+        const personalData: RobloxGamesResponse = await personalResponse.json();
+        for (const game of personalData.data || []) {
+          // Check if the game's creator is actually a Group (Roblox API returns creator info)
+          const isGroupCreator = game.creator?.type === "Group";
+          
+          if (isGroupCreator && game.creator) {
+            // This "personal" game is actually group-owned - add as group
+            addGame({
+              id: game.id,
+              name: game.name,
+              rootPlaceId: game.rootPlaceId,
+              source: "group",
+              groupId: game.creator.id,
+              groupName: game.creator.name,
+            });
+          } else {
+            // Truly personal game
+            addGame({
+              id: game.id,
+              name: game.name,
+              rootPlaceId: game.rootPlaceId,
+              source: "user",
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error("[Roblox API] Failed to fetch personal games:", error);
+    }
+
+    // Convert map to array
+    const allGames = Array.from(gamesMap.values());
 
     // Return combined results
     return NextResponse.json({ 
