@@ -39,6 +39,7 @@ export interface ProductInfo {
   uniqueBuyers: number;
   clicks: number;
   conversionRate: number | null;
+  conversionNeedsTracking: boolean;
   revPerBuyer: number;
 }
 
@@ -47,6 +48,7 @@ export interface ProductStats {
   totalPurchases: number;
   uniqueBuyers: number;
   avgConversionRate: number | null;
+  avgConversionNeedsTracking: boolean;
   products: ProductInfo[];
 }
 
@@ -66,6 +68,15 @@ export interface CCUStats {
   snapshots: Array<{ time: string; ccu: number }>;
 }
 
+export interface OverviewStats {
+  totalRevenue: number;
+  totalPurchases: number;
+  uniquePlayers: number;
+  playerJoins: number;
+  conversionRate: number | null;
+  purchaseRate: number | null;
+}
+
 export interface ChartData {
   revenue: Array<{ time: string; revenue: number; purchases: number; passes: number; devProducts: number }>;
   players: Array<{ time: string; total: number; new: number; returning: number }>;
@@ -79,6 +90,7 @@ export interface AnalyticsData {
     universe_id: string | null;
   } | null;
   range: DateRange;
+  overview: OverviewStats | null;
   trackerStats: TrackerStats | null;
   revenueStats: RevenueStats | null;
   productStats: ProductStats | null;
@@ -188,6 +200,7 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     // Data
     data,
     game: data?.game ?? null,
+    overview: data?.overview ?? null,
     trackerStats: data?.trackerStats ?? null,
     revenueStats: data?.revenueStats ?? null,
     productStats: data?.productStats ?? null,

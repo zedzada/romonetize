@@ -213,12 +213,33 @@ export async function GET() {
 
     const accessToken = profile.roblox_access_token;
 
-    // Get user's games with universe_ids
-    const { data: games, error: gamesError } = await supabase
+    // Get the selected game (is_selected = true) - single source of truth
+    let { data: selectedGame, error: gamesError } = await supabase
       .from("games")
       .select("id, name, roblox_game_id, universe_id")
       .eq("user_id", user.id)
-      .neq("status", "deleted");
+      .eq("is_selected", true)
+      .neq("status", "deleted")
+      .single();
+
+    // If no game selected, auto-select the first one
+    if (!selectedGame) {
+      const { data: firstGame } = await supabase
+        .from("games")
+        .select("id, name, roblox_game_id, universe_id")
+        .eq("user_id", user.id)
+        .neq("status", "deleted")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      
+      if (firstGame) {
+        await supabase.from("games").update({ is_selected: true }).eq("id", firstGame.id);
+        selectedGame = firstGame;
+      }
+    }
+
+    const games = selectedGame ? [selectedGame] : [];
 
     if (gamesError) {
       return NextResponse.json(
