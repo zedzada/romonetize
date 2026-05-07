@@ -718,7 +718,7 @@ function SettingsPageContent() {
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />
-                  {userPlan === "studio" ? "1,000,000" : userPlan === "pro" ? "100,000" : "1,000"} events/month
+                  Unlimited tracked events
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />

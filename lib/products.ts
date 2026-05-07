@@ -59,15 +59,15 @@ export const PRICING_PLANS: PricingPlan[] = [
     yearlyPriceInCents: 0,
     features: [
       "1 connected game",
+      "Unlimited tracked events",
       "Basic live analytics",
       "24-hour data history",
-      "Basic monetization overview",
       "AI Assistant (with purchased credits)",
       "0 AI credits/month",
     ],
     limits: {
       games: 1,
-      eventsPerMonth: 1000,
+      eventsPerMonth: -1, // Unlimited
       teamMembers: 1,
       aiCreditsPerMonth: 0,
     },
@@ -80,16 +80,16 @@ export const PRICING_PLANS: PricingPlan[] = [
     yearlyPriceInCents: 18240, // $15.20/month billed yearly (20% off)
     features: [
       "Up to 5 connected games",
+      "Unlimited tracked events",
       "30-day analytics history",
-      "Revenue analytics",
-      "Product performance analytics",
-      "Live events feed",
+      "Monetization analytics",
+      "Products analytics",
       "AI Assistant included",
       "100 AI credits/month",
     ],
     limits: {
       games: 5,
-      eventsPerMonth: 100000,
+      eventsPerMonth: -1, // Unlimited
       teamMembers: 3,
       aiCreditsPerMonth: 100,
     },
@@ -103,9 +103,10 @@ export const PRICING_PLANS: PricingPlan[] = [
     yearlyPriceInCents: 47040, // $39.20/month billed yearly (20% off)
     features: [
       "Up to 25 connected games",
+      "Unlimited tracked events",
       "Unlimited analytics history",
       "Advanced monetization analytics",
-      "Multi-game dashboard",
+      "Products analytics",
       "Priority support",
       "Data export",
       "AI Assistant included",
@@ -113,7 +114,7 @@ export const PRICING_PLANS: PricingPlan[] = [
     ],
     limits: {
       games: 25,
-      eventsPerMonth: 1000000,
+      eventsPerMonth: -1, // Unlimited
       teamMembers: 10,
       aiCreditsPerMonth: 500,
     },
@@ -143,4 +144,15 @@ export function getCreditPackageById(packageId: string): CreditPackage | undefin
 export function getAiCreditsForPlan(planId: string): number {
   const plan = getPlanById(planId);
   return plan?.limits.aiCreditsPerMonth || 0;
+}
+
+// Centralized plan game limits - use this everywhere
+export const PLAN_GAME_LIMITS: Record<string, number> = {
+  free: 1,
+  pro: 5,
+  studio: 25,
+};
+
+export function getPlanGameLimit(planId: string): number {
+  return PLAN_GAME_LIMITS[planId] || 1;
 }
