@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
+import { getPlanGameLimit } from "@/lib/products";
 
 // Roblox game from API (now includes group games)
 interface RobloxGame {
@@ -54,13 +55,6 @@ interface ConnectedGame {
   role_rank?: number;
 }
 
-// Plan limits
-const PLAN_LIMITS: Record<string, number> = {
-  free: 1,
-  pro: 5,
-  studio: 25,
-};
-
 export default function GamePage() {
   const router = useRouter();
   
@@ -87,14 +81,10 @@ export default function GamePage() {
   const [copied, setCopied] = useState<string | null>(null);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [showFullScript, setShowFullScript] = useState(false);
-  
-  // Debug state - shows click feedback and API response
-  const [debugMessage, setDebugMessage] = useState<string | null>(null);
-  const [debugApiResponse, setDebugApiResponse] = useState<string | null>(null);
 
   // Get selected game
   const selectedGame = connectedGames.find(g => g.is_selected) || null;
-  const planLimit = PLAN_LIMITS[userPlan] || 1;
+  const planLimit = getPlanGameLimit(userPlan);
   const gamesUsed = connectedGames.length;
   const isAtLimit = gamesUsed >= planLimit;
 
@@ -226,12 +216,6 @@ export default function GamePage() {
 
   // Connect a new game from Roblox list
   const handleConnectGame = async (robloxGame: RobloxGame) => {
-    // Debug: immediate visual feedback
-    setDebugMessage(`Clicked Connect Game: ${robloxGame.name} (ID: ${robloxGame.id})`);
-    setDebugApiResponse(null);
-    console.log("[v0] Connect game clicked:", robloxGame);
-    
-    // Set loading state
     setConnectingGameId(robloxGame.id);
     setLimitError(null);
     
@@ -246,9 +230,6 @@ export default function GamePage() {
       roleRank: robloxGame.roleRank ?? null,
     };
     
-    console.log("[v0] Request payload:", payload);
-    setDebugApiResponse(`Payload: ${JSON.stringify(payload)}`);
-    
     try {
       const response = await fetch("/api/roblox/select-game", {
         method: "POST",
@@ -256,12 +237,7 @@ export default function GamePage() {
         body: JSON.stringify(payload),
       });
       
-      console.log("[v0] Response status:", response.status);
-      
       const data = await response.json();
-      
-      console.log("[v0] Response JSON:", data);
-      setDebugApiResponse(`Status: ${response.status} | Response: ${JSON.stringify(data)}`);
       
       if (response.status === 403) {
         const errorMessage = data.message || "You reached your plan limit. Upgrade to connect more games.";
@@ -276,11 +252,10 @@ export default function GamePage() {
           // New game created - add to list and deselect others
           setConnectedGames([data.game, ...connectedGames.map(g => ({ ...g, is_selected: false }))]);
         } else if (data.action === "selected") {
-          // Existing game selected - update selection
-          setConnectedGames(connectedGames.map(g => ({
-            ...g,
-            is_selected: g.id === data.game.id,
-          })));
+          // Existing game selected - update selection and update metadata
+          setConnectedGames(connectedGames.map(g => 
+            g.id === data.game.id ? { ...data.game } : { ...g, is_selected: false }
+          ));
         }
         setLimitError(null);
         toast.success("Game connected successfully!");
@@ -288,9 +263,7 @@ export default function GamePage() {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect game";
-      setDebugApiResponse(`Error: ${errorMessage}`);
       toast.error(errorMessage);
-      console.log("[v0] Connect game error:", error);
     }
     
     setConnectingGameId(null);
@@ -363,24 +336,6 @@ print("[RoMonetize] Tracker initialized!")` : "";
         <h1 className="text-2xl font-bold text-foreground">My Game</h1>
         <p className="text-muted-foreground">Connect and manage your Roblox games</p>
       </div>
-
-      {/* Debug display box - temporary */}
-      {(debugMessage || debugApiResponse) && (
-        <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg space-y-2">
-          <div className="text-sm font-mono">
-            <span className="font-bold text-yellow-600">Debug:</span>
-            {debugMessage && <p className="text-foreground">{debugMessage}</p>}
-            {debugApiResponse && <p className="text-muted-foreground break-all">{debugApiResponse}</p>}
-          </div>
-          <button 
-            type="button"
-            onClick={() => { setDebugMessage(null); setDebugApiResponse(null); }}
-            className="text-xs text-yellow-600 underline"
-          >
-            Clear debug
-          </button>
-        </div>
-      )}
 
       {/* Plan limit error */}
       {limitError && (
