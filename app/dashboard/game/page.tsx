@@ -165,6 +165,48 @@ export default function GamePage() {
     }
   }, [hasRobloxAccount, fetchRobloxGames]);
 
+  // Auto-sync stale metadata when robloxGames are loaded
+  useEffect(() => {
+    if (robloxGames.length === 0 || connectedGames.length === 0) return;
+
+    const syncStaleMetadata = async () => {
+      for (const connected of connectedGames) {
+        const roblox = getRobloxGameMetadata(connected.roblox_game_id);
+        
+        if (roblox && isMetadataStale(connected, roblox)) {
+          try {
+            const response = await fetch("/api/roblox/sync-game-metadata", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                roblox_game_id: connected.roblox_game_id,
+                source: roblox.source,
+                groupId: roblox.groupId ? String(roblox.groupId) : null,
+                groupName: roblox.groupName ?? null,
+                roleName: roblox.roleName ?? null,
+                roleRank: roblox.roleRank ?? null,
+                rootPlaceId: roblox.rootPlaceId ? String(roblox.rootPlaceId) : null,
+              }),
+            });
+            
+            if (response.ok) {
+              const data = await response.json();
+              // Update local state with synced data
+              setConnectedGames(prev => prev.map(g => 
+                g.id === connected.id ? { ...g, ...data.game } : g
+              ));
+            }
+          } catch {
+            // Silent fail - will sync on next page load
+          }
+        }
+      }
+    };
+
+    syncStaleMetadata();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [robloxGames]);
+
   // Check if a Roblox game is connected
   const isGameConnected = (robloxGameId: number) => {
     return connectedGames.some(g => g.roblox_game_id === String(robloxGameId));
@@ -173,6 +215,27 @@ export default function GamePage() {
   // Get connected game by roblox ID
   const getConnectedGame = (robloxGameId: number) => {
     return connectedGames.find(g => g.roblox_game_id === String(robloxGameId));
+  };
+
+  // Get fresh Roblox metadata for a connected game (from API list)
+  const getRobloxGameMetadata = (robloxGameId: string) => {
+    return robloxGames.find(g => String(g.id) === robloxGameId);
+  };
+
+  // Check if metadata is stale and needs sync
+  const isMetadataStale = (connected: ConnectedGame, roblox: RobloxGame | undefined) => {
+    if (!roblox) return false;
+    
+    // Stale if source doesn't match
+    if (connected.source !== roblox.source) return true;
+    
+    // Stale if it's a group game but missing group metadata
+    if (roblox.source === "group") {
+      if (!connected.group_id && roblox.groupId) return true;
+      if (!connected.group_name && roblox.groupName) return true;
+    }
+    
+    return false;
   };
 
   // Select an already connected game
@@ -397,6 +460,13 @@ print("[RoMonetize] Tracker initialized!")` : "";
                     const isSelected = game.is_selected;
                     const isSelecting = selectingGameId === parseInt(game.roblox_game_id);
                     
+                    // Get fresh metadata from Roblox API (priority over stale DB data)
+                    const robloxMeta = getRobloxGameMetadata(game.roblox_game_id);
+                    const displaySource = robloxMeta?.source ?? game.source;
+                    const displayGroupName = robloxMeta?.groupName ?? game.group_name;
+                    const displayRoleName = robloxMeta?.roleName ?? game.role_name;
+                    const isGroupGame = displaySource === "group";
+                    
                     return (
                       <div
                         key={game.id}
@@ -409,14 +479,14 @@ print("[RoMonetize] Tracker initialized!")` : "";
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex items-center gap-3 min-w-0">
                             <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
-                              game.source === "group" 
+                              isGroupGame 
                                 ? "bg-purple-500/20" 
                                 : isSelected 
                                   ? "bg-green-500/20" 
                                   : "bg-primary/10"
                             }`}>
                               <Gamepad2 className={`w-5 h-5 ${
-                                game.source === "group" 
+                                isGroupGame 
                                   ? "text-purple-500" 
                                   : isSelected 
                                     ? "text-green-500" 
@@ -426,13 +496,13 @@ print("[RoMonetize] Tracker initialized!")` : "";
                             <div className="min-w-0">
                               <div className="font-medium text-foreground truncate">{game.name}</div>
                               <div className="text-xs text-muted-foreground">ID: {game.roblox_game_id}</div>
-                              {/* Source badge */}
+                              {/* Source badge - uses Roblox API metadata if available, falls back to DB */}
                               <div className="mt-1">
-                                {game.source === "group" ? (
+                                {isGroupGame ? (
                                   <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                                    Group: {game.group_name || "Unknown"}
-                                    {game.role_name && (
-                                      <span className="opacity-70">({game.role_name})</span>
+                                    Group: {displayGroupName || "Unknown"}
+                                    {displayRoleName && (
+                                      <span className="opacity-70">({displayRoleName})</span>
                                     )}
                                   </span>
                                 ) : (
