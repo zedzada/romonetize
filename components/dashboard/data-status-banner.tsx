@@ -36,7 +36,7 @@ export function DataStatusBanner({
 
   const needsTracker = dataHealth.missing.includes("tracking_script_not_installed");
   const hasRobloxData = dataHealth.hasRobloxApiData;
-  const robloxUnavailable = dataHealth.missing.includes("roblox_api_unavailable");
+  const robloxUnavailable = dataHealth.missing.includes("roblox_api_unavailable") || dataHealth.missing.includes("roblox_stats_not_synced");
 
   // If everything is working, don't show anything
   if (dataHealth.hasTrackerEvents && hasRobloxData) {
