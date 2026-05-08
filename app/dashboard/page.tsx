@@ -572,6 +572,17 @@ export default function DashboardPage() {
         </Card>
       </div>
 
+      {/* DEBUG: Roblox Stats from useAnalytics */}
+      <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs font-mono">
+        <div className="font-bold text-yellow-600 mb-2">DEBUG: useAnalytics robloxStats</div>
+        <div>robloxStats: {JSON.stringify(robloxStats, null, 2)}</div>
+        <div className="mt-2">gameIds.length: {gameIds.length}</div>
+        <div>robloxStats?.ccu: {robloxStats?.ccu ?? "null/undefined"}</div>
+        <div>robloxStats?.visits: {robloxStats?.visits ?? "null/undefined"}</div>
+        <div>robloxStats?.favorites: {robloxStats?.favorites ?? "null/undefined"}</div>
+        <div>robloxStats?.likes: {robloxStats?.likes ?? "null/undefined"}</div>
+      </div>
+
       {/* Roblox Public Stats */}
       {robloxStats && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
