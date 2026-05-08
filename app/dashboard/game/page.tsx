@@ -350,13 +350,23 @@ export default function GamePage() {
       });
       
       const data = await response.json();
+      console.log("[v0] Sync response:", data);
       
-      if (data.success && data.synced) {
-        toast.success(`Synced! CCU: ${data.stats?.ccu ?? 0}, Visits: ${(data.stats?.visits || 0).toLocaleString()}`);
+      if (data.success && data.synced && data.gameSync) {
+        // Use the actual gameSync values from response
+        const ccu = data.gameSync.ccu ?? 0;
+        const visits = data.gameSync.visits ?? 0;
+        toast.success(`Synced: ${ccu} playing, ${visits.toLocaleString()} visits`);
+      } else if (data.success && !data.synced) {
+        toast.error("Roblox API returned no data. Check console for debug info.");
+        console.log("[v0] Sync debug:", data.debug);
       } else {
-        toast.error(data.error || "Could not sync Roblox stats");
+        const errorMsg = data.error || "Could not sync Roblox stats";
+        toast.error(errorMsg);
+        console.log("[v0] Sync error debug:", data.debug || data);
       }
-    } catch {
+    } catch (err) {
+      console.error("[v0] Sync fetch error:", err);
       toast.error("Failed to sync Roblox stats");
     }
     setSyncingStats(false);

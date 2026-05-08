@@ -156,6 +156,108 @@ async function fetchDevProducts(universeId: string, accessToken: string): Promis
 }
 
 /**
+ * GET /api/roblox/sync-selected-game?debug=true
+ * 
+ * Debug endpoint to check Roblox stats for selected game without storing
+ */
+export async function GET(request: Request) {
+  try {
+    const supabase = await createClient();
+    const { searchParams } = new URL(request.url);
+    const debug = searchParams.get("debug") === "true";
+    
+    // Get authenticated user
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    
+    if (userError || !user) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+    }
+
+    // Get the selected game
+    const { data: selectedGame, error: gameError } = await supabase
+      .from("games")
+      .select("id, name, roblox_game_id, universe_id, root_place_id")
+      .eq("user_id", user.id)
+      .eq("is_selected", true)
+      .neq("status", "deleted")
+      .single();
+
+    if (gameError || !selectedGame) {
+      return NextResponse.json({ success: false, error: "No game selected" }, { status: 404 });
+    }
+
+    // Resolve universe ID (same logic as POST)
+    let universeId = selectedGame.universe_id || selectedGame.roblox_game_id;
+    
+    if (!universeId && selectedGame.root_place_id) {
+      universeId = await getUniverseIdFromPlaceId(selectedGame.root_place_id);
+    }
+
+    if (!universeId) {
+      return NextResponse.json({
+        success: false,
+        error: "Could not resolve universe ID",
+        selectedGame: {
+          id: selectedGame.id,
+          name: selectedGame.name,
+          robloxGameId: selectedGame.roblox_game_id,
+          universeId: selectedGame.universe_id,
+          rootPlaceId: selectedGame.root_place_id,
+        },
+      }, { status: 400 });
+    }
+
+    // Fetch Roblox stats
+    const robloxApiUrl = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
+    const stats = await getRobloxGameStats(universeId);
+
+    const response: Record<string, unknown> = {
+      success: stats.source === "roblox_api",
+      selectedGame: {
+        id: selectedGame.id,
+        name: selectedGame.name,
+        robloxGameId: selectedGame.roblox_game_id,
+        universeId: universeId,
+        rootPlaceId: selectedGame.root_place_id,
+      },
+      url: robloxApiUrl,
+      mappedStats: {
+        ccu: stats.currentPlayers,
+        visits: stats.totalVisits,
+        favorites: stats.favorites,
+        likes: stats.likes,
+        dislikes: stats.dislikes,
+        likeRatio: stats.likeRatio,
+      },
+      source: stats.source,
+      lastFetched: stats.lastFetched,
+    };
+
+    // If debug mode, also fetch raw response
+    if (debug) {
+      try {
+        const rawResponse = await fetch(robloxApiUrl, {
+          headers: { "Accept": "application/json" },
+          cache: "no-store",
+        });
+        const rawData = await rawResponse.json();
+        response.raw = rawData;
+        response.rawStatus = rawResponse.status;
+      } catch (e) {
+        response.rawError = e instanceof Error ? e.message : "Unknown error";
+      }
+    }
+
+    return NextResponse.json(response);
+  } catch (error) {
+    return NextResponse.json({
+      success: false,
+      error: error instanceof Error ? error.message : "Internal server error",
+    }, { status: 500 });
+  }
+}
+
+/**
  * POST /api/roblox/sync-selected-game
  * 
  * Comprehensive Roblox data sync for the selected game.
@@ -216,17 +318,42 @@ export async function POST(request: Request) {
     const unavailable: string[] = [];
     const sectionErrors: Record<string, string> = {};
 
-    // Resolve universe ID if needed
+    // Debug: Log all IDs for diagnostics
+    console.log("[Roblox Sync] === ID Debug ===");
+    console.log("[Roblox Sync] game.id (internal):", selectedGame.id);
+    console.log("[Roblox Sync] game.name:", selectedGame.name);
+    console.log("[Roblox Sync] game.roblox_game_id:", selectedGame.roblox_game_id);
+    console.log("[Roblox Sync] game.universe_id:", selectedGame.universe_id);
+    console.log("[Roblox Sync] game.root_place_id:", selectedGame.root_place_id);
+
+    // Resolve universe ID
+    // Priority: universe_id > roblox_game_id (which IS the universe ID from /api/roblox/games)
+    // The /api/roblox/games endpoint returns game.id as Universe ID, stored as roblox_game_id
+    // Only fall back to getUniverseIdFromPlaceId if we have a root_place_id but no universe ID
     let universeId = selectedGame.universe_id;
+    
     if (!universeId && selectedGame.roblox_game_id) {
-      console.log("[Roblox Sync] Resolving universe ID from place ID:", selectedGame.roblox_game_id);
-      universeId = await getUniverseIdFromPlaceId(selectedGame.roblox_game_id);
+      // roblox_game_id IS the universe ID (from games.roblox.com/v2/users/{userId}/games)
+      universeId = selectedGame.roblox_game_id;
+      console.log("[Roblox Sync] Using roblox_game_id as universe ID:", universeId);
+      
+      // Store it in universe_id column for consistency
+      await supabaseAdmin
+        .from("games")
+        .update({ universe_id: universeId })
+        .eq("id", selectedGame.id);
+    }
+
+    // If still no universe ID but we have root_place_id, try to resolve it
+    if (!universeId && selectedGame.root_place_id) {
+      console.log("[Roblox Sync] Attempting to resolve universe ID from root_place_id:", selectedGame.root_place_id);
+      universeId = await getUniverseIdFromPlaceId(selectedGame.root_place_id);
       if (universeId) {
         await supabaseAdmin
           .from("games")
           .update({ universe_id: universeId })
           .eq("id", selectedGame.id);
-        console.log("[Roblox Sync] Resolved universe ID:", universeId);
+        console.log("[Roblox Sync] Resolved universe ID from place ID:", universeId);
       }
     }
 
@@ -234,7 +361,13 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { 
           success: false, 
-          error: "Could not resolve universe ID for this game",
+          error: "Could not resolve universe ID for this game. roblox_game_id and root_place_id are both missing.",
+          debug: {
+            gameId: selectedGame.id,
+            robloxGameId: selectedGame.roblox_game_id,
+            rootPlaceId: selectedGame.root_place_id,
+            universeId: selectedGame.universe_id,
+          },
           unavailable: ["universe_id_resolution_failed"],
         },
         { status: 400 }
@@ -242,16 +375,26 @@ export async function POST(request: Request) {
     }
 
     // Fetch Roblox stats in parallel
-    console.log("[Roblox Sync] Fetching Roblox stats for universe:", universeId);
+    const robloxApiUrl = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
+    console.log("[Roblox Sync] Fetching Roblox stats from URL:", robloxApiUrl);
+    
     const [stats, gameInfo, thumbnailUrl] = await Promise.all([
       getRobloxGameStats(universeId),
       getRobloxGameInfo(universeId),
       getRobloxGameThumbnail(universeId),
     ]);
 
-    console.log("[Roblox Sync] Stats source:", stats.source);
-    console.log("[Roblox Sync] CCU:", stats.currentPlayers);
-    console.log("[Roblox Sync] Visits:", stats.totalVisits);
+    // Debug: Log full stats response
+    console.log("[Roblox Sync] === Stats Response ===");
+    console.log("[Roblox Sync] source:", stats.source);
+    console.log("[Roblox Sync] currentPlayers (CCU):", stats.currentPlayers);
+    console.log("[Roblox Sync] totalVisits:", stats.totalVisits);
+    console.log("[Roblox Sync] favorites:", stats.favorites);
+    console.log("[Roblox Sync] likes:", stats.likes);
+    console.log("[Roblox Sync] dislikes:", stats.dislikes);
+    console.log("[Roblox Sync] likeRatio:", stats.likeRatio);
+    console.log("[Roblox Sync] lastFetched:", stats.lastFetched);
+    console.log("[Roblox Sync] gameInfo:", gameInfo ? JSON.stringify(gameInfo) : "null");
 
     // Build game sync result
     let gameSync: {
@@ -443,6 +586,26 @@ export async function POST(request: Request) {
 
     console.log("[Roblox Sync] Sync complete. Products synced:", productsSynced);
 
+    // Build debug info for diagnostics
+    const debugInfo = {
+      selectedGame: {
+        id: selectedGame.id,
+        name: selectedGame.name,
+        robloxGameId: selectedGame.roblox_game_id,
+        universeId: universeId,
+        rootPlaceId: selectedGame.root_place_id,
+      },
+      robloxApiUrl: `https://games.roblox.com/v1/games?universeIds=${universeId}`,
+      statsResponse: {
+        source: stats.source,
+        ccu: stats.currentPlayers,
+        visits: stats.totalVisits,
+        favorites: stats.favorites,
+        likes: stats.likes,
+        dislikes: stats.dislikes,
+      },
+    };
+
     return NextResponse.json({
       success: true,
       synced: gameSync !== null || productsSynced > 0,
@@ -452,8 +615,9 @@ export async function POST(request: Request) {
       unavailable,
       sectionErrors: Object.keys(sectionErrors).length > 0 ? sectionErrors : undefined,
       message: gameSync 
-        ? `Roblox data synced. CCU: ${gameSync.ccu ?? 0}, Products: ${productsSynced}` 
+        ? `Synced: ${gameSync.ccu ?? 0} playing, ${(gameSync.visits ?? 0).toLocaleString()} visits` 
         : "Partial sync completed",
+      debug: debugInfo,
     });
   } catch (error) {
     console.error("[Roblox Sync] Error:", error);
