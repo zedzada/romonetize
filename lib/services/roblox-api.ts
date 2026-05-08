@@ -61,6 +61,9 @@ export async function getRobloxGameStats(universeId: string, apiKey?: string | n
     lastFetched: null,
   };
 
+  const apiUrl = `https://games.roblox.com/v1/games?universeIds=${universeId}`;
+  console.log("[Roblox API] Fetching stats from:", apiUrl);
+
   try {
     // Build headers - add API key if provided
     const headers: Record<string, string> = {
@@ -71,25 +74,38 @@ export async function getRobloxGameStats(universeId: string, apiKey?: string | n
     }
 
     // Fetch universe info (public API)
-    const universeResponse = await fetch(
-      `https://games.roblox.com/v1/games?universeIds=${universeId}`,
-      { 
-        next: { revalidate: 60 }, // Cache for 1 minute
-        headers,
-      }
-    );
+    const universeResponse = await fetch(apiUrl, { 
+      next: { revalidate: 60 }, // Cache for 1 minute
+      headers,
+    });
+
+    console.log("[Roblox API] Response status:", universeResponse.status);
 
     if (!universeResponse.ok) {
-      console.error("[v0] Roblox API error:", universeResponse.status);
+      const errorText = await universeResponse.text();
+      console.error("[Roblox API] Error response:", errorText);
       return defaultStats;
     }
 
     const universeData = await universeResponse.json();
+    console.log("[Roblox API] Raw response data keys:", Object.keys(universeData));
+    console.log("[Roblox API] data array length:", universeData.data?.length ?? 0);
+    
     const gameInfo = universeData.data?.[0];
 
     if (!gameInfo) {
+      console.log("[Roblox API] No game found in response for universeId:", universeId);
       return defaultStats;
     }
+
+    // Log raw game info for debugging
+    console.log("[Roblox API] Raw game info:", JSON.stringify({
+      id: gameInfo.id,
+      name: gameInfo.name,
+      playing: gameInfo.playing,
+      visits: gameInfo.visits,
+      favoritedCount: gameInfo.favoritedCount,
+    }));
 
     // Fetch votes (likes/dislikes)
     let likes: number | null = null;
