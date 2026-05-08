@@ -7,7 +7,7 @@ import {
   getRobloxGameInfo,
   getRobloxGameThumbnail 
 } from "@/lib/services/roblox-api";
-import { getSelectedGameForUser, getAllGamesForUser } from "@/lib/actions/games";
+import { getSelectedGameForUser, getAllGamesForUser } from "@/lib/server/selected-game";
 
 // Lazy init for service role client (for inserts that bypass RLS)
 function getSupabaseAdmin() {
