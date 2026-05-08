@@ -350,23 +350,28 @@ export default function GamePage() {
       });
       
       const data = await response.json();
-      console.log("[v0] Sync response:", data);
       
       if (data.success && data.synced && data.gameSync) {
         // Use the actual gameSync values from response
         const ccu = data.gameSync.ccu ?? 0;
         const visits = data.gameSync.visits ?? 0;
-        toast.success(`Synced: ${ccu} playing, ${visits.toLocaleString()} visits`);
+        const favorites = data.gameSync.favorites ?? 0;
+        toast.success(`Synced Roblox stats: ${ccu} playing, ${visits.toLocaleString()} visits, ${favorites.toLocaleString()} favorites`);
+        
+        // Trigger global stats refresh so all dashboard components update
+        const { triggerStatsRefresh } = await import("@/hooks/use-stats-refresh");
+        triggerStatsRefresh();
+        
+        // Also refresh the router to update server components
+        router.refresh();
       } else if (data.success && !data.synced) {
-        toast.error("Roblox API returned no data. Check console for debug info.");
-        console.log("[v0] Sync debug:", data.debug);
+        toast.error("Roblox API returned no data");
       } else {
         const errorMsg = data.error || "Could not sync Roblox stats";
         toast.error(errorMsg);
-        console.log("[v0] Sync error debug:", data.debug || data);
       }
     } catch (err) {
-      console.error("[v0] Sync fetch error:", err);
+      console.error("Sync fetch error:", err);
       toast.error("Failed to sync Roblox stats");
     }
     setSyncingStats(false);
