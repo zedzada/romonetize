@@ -102,19 +102,15 @@ export default function PerformancePage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [ccuPeriod, setCcuPeriod] = useState("1d");
   const [retentionTab, setRetentionTab] = useState("d1");
-  const [lastRobloxFetch, setLastRobloxFetch] = useState<Date | null>(null);
-  const [robloxLiveData, setRobloxLiveData] = useState<{
-    currentPlayers: number;
-    totalVisits: number;
-    favorites: number;
-    likes: number;
-    dislikes: number;
-  } | null>(null);
-
   const gameIds = game ? [game.id] : [];
 
-  // Get dataHealth for banner
-  const { dataHealth, refresh: refreshAnalytics } = useAnalytics({ enabled: !!game });
+  // Use central analytics hook for Roblox stats - single source of truth
+  const { 
+    dataHealth, 
+    robloxStats: analyticsRobloxStats,
+    refresh: refreshAnalytics,
+    isRefreshing: analyticsRefreshing,
+  } = useAnalytics({ enabled: !!game });
 
   const fetchPerformanceData = async (gameId: string) => {
     const { data } = await getPerformanceStats(gameId, 30); // Always fetch 30 days for comprehensive data
@@ -123,26 +119,7 @@ export default function PerformancePage() {
     }
   };
 
-  // Fetch live Roblox data via API
-  const fetchRobloxLiveData = useCallback(async (gameId: string) => {
-    try {
-      const response = await fetch(`/api/roblox-stats?gameId=${gameId}`);
-      const data = await response.json();
-      
-      if (data.success && data.data) {
-        setRobloxLiveData({
-          currentPlayers: data.data.currentPlayers,
-          totalVisits: data.data.totalVisits,
-          favorites: data.data.favorites,
-          likes: data.data.likes,
-          dislikes: data.data.dislikes,
-        });
-        setLastRobloxFetch(new Date());
-      }
-    } catch (error) {
-      console.error("Failed to fetch Roblox live data:", error);
-    }
-  }, []);
+
 
   useEffect(() => {
     async function fetchData() {
@@ -152,36 +129,25 @@ export default function PerformancePage() {
       if (!error && selectedGame) {
         setGame(selectedGame);
         await fetchPerformanceData(selectedGame.id);
-        // Also fetch live Roblox data
-        fetchRobloxLiveData(selectedGame.id);
       }
 
       setLoading(false);
     }
 
     fetchData();
-  }, [fetchRobloxLiveData]);
+  }, []);
 
-  // Auto-refresh Roblox data every 60 seconds
-  useEffect(() => {
-    if (!game) return;
 
-    const interval = setInterval(() => {
-      fetchRobloxLiveData(game.id);
-    }, 60000); // 60 seconds
-
-    return () => clearInterval(interval);
-  }, [game, fetchRobloxLiveData]);
 
   const handleRefresh = useCallback(async () => {
     if (!game) return;
     setIsRefreshing(true);
     await Promise.all([
       fetchPerformanceData(game.id),
-      fetchRobloxLiveData(game.id),
+      refreshAnalytics(),
     ]);
     setIsRefreshing(false);
-  }, [game, fetchRobloxLiveData]);
+  }, [game, refreshAnalytics]);
 
   useStatsRefresh(handleRefresh);
 
@@ -256,7 +222,6 @@ export default function PerformancePage() {
   }
 
   const stats = performanceData?.stats;
-  const robloxStats = performanceData?.robloxStats;
   const timeSeries = performanceData?.timeSeries || [];
   const hasTrackerData = stats && stats.totalEvents > 0;
 
@@ -322,10 +287,14 @@ export default function PerformancePage() {
   const avgCCU = ccuChartData.length > 0 
     ? Math.round(ccuChartData.reduce((sum, d) => sum + d.ccu, 0) / ccuChartData.length) 
     : null;
-  // Prefer live Roblox data, fallback to stats from server
-  const currentCCU = robloxLiveData?.currentPlayers ?? robloxStats?.currentPlayers ?? null;
-  const totalVisits = robloxLiveData?.totalVisits ?? robloxStats?.totalVisits ?? null;
-  const favorites = robloxLiveData?.favorites ?? robloxStats?.favorites ?? null;
+  
+  // Use robloxStats from central analytics hook (single source of truth)
+  const currentCCU = analyticsRobloxStats?.ccu ?? null;
+  const totalVisits = analyticsRobloxStats?.visits ?? null;
+  const favorites = analyticsRobloxStats?.favorites ?? null;
+  const likes = analyticsRobloxStats?.likes ?? null;
+  const dislikes = analyticsRobloxStats?.dislikes ?? null;
+  const hasRobloxStats = analyticsRobloxStats !== null;
 
   // Generate retention trend data
   const retentionChartData = timeSeries.map(d => ({
@@ -363,9 +332,9 @@ export default function PerformancePage() {
           </div>
           <p className="text-muted-foreground">
             Monitor your game&apos;s analytics and metrics
-            {lastRobloxFetch && (
+            {analyticsRobloxStats?.updatedAt && (
               <span className="text-xs ml-2 text-muted-foreground/60">
-                Last updated: {lastRobloxFetch.toLocaleTimeString(undefined, { timeZone: userTimezone })}
+                Roblox data: {new Date(analyticsRobloxStats.updatedAt).toLocaleTimeString(undefined, { timeZone: userTimezone })}
               </span>
             )}
           </p>
@@ -578,7 +547,7 @@ export default function PerformancePage() {
               <div className="text-2xl font-bold text-foreground">
                 {currentCCU !== null ? formatNumber(currentCCU) : "—"}
               </div>
-              <SourceLabel source={robloxStats?.source || "not_available"} unavailableReason="roblox" />
+              <SourceLabel source={hasRobloxStats ? "roblox_api" : "not_available"} unavailableReason="roblox" />
             </div>
             <div className="p-4 rounded-lg bg-secondary/30 border border-border/50">
               <div className="flex items-center gap-2 mb-2">
@@ -588,7 +557,7 @@ export default function PerformancePage() {
               <div className="text-2xl font-bold text-foreground">
                 {totalVisits !== null ? formatNumber(totalVisits) : "—"}
               </div>
-              <SourceLabel source={robloxStats?.source || "not_available"} unavailableReason="roblox" />
+              <SourceLabel source={hasRobloxStats ? "roblox_api" : "not_available"} unavailableReason="roblox" />
             </div>
             <div className="p-4 rounded-lg bg-secondary/30 border border-border/50">
               <div className="flex items-center gap-2 mb-2">
@@ -598,7 +567,7 @@ export default function PerformancePage() {
               <div className="text-2xl font-bold text-foreground">
                 {favorites !== null ? formatNumber(favorites) : "—"}
               </div>
-              <SourceLabel source={robloxStats?.source || "not_available"} unavailableReason="roblox" />
+              <SourceLabel source={hasRobloxStats ? "roblox_api" : "not_available"} unavailableReason="roblox" />
             </div>
             <div className="p-4 rounded-lg bg-secondary/30 border border-border/50">
               <div className="flex items-center gap-2 mb-2">
@@ -606,9 +575,9 @@ export default function PerformancePage() {
                 <span className="text-xs text-muted-foreground">Likes</span>
               </div>
               <div className="text-2xl font-bold text-foreground">
-                {robloxLiveData?.likes !== undefined ? formatNumber(robloxLiveData.likes) : robloxStats?.likes !== null ? formatNumber(robloxStats.likes) : "—"}
+                {likes !== null ? formatNumber(likes) : "—"}
               </div>
-              <SourceLabel source={robloxStats?.source || "not_available"} unavailableReason="roblox" />
+              <SourceLabel source={hasRobloxStats ? "roblox_api" : "not_available"} unavailableReason="roblox" />
             </div>
             <div className="p-4 rounded-lg bg-secondary/30 border border-border/50">
               <div className="flex items-center gap-2 mb-2">
@@ -616,9 +585,9 @@ export default function PerformancePage() {
                 <span className="text-xs text-muted-foreground">Dislikes</span>
               </div>
               <div className="text-2xl font-bold text-foreground">
-                {robloxLiveData?.dislikes !== undefined ? formatNumber(robloxLiveData.dislikes) : robloxStats?.dislikes !== null ? formatNumber(robloxStats.dislikes) : "—"}
+                {dislikes !== null ? formatNumber(dislikes) : "—"}
               </div>
-              <SourceLabel source={robloxStats?.source || "not_available"} unavailableReason="roblox" />
+              <SourceLabel source={hasRobloxStats ? "roblox_api" : "not_available"} unavailableReason="roblox" />
             </div>
           </div>
         </CardContent>
@@ -669,7 +638,7 @@ export default function PerformancePage() {
               <div className="text-3xl font-bold text-foreground">
                 {currentCCU !== null ? formatNumber(currentCCU) : "—"}
               </div>
-              <SourceLabel source={robloxStats?.source || "not_available"} unavailableReason="roblox" />
+              <SourceLabel source={hasRobloxStats ? "roblox_api" : "not_available"} unavailableReason="roblox" />
             </div>
             <div className="p-4 rounded-lg bg-secondary/30 border border-border/50">
               <div className="flex items-center gap-2 mb-2">

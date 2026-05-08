@@ -32,6 +32,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getDashboardStats, getAnalyticsAlerts, getUserGameIds, type DashboardStats, type AnalyticsAlert } from "@/lib/actions/analytics";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
+import { useAnalytics } from "@/hooks/use-analytics";
+import { Users, Heart, ThumbsUp } from "lucide-react";
 import { createGame, getFirstGameApiKey } from "@/lib/actions/games";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +58,9 @@ export default function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [gameIds, setGameIds] = useState<string[]>([]);
+
+  // Use central analytics hook for Roblox stats
+  const { robloxStats, refresh: refreshAnalytics } = useAnalytics({ enabled: gameIds.length > 0 });
 
   // Fetch dashboard stats and alerts (fresh from Supabase)
   const fetchStats = useCallback(async (showLoadingState = true) => {
@@ -126,7 +131,10 @@ export default function DashboardPage() {
   // Manual refresh handler
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await fetchStats(false);
+    await Promise.all([
+      fetchStats(false),
+      refreshAnalytics(),
+    ]);
     setIsRefreshing(false);
   };
 
@@ -563,6 +571,70 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Roblox Public Stats */}
+      {robloxStats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <Card className="border-border/50 bg-gradient-to-br from-card to-cyan-500/5 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-cyan-500/10 flex items-center justify-center">
+                  <Users className="w-5 h-5 text-cyan-500" />
+                </div>
+                <span className="text-[10px] font-semibold text-cyan-500 bg-cyan-500/10 px-2 py-0.5 rounded-full">
+                  Live
+                </span>
+              </div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">
+                {robloxStats.ccu !== null ? robloxStats.ccu.toLocaleString() : "—"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Current CCU</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 bg-gradient-to-br from-card to-indigo-500/5 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-indigo-500/10 flex items-center justify-center">
+                  <Eye className="w-5 h-5 text-indigo-500" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">
+                {robloxStats.visits !== null ? robloxStats.visits.toLocaleString() : "—"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Total Visits</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 bg-gradient-to-br from-card to-rose-500/5 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-rose-500/10 flex items-center justify-center">
+                  <Heart className="w-5 h-5 text-rose-500" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">
+                {robloxStats.favorites !== null ? robloxStats.favorites.toLocaleString() : "—"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Favorites</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/50 bg-gradient-to-br from-card to-emerald-500/5 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-500/10 flex items-center justify-center">
+                  <ThumbsUp className="w-5 h-5 text-emerald-500" />
+                </div>
+              </div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">
+                {robloxStats.likes !== null ? robloxStats.likes.toLocaleString() : "—"}
+              </div>
+              <div className="text-xs text-muted-foreground mt-1">Likes</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
       {/* Alerts Card - Premium styling */}
       {alerts.length > 0 && (
