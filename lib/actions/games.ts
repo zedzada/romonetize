@@ -15,6 +15,13 @@ export interface Game {
   created_at: string;
   updated_at: string;
   last_event_at: string | null;
+  is_selected?: boolean;
+  // Source metadata
+  source?: "user" | "group" | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  role_name?: string | null;
+  root_place_id?: string | null;
   // Roblox API data
   universe_id?: string | null;
   creator_name?: string | null;
@@ -316,11 +323,23 @@ export async function getSelectedGame(): Promise<{ game: Game | null; error: str
     return { game: null, error: "Not authenticated" };
   }
 
+  return getSelectedGameForUser(user.id, supabase);
+}
+
+// Shared helper: Get selected game for a user ID
+// This is the single source of truth for selected game logic
+// Can be called with an existing supabase client from API routes
+export async function getSelectedGameForUser(
+  userId: string,
+  supabaseClient?: Awaited<ReturnType<typeof createClient>>
+): Promise<{ game: Game | null; error: string | null }> {
+  const supabase = supabaseClient || await createClient();
+
   // Try to get the selected game
   const { data: selectedGame } = await supabase
     .from("games")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .eq("is_selected", true)
     .neq("status", "deleted")
     .single();
@@ -333,9 +352,9 @@ export async function getSelectedGame(): Promise<{ game: Game | null; error: str
   const { data: firstGame, error: firstError } = await supabase
     .from("games")
     .select("*")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .neq("status", "deleted")
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(1)
     .single();
 
@@ -343,13 +362,39 @@ export async function getSelectedGame(): Promise<{ game: Game | null; error: str
     return { game: null, error: null }; // No games at all
   }
 
-  // Auto-select this game
+  // Auto-select: deselect all first, then select this one
+  await supabase
+    .from("games")
+    .update({ is_selected: false })
+    .eq("user_id", userId);
+
   await supabase
     .from("games")
     .update({ is_selected: true })
     .eq("id", firstGame.id);
 
   return { game: { ...firstGame, is_selected: true }, error: null };
+}
+
+// Get all games for a user (for debug output)
+export async function getAllGamesForUser(
+  userId: string,
+  supabaseClient?: Awaited<ReturnType<typeof createClient>>
+): Promise<{ games: Pick<Game, 'id' | 'name' | 'roblox_game_id' | 'status' | 'is_selected' | 'source' | 'group_name'>[]; error: string | null }> {
+  const supabase = supabaseClient || await createClient();
+
+  const { data: games, error } = await supabase
+    .from("games")
+    .select("id, name, roblox_game_id, status, is_selected, source, group_name")
+    .eq("user_id", userId)
+    .neq("status", "deleted")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    return { games: [], error: error.message };
+  }
+
+  return { games: games || [], error: null };
 }
 
 // Select a game (set is_selected = true and deselect others)
