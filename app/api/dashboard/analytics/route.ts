@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getRobloxGameStats, getUniverseIdFromPlaceId } from "@/lib/services/roblox-api";
+import { getSelectedGameForUser, getAllGamesForUser } from "@/lib/actions/games";
 
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d";
@@ -37,6 +38,8 @@ function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: numbe
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const range = (searchParams.get("range") || "7d") as DateRange;
+  const queryGameId = searchParams.get("gameId");
+  const debug = searchParams.get("debug") === "true";
 
   const supabase = await createClient();
 
@@ -49,7 +52,8 @@ export async function GET(request: NextRequest) {
   // Section errors tracking
   const sectionErrors: Record<string, string> = {};
 
-  // 1. Get selected game (is_selected = true) with full details
+  // 1. Get selected game using shared helper (single source of truth)
+  // Priority: 1) queryGameId if provided, 2) getSelectedGameForUser helper
   let selectedGame: {
     id: string;
     name: string;
@@ -64,42 +68,69 @@ export async function GET(request: NextRequest) {
     likes: number | null;
     dislikes: number | null;
     last_roblox_sync: string | null;
+    source?: string | null;
+    group_name?: string | null;
   } | null = null;
 
-  const { data: selectedGameData } = await supabase
-    .from("games")
-    .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
-    .eq("user_id", user.id)
-    .eq("is_selected", true)
-    .neq("status", "deleted")
-    .single();
+  // Get all user games for debug output
+  const { games: allUserGames } = await getAllGamesForUser(user.id, supabase);
 
-  if (selectedGameData) {
-    selectedGame = selectedGameData;
-  } else {
-    // No game selected - auto-select the first active game
-    const { data: firstGame } = await supabase
+  if (queryGameId) {
+    // If gameId is provided, verify it belongs to current user
+    const { data: gameData } = await supabase
       .from("games")
-      .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
+      .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync, source, group_name")
+      .eq("id", queryGameId)
       .eq("user_id", user.id)
       .neq("status", "deleted")
-      .order("created_at", { ascending: false })
-      .limit(1)
       .single();
 
-    if (firstGame) {
-      // Auto-select this game
-      await supabase
-        .from("games")
-        .update({ is_selected: true })
-        .eq("id", firstGame.id);
-      
-      selectedGame = firstGame;
+    if (gameData) {
+      selectedGame = gameData;
+    }
+  }
+
+  // If no game from query, use shared helper
+  if (!selectedGame) {
+    const { game: helperGame } = await getSelectedGameForUser(user.id, supabase);
+    if (helperGame) {
+      selectedGame = {
+        id: helperGame.id,
+        name: helperGame.name,
+        roblox_game_id: helperGame.roblox_game_id,
+        universe_id: helperGame.universe_id || null,
+        root_place_id: helperGame.root_place_id || null,
+        api_key: helperGame.api_key,
+        last_event_at: helperGame.last_event_at,
+        current_players: helperGame.current_players ?? null,
+        total_visits: helperGame.total_visits ?? null,
+        favorites: helperGame.favorites ?? null,
+        likes: helperGame.likes ?? null,
+        dislikes: helperGame.dislikes ?? null,
+        last_roblox_sync: helperGame.last_roblox_sync || null,
+        source: helperGame.source || null,
+        group_name: helperGame.group_name || null,
+      };
     }
   }
 
   // No games at all - return empty state with dataHealth
   if (!selectedGame) {
+    const debugData = debug ? {
+      authUserId: user.id,
+      queryGameId,
+      helperSelectedGame: null,
+      allUserGames: allUserGames.map(g => ({
+        id: g.id,
+        name: g.name,
+        roblox_game_id: g.roblox_game_id,
+        is_selected: g.is_selected,
+        source: g.source,
+        group_name: g.group_name,
+      })),
+      selectedGameUsed: null,
+    } : undefined;
+
     return NextResponse.json({
       success: true,
       data: {
@@ -115,12 +146,15 @@ export async function GET(request: NextRequest) {
           lastTrackerEventAt: null,
           hasRobloxApiData: false,
           robloxApiLastSyncedAt: null,
+          hasSyncedProducts: false,
+          syncedProductsCount: 0,
           missing: ["no_game_connected"],
         },
         overview: null,
         trackerStats: null,
         revenueStats: null,
         productStats: null,
+        syncedProducts: null,
         retentionStats: null,
         ccuStats: null,
         robloxStats: null,
@@ -128,8 +162,20 @@ export async function GET(request: NextRequest) {
         sectionErrors: {},
         lastUpdated: new Date().toISOString(),
       },
+      debug: debugData,
     });
   }
+
+  // Build selectedGameUsed for debug output (never expose api_key)
+  const selectedGameUsed = {
+    id: selectedGame.id,
+    name: selectedGame.name,
+    roblox_game_id: selectedGame.roblox_game_id,
+    universe_id: selectedGame.universe_id,
+    root_place_id: selectedGame.root_place_id,
+    source: selectedGame.source,
+    group_name: selectedGame.group_name,
+  };
 
   const gameId = selectedGame.id;
   const rangeConfig = getRangeConfig(range);
@@ -800,5 +846,21 @@ export async function GET(request: NextRequest) {
       sectionErrors,
       lastUpdated: new Date().toISOString(),
     },
+    // Debug output (only when ?debug=true)
+    ...(debug ? {
+      debug: {
+        authUserId: user.id,
+        queryGameId,
+        selectedGameUsed,
+        allUserGames: allUserGames.map(g => ({
+          id: g.id,
+          name: g.name,
+          roblox_game_id: g.roblox_game_id,
+          is_selected: g.is_selected,
+          source: g.source,
+          group_name: g.group_name,
+        })),
+      },
+    } : {}),
   });
 }
