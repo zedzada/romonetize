@@ -307,6 +307,11 @@ export async function GET(request: NextRequest) {
 
   // === ROBLOX PUBLIC STATS ===
   step = "read_roblox_sync";
+  
+  // Resolve universeId early - used for Roblox API calls and response
+  // Priority: universe_id column > roblox_game_id (which IS the universe ID from /api/roblox/games)
+  const universeId = selectedGame.universe_id || selectedGame.roblox_game_id || null;
+  
   // Priority: 1) Latest from roblox_game_syncs table, 2) games table fields, 3) Live API fetch
   let robloxStats: {
     ccu: number | null;
@@ -373,52 +378,44 @@ export async function GET(request: NextRequest) {
   }
 
   // If no synced data exists, try live API fetch (but don't block on it)
-  if (!robloxStats) {
-    let universeId = selectedGame.universe_id;
-    if (!universeId && selectedGame.roblox_game_id) {
-      // roblox_game_id IS the universe ID from /api/roblox/games
-      universeId = selectedGame.roblox_game_id;
-    }
+  if (!robloxStats && universeId) {
+    try {
+      const stats = await getRobloxGameStats(universeId);
+      if (stats.source === "roblox_api") {
+        robloxStats = {
+          ccu: stats.currentPlayers,
+          visits: stats.totalVisits,
+          favorites: stats.favorites,
+          likes: stats.likes,
+          dislikes: stats.dislikes,
+          likeRatio: stats.likeRatio,
+          updatedAt: stats.lastFetched,
+          source: "live_api",
+        };
 
-    if (universeId) {
-      try {
-        const stats = await getRobloxGameStats(universeId);
-        if (stats.source === "roblox_api") {
-          robloxStats = {
+        // Update game record with fresh Roblox stats
+        await supabase
+          .from("games")
+          .update({
+            current_players: stats.currentPlayers ?? 0,
+            total_visits: stats.totalVisits ?? 0,
+            favorites: stats.favorites ?? 0,
+            likes: stats.likes ?? 0,
+            dislikes: stats.dislikes ?? 0,
+            last_roblox_sync: new Date().toISOString(),
+          })
+          .eq("id", gameId);
+
+        // Store CCU snapshot for chart history
+        if (stats.currentPlayers !== null) {
+          await supabase.from("ccu_snapshots").insert({
+            game_id: gameId,
             ccu: stats.currentPlayers,
-            visits: stats.totalVisits,
-            favorites: stats.favorites,
-            likes: stats.likes,
-            dislikes: stats.dislikes,
-            likeRatio: stats.likeRatio,
-            updatedAt: stats.lastFetched,
-            source: "live_api",
-          };
-
-          // Update game record with fresh Roblox stats
-          await supabase
-            .from("games")
-            .update({
-              current_players: stats.currentPlayers ?? 0,
-              total_visits: stats.totalVisits ?? 0,
-              favorites: stats.favorites ?? 0,
-              likes: stats.likes ?? 0,
-              dislikes: stats.dislikes ?? 0,
-              last_roblox_sync: new Date().toISOString(),
-            })
-            .eq("id", gameId);
-
-          // Store CCU snapshot for chart history
-          if (stats.currentPlayers !== null) {
-            await supabase.from("ccu_snapshots").insert({
-              game_id: gameId,
-              ccu: stats.currentPlayers,
-            });
-          }
+          });
         }
-      } catch (err) {
-        sectionErrors.robloxStats = err instanceof Error ? err.message : "Failed to fetch Roblox stats";
       }
+    } catch (err) {
+      sectionErrors.robloxStats = err instanceof Error ? err.message : "Failed to fetch Roblox stats";
     }
   }
 
