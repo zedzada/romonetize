@@ -17,7 +17,28 @@ export interface DataHealth {
   lastTrackerEventAt: string | null;
   hasRobloxApiData: boolean;
   robloxApiLastSyncedAt: string | null;
+  hasSyncedProducts: boolean;
+  syncedProductsCount: number;
   missing: string[];
+}
+
+export interface SyncedProduct {
+  id: string;
+  robloxProductId: string;
+  name: string;
+  productType: string;
+  priceRobux: number;
+  isForSale: boolean;
+  iconUrl: string | null;
+  syncedAt: string;
+}
+
+export interface SyncedProductsData {
+  products: SyncedProduct[];
+  totalCount: number;
+  gamepasses: number;
+  devProducts: number;
+  hasSyncedProducts: boolean;
 }
 
 export interface RobloxStats {
@@ -121,6 +142,7 @@ export interface AnalyticsData {
   trackerStats: TrackerStats | null;
   revenueStats: RevenueStats | null;
   productStats: ProductStats | null;
+  syncedProducts: SyncedProductsData | null;
   retentionStats: RetentionStats | null;
   ccuStats: CCUStats | null;
   charts: ChartData | null;
@@ -227,6 +249,7 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
   const needsTrackingScript = data?.dataHealth?.missing.includes("tracking_script_not_installed") ?? false;
   const hasRobloxData = data?.dataHealth?.hasRobloxApiData ?? false;
   const hasTrackerData = data?.dataHealth?.hasTrackerEvents ?? false;
+  const hasSyncedProducts = data?.dataHealth?.hasSyncedProducts ?? false;
 
   return {
     // Data
@@ -238,6 +261,7 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     trackerStats: data?.trackerStats ?? null,
     revenueStats: data?.revenueStats ?? null,
     productStats: data?.productStats ?? null,
+    syncedProducts: data?.syncedProducts ?? null,
     retentionStats: data?.retentionStats ?? null,
     ccuStats: data?.ccuStats ?? null,
     charts: data?.charts ?? null,
@@ -248,6 +272,7 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     needsTrackingScript,
     hasRobloxData,
     hasTrackerData,
+    hasSyncedProducts,
 
     // State
     isLoading,

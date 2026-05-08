@@ -142,7 +142,7 @@ async function getAnalyticsContext(
     // First try to get the selected game
     const { data: selectedGame } = await supabase
       .from("games")
-      .select("id, name")
+      .select("id, name, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", userId)
       .eq("is_selected", true)
       .neq("status", "deleted")
@@ -154,7 +154,7 @@ async function getAnalyticsContext(
       // Fallback: auto-select the first active game
       const { data: games } = await supabase
         .from("games")
-        .select("id, name")
+        .select("id, name, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
         .eq("user_id", userId)
         .neq("status", "deleted")
         .order("created_at", { ascending: false })
@@ -170,10 +170,10 @@ async function getAnalyticsContext(
     return { hasData: false, gameName: null };
   }
 
-  // Verify ownership
+  // Verify ownership and get Roblox stats
   const { data: game } = await supabase
     .from("games")
-    .select("id, name")
+    .select("id, name, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
     .eq("id", targetGameId)
     .eq("user_id", userId)
     .single();
@@ -181,6 +181,15 @@ async function getAnalyticsContext(
   if (!game) {
     return { hasData: false, gameName: null };
   }
+
+  // Fetch synced Roblox products
+  const { data: robloxProducts } = await supabase
+    .from("roblox_products")
+    .select("name, product_type, price_robux, is_for_sale")
+    .eq("game_id", targetGameId)
+    .order("synced_at", { ascending: false });
+
+  const syncedProducts = robloxProducts || [];
 
   // Get events (paginated to avoid caps)
   const allEvents: Array<{
@@ -319,6 +328,24 @@ async function getAnalyticsContext(
   return {
     hasData: true,
     gameName: game.name,
+    // Roblox synced stats
+    robloxStats: {
+      ccu: game.current_players,
+      visits: game.total_visits,
+      favorites: game.favorites,
+      likes: game.likes,
+      dislikes: game.dislikes,
+      lastSynced: game.last_roblox_sync,
+    },
+    // Synced products from Roblox
+    syncedProducts: syncedProducts.map(p => ({
+      name: p.name,
+      type: p.product_type,
+      price: p.price_robux,
+      isForSale: p.is_for_sale,
+    })),
+    syncedProductsCount: syncedProducts.length,
+    // Tracker stats
     totalEvents: allEvents.length,
     totalRevenue,
     totalPurchases,
@@ -414,8 +441,30 @@ Format responses with clear headings, bullet points, and readable spacing. Be co
 `;
 
     if (analyticsContext.hasData) {
+      // Include Roblox synced stats if available
+      const robloxSection = analyticsContext.robloxStats?.lastSynced ? `
+ROBLOX SYNCED STATS (from Roblox API):
+- Current CCU (Players Online): ${analyticsContext.robloxStats?.ccu?.toLocaleString() || "N/A"}
+- Total Visits: ${analyticsContext.robloxStats?.visits?.toLocaleString() || "N/A"}
+- Favorites: ${analyticsContext.robloxStats?.favorites?.toLocaleString() || "N/A"}
+- Likes: ${analyticsContext.robloxStats?.likes?.toLocaleString() || "N/A"}
+- Dislikes: ${analyticsContext.robloxStats?.dislikes?.toLocaleString() || "N/A"}
+- Last Synced: ${analyticsContext.robloxStats?.lastSynced || "Never"}
+` : "";
+
+      // Include synced products if available
+      const productsSection = analyticsContext.syncedProductsCount > 0 ? `
+ROBLOX PRODUCTS (synced from Roblox):
+${analyticsContext.syncedProducts?.slice(0, 10).map((p: { name: string; type: string; price: number; isForSale: boolean }) => 
+  `- ${p.name} (${p.type}) - ${p.price} Robux${p.isForSale ? "" : " [Not for sale]"}`
+).join("\n") || "No products synced"}
+${analyticsContext.syncedProductsCount > 10 ? `... and ${analyticsContext.syncedProductsCount - 10} more products` : ""}
+` : "";
+
       systemPrompt += `
 ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
+${robloxSection}
+TRACKER ANALYTICS (from RoMonetize tracking script):
 - Total Events Tracked: ${analyticsContext.totalEvents?.toLocaleString()}
 - Total Revenue: ${analyticsContext.totalRevenue?.toLocaleString()} Robux
 - Total Purchases: ${analyticsContext.totalPurchases?.toLocaleString()}
@@ -431,17 +480,17 @@ ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
 - Current Week Purchases: ${analyticsContext.currentWeekPurchases}
 - Previous Week Purchases: ${analyticsContext.previousWeekPurchases}
 
-TOP PRODUCTS:
+TOP PRODUCTS BY TRACKER REVENUE:
 ${
   analyticsContext.topProducts
     ?.map(
-      (p, i) =>
+      (p: { name: string; revenue: number; purchases: number; productType: string }, i: number) =>
         `${i + 1}. ${p.name} - ${p.revenue.toLocaleString()} Robux (${p.purchases} purchases, ${p.productType})`
     )
     .join("\n") || "No product data"
 }
-
-Use this real data when answering questions. Reference specific numbers and products.`;
+${productsSection}
+Use this real data when answering questions. Reference specific numbers and products. Roblox API stats show public game metrics, while tracker stats show deep monetization analytics.`;
     } else {
       systemPrompt += `
 NOTE: This user ${analyticsContext.gameName ? `has a game called "${analyticsContext.gameName}" but ` : ""}doesn't have tracking data yet.
