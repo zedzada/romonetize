@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { getRobloxGameStats, getUniverseIdFromPlaceId } from "@/lib/services/roblox-api";
-import { getSelectedGameForUser, getAllGamesForUser } from "@/lib/actions/games";
+import { getRobloxGameStats } from "@/lib/services/roblox-api";
+import { getSelectedGameForUser, getAllGamesForUser, type GameSummary } from "@/lib/server/selected-game";
 
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d";
@@ -27,7 +27,7 @@ function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: numbe
  * All dashboard tabs use this single endpoint for consistent data.
  * Uses the selected game (is_selected = true) as the single source of truth.
  * 
- * GET /api/dashboard/analytics?range=7d
+ * GET /api/dashboard/analytics?range=7d&debug=true
  * 
  * Returns:
  * - dataHealth: diagnostic info about data availability
@@ -36,146 +36,175 @@ function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: numbe
  * - All other analytics data
  */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const range = (searchParams.get("range") || "7d") as DateRange;
-  const queryGameId = searchParams.get("gameId");
-  const debug = searchParams.get("debug") === "true";
+  // Debug tracking
+  let step = "init";
+  let authUserId: string | null = null;
+  let queryGameId: string | null = null;
+  let selectedGameUsed: Record<string, unknown> | null = null;
+  let allUserGames: GameSummary[] = [];
+  let robloxSyncLatestRow: Record<string, unknown> | null = null;
 
-  const supabase = await createClient();
+  try {
+    const { searchParams } = new URL(request.url);
+    const range = (searchParams.get("range") || "7d") as DateRange;
+    queryGameId = searchParams.get("gameId");
+    const debug = searchParams.get("debug") === "true";
 
-  const { data: { user } } = await supabase.auth.getUser();
+    step = "auth";
+    const supabase = await createClient();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-  if (!user) {
-    return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
-  }
-
-  // Section errors tracking
-  const sectionErrors: Record<string, string> = {};
-
-  // 1. Get selected game using shared helper (single source of truth)
-  // Priority: 1) queryGameId if provided, 2) getSelectedGameForUser helper
-  let selectedGame: {
-    id: string;
-    name: string;
-    roblox_game_id: string | null;
-    universe_id: string | null;
-    root_place_id: string | null;
-    api_key: string | null;
-    last_event_at: string | null;
-    current_players: number | null;
-    total_visits: number | null;
-    favorites: number | null;
-    likes: number | null;
-    dislikes: number | null;
-    last_roblox_sync: string | null;
-    source?: string | null;
-    group_name?: string | null;
-  } | null = null;
-
-  // Get all user games for debug output
-  const { games: allUserGames } = await getAllGamesForUser(user.id, supabase);
-
-  if (queryGameId) {
-    // If gameId is provided, verify it belongs to current user
-    const { data: gameData } = await supabase
-      .from("games")
-      .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync, source, group_name")
-      .eq("id", queryGameId)
-      .eq("user_id", user.id)
-      .neq("status", "deleted")
-      .single();
-
-    if (gameData) {
-      selectedGame = gameData;
+    if (authError || !user) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Not authenticated",
+        debug: debug ? { step, authError: authError?.message } : undefined,
+      }, { status: 401 });
     }
-  }
 
-  // If no game from query, use shared helper
-  if (!selectedGame) {
-    const { game: helperGame } = await getSelectedGameForUser(user.id, supabase);
-    if (helperGame) {
-      selectedGame = {
-        id: helperGame.id,
-        name: helperGame.name,
-        roblox_game_id: helperGame.roblox_game_id,
-        universe_id: helperGame.universe_id || null,
-        root_place_id: helperGame.root_place_id || null,
-        api_key: helperGame.api_key,
-        last_event_at: helperGame.last_event_at,
-        current_players: helperGame.current_players ?? null,
-        total_visits: helperGame.total_visits ?? null,
-        favorites: helperGame.favorites ?? null,
-        likes: helperGame.likes ?? null,
-        dislikes: helperGame.dislikes ?? null,
-        last_roblox_sync: helperGame.last_roblox_sync || null,
-        source: helperGame.source || null,
-        group_name: helperGame.group_name || null,
-      };
+    authUserId = user.id;
+
+    // Section errors tracking
+    const sectionErrors: Record<string, string> = {};
+
+    // 1. Get all user games for debug output
+    step = "read_all_user_games";
+    const { games: userGames, error: gamesError } = await getAllGamesForUser(user.id, supabase);
+    allUserGames = userGames;
+    
+    if (gamesError) {
+      sectionErrors.allUserGames = gamesError;
     }
-  }
 
-  // No games at all - return empty state with dataHealth
-  if (!selectedGame) {
-    const debugData = debug ? {
-      authUserId: user.id,
-      queryGameId,
-      helperSelectedGame: null,
-      allUserGames: allUserGames.map(g => ({
-        id: g.id,
-        name: g.name,
-        roblox_game_id: g.roblox_game_id,
-        is_selected: g.is_selected,
-        source: g.source,
-        group_name: g.group_name,
-      })),
-      selectedGameUsed: null,
-    } : undefined;
+    // 2. Get selected game using shared helper (single source of truth)
+    step = "read_selected_game";
+    let selectedGame: {
+      id: string;
+      name: string;
+      roblox_game_id: string | null;
+      universe_id: string | null;
+      root_place_id: string | null;
+      api_key: string | null;
+      last_event_at: string | null;
+      current_players: number | null;
+      total_visits: number | null;
+      favorites: number | null;
+      likes: number | null;
+      dislikes: number | null;
+      last_roblox_sync: string | null;
+      source?: string | null;
+      group_name?: string | null;
+    } | null = null;
 
-    return NextResponse.json({
-      success: true,
-      data: {
-        game: null,
-        range,
-        dataHealth: {
-          selectedGameId: null,
-          robloxGameId: null,
-          rootPlaceId: null,
-          gameName: null,
-          hasTrackerEvents: false,
-          trackerEventsCount: 0,
-          lastTrackerEventAt: null,
-          hasRobloxApiData: false,
-          robloxApiLastSyncedAt: null,
-          hasSyncedProducts: false,
-          syncedProductsCount: 0,
-          missing: ["no_game_connected"],
+    if (queryGameId) {
+      // If gameId is provided, verify it belongs to current user
+      const { data: gameData, error: gameError } = await supabase
+        .from("games")
+        .select("id, name, roblox_game_id, universe_id, root_place_id, api_key, last_event_at, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync, source, group_name")
+        .eq("id", queryGameId)
+        .eq("user_id", user.id)
+        .neq("status", "deleted")
+        .single();
+
+      if (gameError) {
+        sectionErrors.queryGame = gameError.message;
+      }
+      if (gameData) {
+        selectedGame = gameData;
+      }
+    }
+
+    // If no game from query, use shared helper
+    if (!selectedGame) {
+      const { game: helperGame, error: helperError } = await getSelectedGameForUser(user.id, supabase);
+      if (helperError) {
+        sectionErrors.selectedGameHelper = helperError;
+      }
+      if (helperGame) {
+        selectedGame = {
+          id: helperGame.id,
+          name: helperGame.name,
+          roblox_game_id: helperGame.roblox_game_id,
+          universe_id: helperGame.universe_id || null,
+          root_place_id: helperGame.root_place_id || null,
+          api_key: helperGame.api_key,
+          last_event_at: helperGame.last_event_at,
+          current_players: helperGame.current_players ?? null,
+          total_visits: helperGame.total_visits ?? null,
+          favorites: helperGame.favorites ?? null,
+          likes: helperGame.likes ?? null,
+          dislikes: helperGame.dislikes ?? null,
+          last_roblox_sync: helperGame.last_roblox_sync || null,
+          source: helperGame.source || null,
+          group_name: helperGame.group_name || null,
+        };
+      }
+    }
+
+    // No games at all - return empty state with dataHealth
+    if (!selectedGame) {
+      const debugData = debug ? {
+        step,
+        authUserId,
+        queryGameId,
+        allUserGamesCount: allUserGames.length,
+        allUserGames: allUserGames.map(g => ({
+          id: g.id,
+          name: g.name,
+          roblox_game_id: g.roblox_game_id,
+          is_selected: g.is_selected,
+          source: g.source,
+          group_name: g.group_name,
+        })),
+        selectedGameUsed: null,
+        sectionErrors,
+      } : undefined;
+
+      return NextResponse.json({
+        success: true,
+        data: {
+          game: null,
+          range,
+          dataHealth: {
+            selectedGameId: null,
+            robloxGameId: null,
+            rootPlaceId: null,
+            gameName: null,
+            hasTrackerEvents: false,
+            trackerEventsCount: 0,
+            lastTrackerEventAt: null,
+            hasRobloxApiData: false,
+            robloxApiLastSyncedAt: null,
+            hasSyncedProducts: false,
+            syncedProductsCount: 0,
+            missing: ["no_game_connected"],
+          },
+          overview: null,
+          trackerStats: null,
+          revenueStats: null,
+          productStats: null,
+          syncedProducts: null,
+          retentionStats: null,
+          ccuStats: null,
+          robloxStats: null,
+          charts: null,
+          sectionErrors,
+          lastUpdated: new Date().toISOString(),
         },
-        overview: null,
-        trackerStats: null,
-        revenueStats: null,
-        productStats: null,
-        syncedProducts: null,
-        retentionStats: null,
-        ccuStats: null,
-        robloxStats: null,
-        charts: null,
-        sectionErrors: {},
-        lastUpdated: new Date().toISOString(),
-      },
-      debug: debugData,
-    });
-  }
+        debug: debugData,
+      });
+    }
 
-  // Build selectedGameUsed for debug output (never expose api_key)
-  const selectedGameUsed = {
-    id: selectedGame.id,
-    name: selectedGame.name,
-    roblox_game_id: selectedGame.roblox_game_id,
-    universe_id: selectedGame.universe_id,
-    root_place_id: selectedGame.root_place_id,
-    source: selectedGame.source,
-    group_name: selectedGame.group_name,
-  };
+    // Build selectedGameUsed for debug output (never expose api_key)
+    selectedGameUsed = {
+      id: selectedGame.id,
+      name: selectedGame.name,
+      roblox_game_id: selectedGame.roblox_game_id,
+      universe_id: selectedGame.universe_id,
+      root_place_id: selectedGame.root_place_id,
+      source: selectedGame.source,
+      group_name: selectedGame.group_name,
+    };
 
   const gameId = selectedGame.id;
   const rangeConfig = getRangeConfig(range);
@@ -189,6 +218,7 @@ export async function GET(request: NextRequest) {
   const clickTypes = ["gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
 
   // 2. Fetch all events for the selected game in range - paginated to avoid caps
+  step = "read_events";
   let allEvents: Array<{
     id: string;
     event_type: string;
@@ -276,6 +306,7 @@ export async function GET(request: NextRequest) {
   const hasRobloxApiData = selectedGame.last_roblox_sync !== null;
 
   // === ROBLOX PUBLIC STATS ===
+  step = "read_roblox_sync";
   // Priority: 1) Latest from roblox_game_syncs table, 2) games table fields, 3) Live API fetch
   let robloxStats: {
     ccu: number | null;
@@ -287,7 +318,7 @@ export async function GET(request: NextRequest) {
     updatedAt: string | null;
     source: "roblox_game_syncs" | "games_table" | "live_api" | null;
   } | null = null;
-
+  
   // First, try to read from roblox_game_syncs table (most reliable, from manual sync)
   const { data: latestSync } = await supabase
     .from("roblox_game_syncs")
@@ -296,6 +327,18 @@ export async function GET(request: NextRequest) {
     .order("synced_at", { ascending: false })
     .limit(1)
     .single();
+
+  // Store for debug output
+  if (latestSync) {
+    robloxSyncLatestRow = {
+      ccu: latestSync.ccu,
+      visits: latestSync.visits,
+      favorites: latestSync.favorites,
+      likes: latestSync.likes,
+      dislikes: latestSync.dislikes,
+      synced_at: latestSync.synced_at,
+    };
+  }
 
   if (latestSync && (latestSync.visits !== null || latestSync.ccu !== null)) {
     // Calculate like ratio
@@ -402,6 +445,7 @@ export async function GET(request: NextRequest) {
   };
 
   // === BASIC STATS ===
+  step = "calculate_overview";
   const purchaseEvents = allEvents.filter((e) => purchaseTypes.includes(e.event_type));
   const sessionEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
   const endEvents = allEvents.filter((e) => sessionEndTypes.includes(e.event_type));
@@ -566,6 +610,7 @@ export async function GET(request: NextRequest) {
   const purchaseRate = uniquePlayers > 0 ? (totalPurchases / uniquePlayers) * 100 : null;
 
   // === PRODUCT STATS ===
+  step = "calculate_products";
   const productMap = new Map<string, {
     id: string;
     name: string;
@@ -672,6 +717,7 @@ export async function GET(request: NextRequest) {
   }
 
   // === SYNCED ROBLOX PRODUCTS ===
+  step = "build_response";
   // Fetch products from roblox_products table (synced via OAuth)
   let syncedProducts: Array<{
     id: string;
@@ -849,9 +895,13 @@ export async function GET(request: NextRequest) {
     // Debug output (only when ?debug=true)
     ...(debug ? {
       debug: {
-        authUserId: user.id,
+        step: "build_response",
+        authUserId,
         queryGameId,
         selectedGameUsed,
+        robloxSyncLatestRow,
+        robloxStatsMapped: robloxStats,
+        allUserGamesCount: allUserGames.length,
         allUserGames: allUserGames.map(g => ({
           id: g.id,
           name: g.name,
@@ -863,4 +913,23 @@ export async function GET(request: NextRequest) {
       },
     } : {}),
   });
+
+  } catch (error) {
+    // Global error handler - always return JSON, never crash
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    return NextResponse.json({
+      success: false,
+      error: errorMessage,
+      stack: process.env.NODE_ENV !== "production" ? errorStack : undefined,
+      debug: {
+        step,
+        authUserId,
+        queryGameId,
+        selectedGameUsed,
+        allUserGamesCount: allUserGames.length,
+      },
+    }, { status: 500 });
+  }
 }
