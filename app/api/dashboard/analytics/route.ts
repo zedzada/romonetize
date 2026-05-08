@@ -305,7 +305,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Build dataHealth
+  // Build dataHealth (note: syncedProducts count will be added after we fetch them)
   const dataHealth = {
     selectedGameId: selectedGame.id,
     robloxGameId: selectedGame.roblox_game_id,
@@ -316,6 +316,9 @@ export async function GET(request: NextRequest) {
     lastTrackerEventAt: selectedGame.last_event_at,
     hasRobloxApiData: hasRobloxApiData || robloxStats !== null,
     robloxApiLastSyncedAt: selectedGame.last_roblox_sync || robloxStats?.updatedAt || null,
+    // Products sync info (will be populated later)
+    hasSyncedProducts: false, // Updated below after fetching products
+    syncedProductsCount: 0,
     missing,
   };
 
@@ -589,6 +592,45 @@ export async function GET(request: NextRequest) {
     sectionErrors.ccu = err instanceof Error ? err.message : "Failed to fetch CCU";
   }
 
+  // === SYNCED ROBLOX PRODUCTS ===
+  // Fetch products from roblox_products table (synced via OAuth)
+  let syncedProducts: Array<{
+    id: string;
+    robloxProductId: string;
+    name: string;
+    productType: string;
+    priceRobux: number;
+    isForSale: boolean;
+    iconUrl: string | null;
+    syncedAt: string;
+  }> = [];
+  
+  try {
+    const { data: robloxProducts } = await supabase
+      .from("roblox_products")
+      .select("id, roblox_product_id, name, product_type, price_robux, is_for_sale, icon_url, synced_at")
+      .eq("game_id", gameId)
+      .order("synced_at", { ascending: false });
+
+    if (robloxProducts) {
+      syncedProducts = robloxProducts.map(p => ({
+        id: p.id,
+        robloxProductId: p.roblox_product_id,
+        name: p.name,
+        productType: p.product_type,
+        priceRobux: p.price_robux || 0,
+        isForSale: p.is_for_sale ?? true,
+        iconUrl: p.icon_url,
+        syncedAt: p.synced_at,
+      }));
+      // Update dataHealth with products info
+      dataHealth.hasSyncedProducts = syncedProducts.length > 0;
+      dataHealth.syncedProductsCount = syncedProducts.length;
+    }
+  } catch (err) {
+    sectionErrors.syncedProducts = err instanceof Error ? err.message : "Failed to fetch synced products";
+  }
+
   // === CHARTS DATA ===
   // Revenue chart bucketed by range
   const revenueBuckets = new Map<string, { revenue: number; purchases: number; passes: number; devProducts: number }>();
@@ -704,6 +746,14 @@ export async function GET(request: NextRequest) {
         avgConversionNeedsTracking: productsWithClicks.length === 0 && products.length > 0,
         products: products.slice(0, 50), // Top 50
         hasTrackerData: hasTrackerEvents,
+      },
+      // Synced Roblox products (from OAuth sync)
+      syncedProducts: {
+        products: syncedProducts,
+        totalCount: syncedProducts.length,
+        gamepasses: syncedProducts.filter(p => p.productType === "gamepass").length,
+        devProducts: syncedProducts.filter(p => p.productType === "devproduct").length,
+        hasSyncedProducts: syncedProducts.length > 0,
       },
       // Retention stats
       retentionStats,
