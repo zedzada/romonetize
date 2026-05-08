@@ -7,6 +7,7 @@ import {
   getRobloxGameInfo,
   getRobloxGameThumbnail 
 } from "@/lib/services/roblox-api";
+import { getSelectedGameForUser, getAllGamesForUser } from "@/lib/actions/games";
 
 // Lazy init for service role client (for inserts that bypass RLS)
 function getSupabaseAdmin() {
@@ -158,7 +159,14 @@ async function fetchDevProducts(universeId: string, accessToken: string): Promis
 /**
  * GET /api/roblox/sync-selected-game?debug=true
  * 
- * Debug endpoint to check Roblox stats for selected game without storing
+ * Debug endpoint to check Roblox stats for selected game without storing.
+ * Uses the shared getSelectedGameForUser helper for consistent behavior.
+ * 
+ * With ?debug=true, returns:
+ * - authUserId
+ * - allUserGames (id, name, roblox_game_id, is_selected, source, group_name)
+ * - selectedGameUsed
+ * - Roblox stats
  */
 export async function GET(request: Request) {
   try {
@@ -170,23 +178,31 @@ export async function GET(request: Request) {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
     if (userError || !user) {
-      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json({ 
+        success: false, 
+        error: "Not authenticated",
+        authUserId: null,
+      }, { status: 401 });
     }
 
-    // Get the selected game
-    const { data: selectedGame, error: gameError } = await supabase
-      .from("games")
-      .select("id, name, roblox_game_id, universe_id, root_place_id")
-      .eq("user_id", user.id)
-      .eq("is_selected", true)
-      .neq("status", "deleted")
-      .single();
+    // Use shared helper to get selected game (with auto-select)
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
+    
+    // Get all user games for debug output
+    const { games: allUserGames } = await getAllGamesForUser(user.id, supabase);
 
-    if (gameError || !selectedGame) {
-      return NextResponse.json({ success: false, error: "No game selected" }, { status: 404 });
+    // If no game found at all (user has zero games)
+    if (!selectedGame) {
+      return NextResponse.json({ 
+        success: false, 
+        error: gameError || "No games connected. Please connect a game first.",
+        authUserId: user.id,
+        allUserGames,
+        selectedGameUsed: null,
+      }, { status: 404 });
     }
 
-    // Resolve universe ID (same logic as POST)
+    // Resolve universe ID
     let universeId = selectedGame.universe_id || selectedGame.roblox_game_id;
     
     if (!universeId && selectedGame.root_place_id) {
@@ -196,13 +212,17 @@ export async function GET(request: Request) {
     if (!universeId) {
       return NextResponse.json({
         success: false,
-        error: "Could not resolve universe ID",
-        selectedGame: {
+        error: "Could not resolve universe ID for this game",
+        authUserId: user.id,
+        allUserGames,
+        selectedGameUsed: {
           id: selectedGame.id,
           name: selectedGame.name,
           robloxGameId: selectedGame.roblox_game_id,
           universeId: selectedGame.universe_id,
           rootPlaceId: selectedGame.root_place_id,
+          source: selectedGame.source,
+          groupName: selectedGame.group_name,
         },
       }, { status: 400 });
     }
@@ -213,12 +233,16 @@ export async function GET(request: Request) {
 
     const response: Record<string, unknown> = {
       success: stats.source === "roblox_api",
-      selectedGame: {
+      authUserId: user.id,
+      selectedGameUsed: {
         id: selectedGame.id,
         name: selectedGame.name,
         robloxGameId: selectedGame.roblox_game_id,
         universeId: universeId,
         rootPlaceId: selectedGame.root_place_id,
+        source: selectedGame.source,
+        groupName: selectedGame.group_name,
+        isSelected: selectedGame.is_selected,
       },
       url: robloxApiUrl,
       mappedStats: {
@@ -233,8 +257,10 @@ export async function GET(request: Request) {
       lastFetched: stats.lastFetched,
     };
 
-    // If debug mode, also fetch raw response
+    // Debug mode: include all user games and raw Roblox response
     if (debug) {
+      response.allUserGames = allUserGames;
+      
       try {
         const rawResponse = await fetch(robloxApiUrl, {
           headers: { "Accept": "application/json" },
@@ -293,19 +319,22 @@ export async function POST(request: Request) {
 
     console.log("[Roblox Sync] Starting sync for user:", user.id);
 
-    // Get the selected game
-    const { data: selectedGame, error: gameError } = await supabase
-      .from("games")
-      .select("id, name, roblox_game_id, universe_id, root_place_id")
-      .eq("user_id", user.id)
-      .eq("is_selected", true)
-      .neq("status", "deleted")
-      .single();
+    // Use shared helper to get selected game (with auto-select if needed)
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
 
-    if (gameError || !selectedGame) {
-      console.log("[Roblox Sync] No game selected");
+    if (!selectedGame) {
+      console.log("[Roblox Sync] No games connected for user");
+      const { games: allGames } = await getAllGamesForUser(user.id, supabase);
       return NextResponse.json(
-        { success: false, error: "No game selected" },
+        { 
+          success: false, 
+          error: gameError || "No games connected. Please connect a game first.",
+          debug: {
+            authUserId: user.id,
+            allUserGames: allGames,
+            selectedGameUsed: null,
+          }
+        },
         { status: 404 }
       );
     }
