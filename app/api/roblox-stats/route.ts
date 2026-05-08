@@ -138,17 +138,109 @@ export async function GET(request: Request) {
       }
     }
 
-    // Fetch stats from Roblox API (with API key if available)
+    // First, try to get data from roblox_game_syncs (most reliable, from manual sync)
+    const { data: latestSync } = await supabase
+      .from("roblox_game_syncs")
+      .select("ccu, visits, favorites, likes, dislikes, synced_at, name, description, genre, max_players, thumbnail_url")
+      .eq("game_id", gameId)
+      .order("synced_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    // If we have recent synced data (within last hour), use it directly
+    const syncedRecently = latestSync && 
+      (Date.now() - new Date(latestSync.synced_at).getTime() < 60 * 60 * 1000);
+
+    if (syncedRecently && latestSync) {
+      const totalVotes = (latestSync.likes || 0) + (latestSync.dislikes || 0);
+      const likeRatio = totalVotes > 0 ? (latestSync.likes || 0) / totalVotes : null;
+
+      return NextResponse.json<RobloxStatsResponse>({
+        success: true,
+        data: {
+          universeId,
+          currentPlayers: latestSync.ccu ?? 0,
+          totalVisits: latestSync.visits ?? 0,
+          favorites: latestSync.favorites ?? 0,
+          likes: latestSync.likes ?? 0,
+          dislikes: latestSync.dislikes ?? 0,
+          likeRatio,
+          name: latestSync.name || game.name,
+          description: latestSync.description || "",
+          genre: latestSync.genre || "Unknown",
+          maxPlayers: latestSync.max_players || 0,
+          thumbnailUrl: latestSync.thumbnail_url || game.thumbnail_url,
+          createdAt: game.created_at,
+          lastFetched: latestSync.synced_at,
+        },
+      });
+    }
+
+    // Try live API fetch
     const [stats, gameInfo, thumbnailUrl] = await Promise.all([
       getRobloxGameStats(universeId, game.roblox_api_key),
       getRobloxGameInfo(universeId),
       getRobloxGameThumbnail(universeId),
     ]);
 
+    // If live API fails, fall back to any stored data
     if (stats.source === "not_available") {
+      // Check if we have ANY synced data (even if older)
+      if (latestSync) {
+        const totalVotes = (latestSync.likes || 0) + (latestSync.dislikes || 0);
+        const likeRatio = totalVotes > 0 ? (latestSync.likes || 0) / totalVotes : null;
+
+        return NextResponse.json<RobloxStatsResponse>({
+          success: true,
+          data: {
+            universeId,
+            currentPlayers: latestSync.ccu ?? 0,
+            totalVisits: latestSync.visits ?? 0,
+            favorites: latestSync.favorites ?? 0,
+            likes: latestSync.likes ?? 0,
+            dislikes: latestSync.dislikes ?? 0,
+            likeRatio,
+            name: latestSync.name || game.name,
+            description: latestSync.description || "",
+            genre: latestSync.genre || "Unknown",
+            maxPlayers: latestSync.max_players || 0,
+            thumbnailUrl: latestSync.thumbnail_url || game.thumbnail_url,
+            createdAt: game.created_at,
+            lastFetched: latestSync.synced_at,
+          },
+        });
+      }
+      
+      // Check if we have data in games table
+      if (game.last_roblox_sync && game.total_visits !== null) {
+        const totalVotes = (game.likes || 0) + (game.dislikes || 0);
+        const likeRatio = totalVotes > 0 ? (game.likes || 0) / totalVotes : null;
+
+        return NextResponse.json<RobloxStatsResponse>({
+          success: true,
+          data: {
+            universeId,
+            currentPlayers: game.current_players ?? 0,
+            totalVisits: game.total_visits ?? 0,
+            favorites: game.favorites ?? 0,
+            likes: game.likes ?? 0,
+            dislikes: game.dislikes ?? 0,
+            likeRatio,
+            name: game.name,
+            description: game.description || "",
+            genre: game.genre || "Unknown",
+            maxPlayers: game.max_players || 0,
+            thumbnailUrl: game.thumbnail_url,
+            createdAt: game.created_at,
+            lastFetched: game.last_roblox_sync,
+          },
+        });
+      }
+
+      // No stored data at all
       return NextResponse.json<RobloxStatsResponse>(
-        { success: false, error: "Could not fetch data from Roblox API", errorCode: "ROBLOX_API_ERROR" },
-        { status: 502 }
+        { success: false, error: "No Roblox data available. Click 'Sync Roblox Stats' to fetch data.", errorCode: "NO_DATA" },
+        { status: 404 }
       );
     }
 
