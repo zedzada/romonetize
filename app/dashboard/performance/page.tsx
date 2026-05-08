@@ -289,10 +289,6 @@ export default function PerformancePage() {
     : null;
   
   // Use robloxStats from central analytics hook (single source of truth)
-  // DEBUG: Log raw values to verify mapping
-  console.log("[v0] analyticsRobloxStats:", analyticsRobloxStats);
-  console.log("[v0] dataHealth?.hasRobloxApiData:", dataHealth?.hasRobloxApiData);
-  
   const currentCCU = analyticsRobloxStats?.ccu ?? null;
   const totalVisits = analyticsRobloxStats?.visits ?? null;
   const favorites = analyticsRobloxStats?.favorites ?? null;
@@ -310,20 +306,6 @@ export default function PerformancePage() {
 
   return (
     <div className="space-y-6">
-      {/* DEBUG: Roblox Stats from useAnalytics */}
-      <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-xs font-mono">
-        <div className="font-bold text-yellow-600 mb-2">DEBUG: useAnalytics on Performance Page</div>
-        <div>analyticsRobloxStats: {JSON.stringify(analyticsRobloxStats, null, 2)}</div>
-        <div className="mt-2">dataHealth?.hasRobloxApiData: {String(dataHealth?.hasRobloxApiData)}</div>
-        <div className="mt-2 font-bold">Mapped values used in cards:</div>
-        <div>currentCCU: {currentCCU ?? "null"}</div>
-        <div>totalVisits: {totalVisits ?? "null"}</div>
-        <div>favorites: {favorites ?? "null"}</div>
-        <div>likes: {likes ?? "null"}</div>
-        <div>dislikes: {dislikes ?? "null"}</div>
-        <div>hasRobloxStats: {String(hasRobloxStats)}</div>
-      </div>
-
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
