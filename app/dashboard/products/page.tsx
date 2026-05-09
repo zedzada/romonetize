@@ -263,30 +263,30 @@ export default function ProductsPage() {
 
       {/* Products from Tracker (purchase_success events) */}
       {hasTrackerEvents && hasTrackerProducts && (
-        <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between">
+        <Card className="border-border/60 bg-card/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
-              <CardTitle className="text-lg">Product Performance</CardTitle>
-              <p className="text-sm text-muted-foreground">Based on purchase_success events from your tracking script</p>
+              <CardTitle className="text-lg font-semibold">Product Performance</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Based on purchase_success events from your tracking script</p>
             </div>
-            <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+            <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]">
               RoMonetize Tracker
             </Badge>
           </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto -mx-6">
+              <table className="w-full text-sm min-w-[900px]">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Product</th>
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Type</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Revenue</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Purchases</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Buyers</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Views</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Clicks</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Conv.</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Rev/Buyer</th>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Product</th>
+                    <th className="text-left py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Type</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Purchases</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Buyers</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Views</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Clicks</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Conv.</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -304,43 +304,49 @@ export default function ProductsPage() {
                     const revenuePerBuyer = product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? revenue / buyers : 0);
                     
                     return (
-                      <tr key={productId} className="border-b border-border/50 hover:bg-muted/30">
-                        <td className="py-3 px-2">
+                      <tr key={productId} className="border-b border-border/30 hover:bg-muted/40 transition-colors">
+                        <td className="py-4 px-6">
                           <div className="font-medium text-foreground">{productName}</div>
-                          <div className="text-xs text-muted-foreground">ID: {productId}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 font-mono">ID: {productId}</div>
                         </td>
-                        <td className="py-3 px-2">
-                          <Badge variant="outline" className="text-xs capitalize">
+                        <td className="py-4 px-3">
+                          <Badge 
+                            variant="secondary" 
+                            className={productType === "gamepass" 
+                              ? "bg-blue-500/15 text-blue-500 border-blue-500/30" 
+                              : "bg-purple-500/15 text-purple-500 border-purple-500/30"
+                            }
+                          >
                             {productType === "gamepass" ? "Game Pass" : productType === "devproduct" ? "Dev Product" : productType}
                           </Badge>
                         </td>
-                        <td className="py-3 px-2 text-right font-mono text-green-600">
+                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-500">
                           {formatRobux(revenue)}
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right font-medium">
                           {formatNumber(purchases)}
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right font-medium">
                           {formatNumber(buyers)}
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {views > 0 ? formatNumber(views) : (
-                            <span className="text-xs text-muted-foreground">0</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {clicks > 0 ? formatNumber(clicks) : (
-                            <span className="text-xs text-muted-foreground">0</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {conversionRate !== null ? (
-                            formatPercent(conversionRate)
+                            <span className="font-medium">{formatPercent(conversionRate)}</span>
                           ) : (
-                            <span className="text-xs text-muted-foreground">Needs view events</span>
+                            <span className="text-xs text-muted-foreground">Needs views</span>
                           )}
                         </td>
-                        <td className="py-3 px-2 text-right font-mono">
+                        <td className="py-4 px-6 text-right font-mono">
                           {formatRobux(revenuePerBuyer)}
                         </td>
                       </tr>
@@ -372,28 +378,31 @@ export default function ProductsPage() {
         </Card>
       )}
 
-      {/* Synced Roblox Products List - only show if synced products exist */}
-      {hasSyncedProducts && (
-        <Card className="border-border/50">
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="text-lg">Synced Roblox Products</CardTitle>
-            <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
+      {/* Synced Roblox Products List - only show if synced products exist AND no tracker products */}
+      {hasSyncedProducts && !hasTrackerProducts && (
+        <Card className="border-border/60 bg-card/50">
+          <CardHeader className="flex flex-row items-center justify-between pb-4">
+            <div>
+              <CardTitle className="text-lg font-semibold">Synced Roblox Products</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">Products fetched from the Roblox API</p>
+            </div>
+            <Badge variant="secondary" className="bg-blue-500/15 text-blue-500 border-blue-500/30 text-[10px]">
               Roblox API
             </Badge>
           </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+          <CardContent className="pt-0">
+            <div className="overflow-x-auto -mx-6">
+              <table className="w-full text-sm min-w-[800px]">
                 <thead>
-                  <tr className="border-b border-border">
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Product</th>
-                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Type</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Price</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Revenue</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Purchases</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Unique Buyers</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Conv. Rate</th>
-                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Rev/Buyer</th>
+                  <tr className="border-b border-border bg-muted/30">
+                    <th className="text-left py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Product</th>
+                    <th className="text-left py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Type</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Price</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Purchases</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Buyers</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Conv.</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -410,48 +419,55 @@ export default function ProductsPage() {
                       : null;
 
                     return (
-                      <tr key={id} className="border-b border-border/50 hover:bg-muted/30">
-                        <td className="py-3 px-2">
+                      <tr key={id} className="border-b border-border/30 hover:bg-muted/40 transition-colors">
+                        <td className="py-4 px-6">
                           <div className="font-medium text-foreground">{name}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 font-mono">ID: {id}</div>
                         </td>
-                        <td className="py-3 px-2">
-                          <Badge variant="outline" className="text-xs">
+                        <td className="py-4 px-3">
+                          <Badge 
+                            variant="secondary" 
+                            className={type === "gamepass" 
+                              ? "bg-blue-500/15 text-blue-500 border-blue-500/30" 
+                              : "bg-purple-500/15 text-purple-500 border-purple-500/30"
+                            }
+                          >
                             {type === "gamepass" ? "Game Pass" : type === "devproduct" ? "Dev Product" : type}
                           </Badge>
                         </td>
-                        <td className="py-3 px-2 text-right font-mono">
+                        <td className="py-4 px-3 text-right font-mono font-medium">
                           {formatRobux(price)}
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
-                            : formatRobux(trackerProduct?.revenue ?? 0)
+                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
+                            : <span className="font-mono font-semibold text-emerald-500">{formatRobux(trackerProduct?.revenue ?? 0)}</span>
                           }
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
-                            : formatNumber(trackerProduct?.purchases ?? 0)
+                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
+                            : <span className="font-medium">{formatNumber(trackerProduct?.purchases ?? 0)}</span>
                           }
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
-                            : formatNumber(trackerProduct?.uniqueBuyers ?? 0)
+                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
+                            : <span className="font-medium">{formatNumber(trackerProduct?.uniqueBuyers ?? 0)}</span>
                           }
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-3 text-right">
                           {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
+                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
                             : trackerProduct && !trackerProduct.conversionNeedsTracking
-                              ? formatPercent(trackerProduct?.conversionRate)
-                              : <span className="text-xs text-muted-foreground">Needs events</span>
+                              ? <span className="font-medium">{formatPercent(trackerProduct?.conversionRate)}</span>
+                              : <span className="text-xs text-muted-foreground">Needs views</span>
                           }
                         </td>
-                        <td className="py-3 px-2 text-right">
+                        <td className="py-4 px-6 text-right">
                           {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
-                            : formatRobux(trackerProduct?.revPerBuyer ?? 0)
+                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
+                            : <span className="font-mono">{formatRobux(trackerProduct?.revPerBuyer ?? 0)}</span>
                           }
                         </td>
                       </tr>
