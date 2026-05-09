@@ -149,7 +149,7 @@ export default function MonetizationPage() {
                   including the robux amount, product details, and player information.
                 </p>
                 <Button variant="outline" size="sm" asChild>
-                  <Link href="/dashboard/settings?tab=tracking">
+                  <Link href="/dashboard/game/tracking-setup">
                     <ExternalLink className="w-4 h-4 mr-2" />
                     View Installation Guide
                   </Link>

@@ -451,7 +451,9 @@ export async function GET(request: NextRequest) {
     selectedGameId: selectedGame.id,
     robloxGameId: selectedGame.roblox_game_id,
     rootPlaceId: selectedGame.root_place_id,
+    universeId: selectedGame.universe_id || selectedGame.roblox_game_id,
     gameName: selectedGame.name,
+    apiKey: selectedGame.api_key, // For tracking setup page
     hasTrackerEvents,
     trackerEventsCount: totalEventsCount,
     lastTrackerEventAt: selectedGame.last_event_at,
