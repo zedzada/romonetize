@@ -807,10 +807,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
                               <button 
                                 type="button"
                                 className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 text-sm font-medium rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
-                                onClick={() => {
-                                  console.log("[v0] Button onClick fired for:", robloxGame.name);
-                                  handleConnectGame(robloxGame);
-                                }}
+                                onClick={() => handleConnectGame(robloxGame)}
                                 disabled={isConnecting || isAtLimit}
                               >
                                 {isConnecting ? (
