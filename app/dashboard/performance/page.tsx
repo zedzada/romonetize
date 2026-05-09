@@ -369,7 +369,7 @@ export default function PerformancePage() {
               <AlertCircle className="w-5 h-5" />
               <span>Failed to load analytics: {error}</span>
             </div>
-            <Button onClick={refresh} variant="outline" className="mt-4">
+            <Button onClick={handleSyncAndRefresh} variant="outline" className="mt-4">
               <RefreshCw className="w-4 h-4 mr-2" />
               Retry
             </Button>
@@ -388,7 +388,7 @@ export default function PerformancePage() {
           <p className="text-muted-foreground">Monitor your game&apos;s analytics and metrics</p>
         </div>
         <Button 
-          onClick={refresh} 
+          onClick={handleSyncAndRefresh} 
           variant="outline" 
           disabled={isRefreshing}
           className="w-fit"
@@ -536,7 +536,7 @@ export default function PerformancePage() {
           <Card className="border-border/50">
             <CardContent className="pt-6 pb-6 text-center">
               <p className="text-muted-foreground mb-4">No Roblox data available yet</p>
-              <Button onClick={refresh} variant="outline">
+              <Button onClick={handleSyncAndRefresh} variant="outline">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Sync Roblox Data
               </Button>
@@ -822,7 +822,7 @@ export default function PerformancePage() {
                     <p className="text-sm text-muted-foreground max-w-md">
                       Refresh Roblox data to start collecting CCU snapshots. History will build up over time as more snapshots are recorded.
                     </p>
-                    <Button onClick={refresh} variant="outline" size="sm" className="mt-4">
+                    <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" className="mt-4">
                       <RefreshCw className="w-4 h-4 mr-2" />
                       Refresh Data
                     </Button>
