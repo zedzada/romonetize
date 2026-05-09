@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
+import { ChartCard, chartAxisStyle, chartGridStyle } from "@/components/dashboard/chart-card";
 import { 
   ChartContainer,
   ChartTooltip,
@@ -21,6 +22,8 @@ import {
   Line,
   BarChart,
   Bar,
+  Tooltip,
+  LabelList,
 } from "recharts";
 import { 
   Users, 
@@ -432,200 +435,213 @@ export default function PerformancePage() {
       </div>
 
       {/* Charts Section */}
-      {hasTrackerData && performanceCharts && (
+      {(hasTrackerData || ccuStats?.snapshots?.length) && (
         <div className="space-y-6">
           <h3 className="text-lg font-semibold text-foreground">Performance Charts</h3>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* CCU Over Time */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">CCU Over Time</CardTitle>
-                  <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
-                    Roblox API
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {ccuStats?.snapshots && ccuStats.snapshots.length > 0 ? (
-                  <ChartContainer
-                    config={{
-                      ccu: { label: "CCU", color: "hsl(var(--chart-1))" },
+            <ChartCard
+              title="CCU Over Time"
+              subtitle="Concurrent users playing your game"
+              source="roblox"
+              summary={ccuStats?.snapshots?.length ? `Current: ${ccuStats.snapshots[ccuStats.snapshots.length - 1]?.ccu ?? 0} · Peak: ${Math.max(...ccuStats.snapshots.map(s => s.ccu ?? 0))}` : undefined}
+              isEmpty={!ccuStats?.snapshots?.length}
+              emptyTitle="No CCU history yet"
+              emptyMessage="CCU snapshots will appear after Roblox data is synced."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={ccuStats?.snapshots ?? []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="ccuGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--chart-4))" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="hsl(var(--chart-4))" stopOpacity={0.05}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...chartGridStyle} />
+                  <XAxis 
+                    dataKey="time" 
+                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    {...chartAxisStyle}
+                  />
+                  <YAxis 
+                    domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2), 10)]}
+                    allowDecimals={false}
+                    {...chartAxisStyle}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
                     }}
-                    className="h-[200px] w-full"
-                  >
-                    <AreaChart data={ccuStats.snapshots}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="time" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
-                        className="text-xs"
-                      />
-                      <YAxis 
-                        domain={[0, (dataMax: number) => Math.max(dataMax * 1.2, 10)]}
-                        className="text-xs"
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area 
-                        type="monotone" 
-                        dataKey="ccu" 
-                        stroke="var(--color-ccu)" 
-                        fill="var(--color-ccu)" 
-                        fillOpacity={0.2} 
-                      />
-                    </AreaChart>
-                  </ChartContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No CCU data available yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    formatter={(value: number) => [value, "CCU"]}
+                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="ccu" 
+                    stroke="hsl(var(--chart-4))"
+                    strokeWidth={3}
+                    fill="url(#ccuGradient)"
+                    dot={{ r: 4, fill: "hsl(var(--chart-4))", strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: "hsl(var(--chart-4))", strokeWidth: 2, stroke: "hsl(var(--background))" }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ChartCard>
 
             {/* Events Over Time */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Events Over Time</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {performanceCharts.eventsOverTime.length > 0 ? (
-                  <ChartContainer
-                    config={{
-                      events: { label: "Events", color: "hsl(var(--chart-2))" },
+            <ChartCard
+              title="Events Over Time"
+              subtitle="All tracked events from your game"
+              source="tracker"
+              summary={performanceCharts?.eventsOverTime?.length ? `Total: ${performanceCharts.eventsOverTime.reduce((sum, d) => sum + (d.events ?? 0), 0).toLocaleString()}` : undefined}
+              isEmpty={!performanceCharts?.eventsOverTime?.length}
+              emptyTitle="No events yet"
+              emptyMessage="Events will appear after players interact with your game."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={performanceCharts?.eventsOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...chartGridStyle} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    {...chartAxisStyle}
+                  />
+                  <YAxis 
+                    allowDecimals={false}
+                    {...chartAxisStyle}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
                     }}
-                    className="h-[200px] w-full"
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    formatter={(value: number) => [value.toLocaleString(), "Events"]}
+                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                  />
+                  <Bar 
+                    dataKey="events" 
+                    fill="hsl(var(--chart-3))"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={50}
                   >
-                    <AreaChart data={performanceCharts.eventsOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
-                        className="text-xs"
-                      />
-                      <YAxis className="text-xs" />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area 
-                        type="monotone" 
-                        dataKey="events" 
-                        stroke="var(--color-events)" 
-                        fill="var(--color-events)" 
-                        fillOpacity={0.2} 
-                      />
-                    </AreaChart>
-                  </ChartContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No event data available yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    {(performanceCharts?.eventsOverTime?.length ?? 0) <= 3 && (
+                      <LabelList dataKey="events" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                    )}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
 
             {/* Players Over Time */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Player Joins Over Time</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {performanceCharts.playersOverTime.length > 0 ? (
-                  <ChartContainer
-                    config={{
-                      players: { label: "Players", color: "hsl(var(--chart-3))" },
+            <ChartCard
+              title="Player Joins Over Time"
+              subtitle="Unique players who joined sessions"
+              source="tracker"
+              summary={performanceCharts?.playersOverTime?.length ? `Total: ${performanceCharts.playersOverTime.reduce((sum, d) => sum + (d.players ?? 0), 0).toLocaleString()}` : undefined}
+              isEmpty={!performanceCharts?.playersOverTime?.length}
+              emptyTitle="No player data yet"
+              emptyMessage="Player joins will appear after session_start events are tracked."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={performanceCharts?.playersOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...chartGridStyle} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    {...chartAxisStyle}
+                  />
+                  <YAxis 
+                    allowDecimals={false}
+                    {...chartAxisStyle}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
                     }}
-                    className="h-[200px] w-full"
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    formatter={(value: number) => [value.toLocaleString(), "Players"]}
+                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                  />
+                  <Bar 
+                    dataKey="players" 
+                    fill="hsl(var(--chart-3))"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={50}
                   >
-                    <LineChart data={performanceCharts.playersOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
-                        className="text-xs"
-                      />
-                      <YAxis className="text-xs" />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Line 
-                        type="monotone" 
-                        dataKey="players" 
-                        stroke="var(--color-players)" 
-                        strokeWidth={2}
-                        dot={false}
-                      />
-                    </LineChart>
-                  </ChartContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No player data available yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    {(performanceCharts?.playersOverTime?.length ?? 0) <= 3 && (
+                      <LabelList dataKey="players" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                    )}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
 
             {/* Purchases Over Time */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Purchases Over Time</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {performanceCharts.purchasesOverTime.length > 0 ? (
-                  <ChartContainer
-                    config={{
-                      purchases: { label: "Purchases", color: "hsl(var(--chart-4))" },
+            <ChartCard
+              title="Purchases Over Time"
+              subtitle="Successful product purchases"
+              source="tracker"
+              summary={performanceCharts?.purchasesOverTime?.length ? `Total: ${performanceCharts.purchasesOverTime.reduce((sum, d) => sum + (d.purchases ?? 0), 0).toLocaleString()}` : undefined}
+              isEmpty={!performanceCharts?.purchasesOverTime?.length}
+              emptyTitle="No purchases yet"
+              emptyMessage="Purchases will appear after purchase_success events are tracked."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={performanceCharts?.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...chartGridStyle} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    {...chartAxisStyle}
+                  />
+                  <YAxis 
+                    allowDecimals={false}
+                    {...chartAxisStyle}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
                     }}
-                    className="h-[200px] w-full"
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
+                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                  />
+                  <Bar 
+                    dataKey="purchases" 
+                    fill="hsl(var(--chart-2))"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={50}
                   >
-                    <BarChart data={performanceCharts.purchasesOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
-                        className="text-xs"
-                      />
-                      <YAxis className="text-xs" />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar 
-                        dataKey="purchases" 
-                        fill="var(--color-purchases)" 
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ChartContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No purchase data available yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
+                      <LabelList dataKey="purchases" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                    )}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
           </div>
         </div>
       )}
 
-      {/* Empty state for charts when no tracker data */}
-      {!hasTrackerData && (
-        <Card className="border-border/50">
+      {/* Empty state for charts when no tracker data and no CCU data */}
+      {!hasTrackerData && !ccuStats?.snapshots?.length && (
+        <Card className="border-neutral-700/60 bg-neutral-900/50">
           <CardContent className="pt-6 pb-6">
             <div className="text-center">
               <TrendingUp className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
               <h4 className="font-medium text-foreground mb-2">Charts require tracking data</h4>
               <p className="text-sm text-muted-foreground mb-4">
-                Install the RoMonetize tracking script to see CCU, events, players, and purchase charts.
+                Install the RoMonetize tracking script to see events, players, and purchase charts.
               </p>
               <Button variant="outline" asChild>
                 <Link href="/dashboard/game/tracking-setup">

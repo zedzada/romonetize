@@ -24,11 +24,12 @@
   --border: oklch(0.88 0.01 260);
   --input: oklch(0.92 0.005 260);
   --ring: oklch(0.55 0.2 250);
-  --chart-1: oklch(0.55 0.2 250);
-  --chart-2: oklch(0.50 0.18 200);
-  --chart-3: oklch(0.60 0.15 280);
-  --chart-4: oklch(0.55 0.2 230);
-  --chart-5: oklch(0.65 0.12 260);
+  --chart-1: oklch(0.55 0.19 160);  /* Emerald - revenue */
+  --chart-2: oklch(0.55 0.18 230);  /* Blue - purchases */
+  --chart-3: oklch(0.55 0.20 290);  /* Purple - players/events */
+  --chart-4: oklch(0.55 0.16 200);  /* Cyan - CCU */
+  --chart-5: oklch(0.55 0.18 30);   /* Orange - accent */
+  --chart-grid: oklch(0.85 0.01 260);
   --radius: 0.625rem;
   --sidebar: oklch(0.98 0.002 260);
   --sidebar-foreground: oklch(0.15 0.02 260);
@@ -44,7 +45,7 @@
 .dark {
   --background: oklch(0.09 0.005 260);
   --foreground: oklch(0.98 0 0);
-  --card: oklch(0.12 0.005 260);
+  --card: oklch(0.14 0.008 260);
   --card-foreground: oklch(0.98 0 0);
   --popover: oklch(0.12 0.005 260);
   --popover-foreground: oklch(0.98 0 0);
@@ -52,20 +53,22 @@
   --primary-foreground: oklch(0.98 0 0);
   --secondary: oklch(0.18 0.01 260);
   --secondary-foreground: oklch(0.98 0 0);
-  --muted: oklch(0.2 0.01 260);
-  --muted-foreground: oklch(0.6 0.02 260);
+  --muted: oklch(0.22 0.012 260);
+  --muted-foreground: oklch(0.65 0.02 260);
   --accent: oklch(0.65 0.2 250);
   --accent-foreground: oklch(0.98 0 0);
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.98 0 0);
-  --border: oklch(0.22 0.01 260);
+  --border: oklch(0.28 0.015 260);
   --input: oklch(0.18 0.01 260);
   --ring: oklch(0.65 0.2 250);
-  --chart-1: oklch(0.65 0.2 250);
-  --chart-2: oklch(0.55 0.18 200);
-  --chart-3: oklch(0.7 0.15 280);
-  --chart-4: oklch(0.6 0.2 230);
-  --chart-5: oklch(0.75 0.12 260);
+  /* High contrast chart colors for visibility */
+  --chart-1: oklch(0.72 0.19 160);  /* Emerald/green - revenue */
+  --chart-2: oklch(0.70 0.18 230);  /* Sky blue - purchases */
+  --chart-3: oklch(0.75 0.20 290);  /* Purple - players/events */
+  --chart-4: oklch(0.70 0.16 200);  /* Cyan - CCU */
+  --chart-5: oklch(0.72 0.18 30);   /* Orange - accent */
+  --chart-grid: oklch(0.35 0.01 260);
   --sidebar: oklch(0.1 0.005 260);
   --sidebar-foreground: oklch(0.98 0 0);
   --sidebar-primary: oklch(0.65 0.2 250);
@@ -103,6 +106,7 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
+  --color-chart-grid: var(--chart-grid);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
