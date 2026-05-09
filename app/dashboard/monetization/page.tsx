@@ -56,8 +56,17 @@ function formatRobux(value: number | null | undefined): string {
   return `R$${value.toLocaleString()}`;
 }
 
-// Custom tooltip for the hero chart - shows all data for the hour/day
-function HeroChartTooltip({ active, payload, label }: { 
+type ChartRange = "24h" | "72h" | "7d" | "28d";
+type ChartInterval = "hourly" | "daily";
+type ChartMode = "total" | "gamepasses" | "devproducts";
+
+// Custom tooltip for the hero chart - shows mode-specific data
+function HeroChartTooltip({ 
+  active, 
+  payload, 
+  label,
+  chartMode = "total",
+}: { 
   active?: boolean; 
   payload?: Array<{ 
     value: number; 
@@ -70,7 +79,8 @@ function HeroChartTooltip({ active, payload, label }: {
       purchases?: number;
     };
   }>; 
-  label?: string 
+  label?: string;
+  chartMode?: ChartMode;
 }) {
   if (!active || !payload?.length) return null;
   
@@ -85,39 +95,92 @@ function HeroChartTooltip({ active, payload, label }: {
 
   // Get the underlying data point
   const dataPoint = payload[0]?.payload;
+  const totalRevenue = dataPoint?.totalRevenue ?? 0;
+  const devproductRevenue = dataPoint?.devproductRevenue ?? 0;
+  const gamepassRevenue = dataPoint?.gamepassRevenue ?? 0;
+  const purchases = dataPoint?.purchases ?? 0;
+  
+  // Estimate purchases by type based on revenue ratio
+  const gamepassPurchases = totalRevenue > 0 ? Math.round(purchases * (gamepassRevenue / totalRevenue)) : 0;
+  const devproductPurchases = totalRevenue > 0 ? Math.round(purchases * (devproductRevenue / totalRevenue)) : 0;
   
   return (
-    <div className="bg-neutral-900 border border-neutral-700 rounded-lg shadow-xl p-3 min-w-[200px]">
+    <div className="bg-neutral-900 border border-neutral-700 rounded-lg shadow-xl p-3 min-w-[180px]">
       <p className="text-xs text-neutral-400 mb-3 font-medium border-b border-neutral-700 pb-2">{formattedTime}</p>
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-            <span className="text-xs text-neutral-300">Total Revenue</span>
-          </div>
-          <span className="text-xs font-semibold text-white">R${(dataPoint?.totalRevenue ?? 0).toLocaleString()}</span>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-            <span className="text-xs text-neutral-300">Dev Products</span>
-          </div>
-          <span className="text-xs font-semibold text-white">R${(dataPoint?.devproductRevenue ?? 0).toLocaleString()}</span>
-        </div>
-        <div className="flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
-            <span className="text-xs text-neutral-300">Game Passes</span>
-          </div>
-          <span className="text-xs font-semibold text-white">R${(dataPoint?.gamepassRevenue ?? 0).toLocaleString()}</span>
-        </div>
-        <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
-          <div className="flex items-center gap-2">
-            <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-            <span className="text-xs text-neutral-300">Purchases</span>
-          </div>
-          <span className="text-xs font-semibold text-white">{(dataPoint?.purchases ?? 0).toLocaleString()}</span>
-        </div>
+        {/* Total mode: show all 3 revenue types */}
+        {chartMode === "total" && (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+                <span className="text-xs text-neutral-300">Total Revenue</span>
+              </div>
+              <span className="text-xs font-semibold text-white">R${totalRevenue.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
+                <span className="text-xs text-neutral-300">Gamepasses</span>
+              </div>
+              <span className="text-xs font-semibold text-white">R${gamepassRevenue.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                <span className="text-xs text-neutral-300">Dev Products</span>
+              </div>
+              <span className="text-xs font-semibold text-white">R${devproductRevenue.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                <span className="text-xs text-neutral-300">Purchases</span>
+              </div>
+              <span className="text-xs font-semibold text-white">{purchases.toLocaleString()}</span>
+            </div>
+          </>
+        )}
+        
+        {/* Gamepasses mode: show only gamepasses */}
+        {chartMode === "gamepasses" && (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
+                <span className="text-xs text-neutral-300">Gamepasses</span>
+              </div>
+              <span className="text-xs font-semibold text-white">R${gamepassRevenue.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                <span className="text-xs text-neutral-300">Gamepass Purchases</span>
+              </div>
+              <span className="text-xs font-semibold text-white">{gamepassPurchases.toLocaleString()}</span>
+            </div>
+          </>
+        )}
+        
+        {/* Dev Products mode: show only dev products */}
+        {chartMode === "devproducts" && (
+          <>
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+                <span className="text-xs text-neutral-300">Dev Products</span>
+              </div>
+              <span className="text-xs font-semibold text-white">R${devproductRevenue.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+              <div className="flex items-center gap-2">
+                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                <span className="text-xs text-neutral-300">Dev Product Purchases</span>
+              </div>
+              <span className="text-xs font-semibold text-white">{devproductPurchases.toLocaleString()}</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -139,10 +202,6 @@ function ChartLegend({ items }: { items: Array<{ name: string; color: string; va
     </div>
   );
 }
-
-type ChartRange = "24h" | "72h" | "7d" | "28d";
-type ChartInterval = "hourly" | "daily";
-type ChartMode = "total" | "gamepasses" | "devproducts";
 
 export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
@@ -248,13 +307,35 @@ export default function MonetizationPage() {
     return { ...totals, activeBuckets, gamepassPurchases, devproductPurchases };
   }, [processedChartData, chartMode]);
 
-  // Calculate Y-axis max - always use totalRevenue as the max since it encompasses all
+  // Calculate Y-axis max based on VISIBLE series only
   const yAxisMax = useMemo(() => {
-    if (!processedChartData.length) return 100;
-    const maxValue = Math.max(...processedChartData.map(d => d.totalRevenue));
-    if (maxValue === 0) return 10;
-    return Math.ceil(maxValue * 1.2);
-  }, [processedChartData]);
+    if (!processedChartData.length) return 10;
+    
+    let rawMax = 0;
+    
+    if (chartMode === "total") {
+      // In total mode, find max across all 3 series
+      rawMax = Math.max(
+        ...processedChartData.map(d => Math.max(d.totalRevenue, d.gamepassRevenue, d.devproductRevenue))
+      );
+    } else if (chartMode === "gamepasses") {
+      // Only use gamepassRevenue max
+      rawMax = Math.max(...processedChartData.map(d => d.gamepassRevenue));
+    } else {
+      // Only use devproductRevenue max
+      rawMax = Math.max(...processedChartData.map(d => d.devproductRevenue));
+    }
+    
+    // Minimum Y max of 10 for visibility, with 25% padding
+    const yMax = rawMax <= 0 ? 10 : Math.max(10, Math.ceil(rawMax * 1.25));
+    
+    // Debug logging (development only)
+    if (process.env.NODE_ENV === "development") {
+      console.log("[v0] Chart scaling:", { chartMode, rawMax, yMax });
+    }
+    
+    return yMax;
+  }, [processedChartData, chartMode]);
 
   // Get current mode display info
   const modeConfig = useMemo(() => {
@@ -691,7 +772,7 @@ export default function MonetizationPage() {
                       tickMargin={8}
                       width={60}
                     />
-                    <Tooltip content={<HeroChartTooltip />} />
+                    <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
                     
                     {/* Total mode: show all 3 curves */}
                     {chartMode === "total" && (
