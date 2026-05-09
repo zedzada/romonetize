@@ -89,14 +89,17 @@ function toChartTimeRange(range: PerformanceRange): "1d" | "7d" | "30d" {
 }
 
 // CCU History interval/range compatibility rules
-const CCU_MINUTE_COMPATIBLE_RANGES: CCUHistoryRange[] = ["1h", "24h"];
-const CCU_DAILY_ONLY_RANGES: CCUHistoryRange[] = ["7d", "28d", "90d"];
+// 1m interval ONLY available for 1H
+const CCU_MINUTE_COMPATIBLE_RANGES: CCUHistoryRange[] = ["1h"];
+// 24H and 7D can use hourly, 28D and 90D must use daily
+const CCU_HOURLY_COMPATIBLE_RANGES: CCUHistoryRange[] = ["1h", "24h", "7d"];
+const CCU_DAILY_ONLY_RANGES: CCUHistoryRange[] = ["28d", "90d"];
 
 function getDefaultCcuInterval(range: CCUHistoryRange): CCUHistoryInterval {
   if (range === "1h") return "1m";
-  if (range === "24h") return "1m";
+  if (range === "24h") return "hourly";
   if (range === "7d") return "hourly";
-  return "daily";
+  return "daily"; // 28d, 90d
 }
 
 export default function PerformancePage() {
@@ -107,26 +110,20 @@ export default function PerformancePage() {
   const [ccuInterval, setCcuInterval] = useState<CCUHistoryInterval>("hourly");
   
   // Handle CCU range change with auto-interval switching per requirements:
-  // 1H default: 1m, 24H default: Hourly, 7D/28D/90D default: Daily
+  // 1H default: 1m, 24H default: Hourly, 7D default: Hourly, 28D/90D default: Daily
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
     setCcuRange(newRange);
-    // Auto-switch interval based on range
-    if (newRange === "1h") {
-      setCcuInterval("1m"); // 1H always uses 1m
-    } else if (CCU_DAILY_ONLY_RANGES.includes(newRange)) {
-      setCcuInterval("daily"); // 7D/28D/90D use daily
-    } else if (newRange === "24h" && ccuInterval === "daily") {
-      setCcuInterval("hourly"); // 24H prefers hourly over daily
-    }
-  }, [ccuInterval]);
+    // Auto-switch to the correct default interval for the range
+    setCcuInterval(getDefaultCcuInterval(newRange));
+  }, []);
   
   // Handle CCU interval change with auto-range switching
   const handleCcuIntervalChange = useCallback((newInterval: CCUHistoryInterval) => {
-    setCcuInterval(newInterval);
-    // If selecting 1m on incompatible range, switch to 1h
+    // If selecting 1m on incompatible range, switch to 1h first
     if (newInterval === "1m" && !CCU_MINUTE_COMPATIBLE_RANGES.includes(ccuRange)) {
       setCcuRange("1h");
     }
+    setCcuInterval(newInterval);
   }, [ccuRange]);
   
   const {
@@ -225,23 +222,33 @@ export default function PerformancePage() {
         date = new Date(bucketKey + "T12:00:00.000Z"); // noon to avoid timezone issues
       }
       
-      // Format time label based on interval (client-side, user's timezone)
+      // Format time label based on interval and range (client-side, user's timezone)
       let timeLabel: string;
       if (ccuInterval === "1m") {
-        // 1m: "2:45 PM" format
+        // 1H + 1m: "2:05 PM" format
         timeLabel = date.toLocaleTimeString(undefined, { 
           hour: "numeric", 
           minute: "2-digit", 
           hour12: true 
         });
       } else if (ccuInterval === "hourly") {
-        // Hourly: "2 PM" format
-        timeLabel = date.toLocaleTimeString(undefined, { 
-          hour: "numeric", 
-          hour12: true 
-        });
+        if (ccuRange === "24h") {
+          // 24H + Hourly: "3 PM" format
+          timeLabel = date.toLocaleTimeString(undefined, { 
+            hour: "numeric", 
+            hour12: true 
+          });
+        } else {
+          // 7D + Hourly: "May 9 3 PM" format (sparse labels with date context)
+          timeLabel = date.toLocaleDateString(undefined, { 
+            month: "short", 
+            day: "numeric",
+            hour: "numeric",
+            hour12: true 
+          });
+        }
       } else {
-        // Daily: "May 9" format
+        // Daily (28D/90D): "May 9" format
         timeLabel = date.toLocaleDateString(undefined, { 
           month: "short", 
           day: "numeric" 
@@ -729,14 +736,15 @@ export default function PerformancePage() {
                   {/* Interval selector */}
                   <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
                     {(["1m", "hourly", "daily"] as CCUHistoryInterval[]).map((i) => {
+                      // 1m only for 1H, hourly for 1H/24H/7D, daily for all
                       const is1mDisabled = i === "1m" && !CCU_MINUTE_COMPATIBLE_RANGES.includes(ccuRange);
-                      const isHourlyDisabled = i === "hourly" && CCU_DAILY_ONLY_RANGES.includes(ccuRange);
+                      const isHourlyDisabled = i === "hourly" && !CCU_HOURLY_COMPATIBLE_RANGES.includes(ccuRange);
                       const isDisabled = is1mDisabled || isHourlyDisabled;
                       const label = i === "1m" ? "1m" : i === "hourly" ? "Hourly" : "Daily";
                       const disabledTitle = is1mDisabled 
-                        ? "1m interval only available for 1H, 24H ranges" 
+                        ? "1m interval only available for 1H range" 
                         : isHourlyDisabled 
-                          ? "28D/90D ranges only support daily interval"
+                          ? "Hourly interval not available for 28D/90D ranges"
                           : undefined;
                       return (
                         <button
