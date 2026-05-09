@@ -1,10 +1,12 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useAnalytics } from "@/hooks/use-analytics";
+import { useAnalytics, type DateRange } from "@/hooks/use-analytics";
+import { RangeControls, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { 
   RefreshCw, 
   Package, 
@@ -41,7 +43,22 @@ function formatPercent(value: unknown): string {
   return "—";
 }
 
+// Products page range type - supports 7d to All time
+type ProductsRange = "7d" | "28d" | "90d";
+
+// Map products range to analytics API range
+function toAnalyticsRange(range: ProductsRange): DateRange {
+  switch (range) {
+    case "7d": return "7d";
+    case "28d": return "30d";
+    case "90d": return "90d";
+    default: return "7d";
+  }
+}
+
 export default function ProductsPage() {
+  const [chartRange, setChartRange] = useState<ProductsRange>("28d");
+  
   const {
     isLoading,
     isRefreshing,
@@ -51,7 +68,7 @@ export default function ProductsPage() {
     syncedProducts,
     productAnalytics,
     refresh,
-  } = useAnalytics({ enabled: true });
+  } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
 
   // Safe defaults per spec
   const safeProductStats = productStats ?? {};
@@ -138,20 +155,27 @@ export default function ProductsPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Products</h1>
           <p className="text-muted-foreground">Track Roblox products, gamepasses, and monetization performance</p>
         </div>
-        <Button
-          onClick={refresh}
-          variant="outline"
-          size="sm"
-          disabled={isRefreshing}
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-          Refresh Data
-        </Button>
+        <div className="flex items-center gap-3">
+          <RangeControls
+            value={chartRange as ChartDateRange}
+            onChange={(r) => setChartRange(r as ProductsRange)}
+            ranges={["7d", "28d", "90d"]}
+          />
+          <Button
+            onClick={refresh}
+            variant="outline"
+            size="sm"
+            disabled={isRefreshing}
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
+            Refresh Data
+          </Button>
+        </div>
       </div>
 
       {/* Data Status Banners */}

@@ -4,7 +4,7 @@ import { getRobloxGameStats } from "@/lib/services/roblox-api";
 import { getSelectedGameForUser, getAllGamesForUser, type GameSummary } from "@/lib/server/selected-game";
 
 // Date range options
-type DateRange = "1h" | "1d" | "7d" | "30d";
+type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
 
 function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: number } {
   switch (range) {
@@ -16,6 +16,8 @@ function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: numbe
       return { hours: 168, bucketMinutes: 1440 };
     case "30d":
       return { hours: 720, bucketMinutes: 1440 };
+    case "90d":
+      return { hours: 2160, bucketMinutes: 1440 }; // 90 days, daily buckets
     default:
       return { hours: 168, bucketMinutes: 1440 };
   }

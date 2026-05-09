@@ -1,11 +1,12 @@
 "use client";
 
+import { useState, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
-import { ChartCard, chartAxisStyle, chartGridStyle, CHART_COLORS } from "@/components/dashboard/chart-card";
+import { ChartCard, RangeControls, chartAxisStyle, chartGridStyle, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { 
   ChartContainer,
   ChartTooltip,
@@ -60,7 +61,36 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${mins}m ${secs}s`;
 }
 
+// Performance page range type - supports 24h to 90d
+type PerformanceRange = "24h" | "72h" | "7d" | "28d" | "90d";
+
+// Map performance range to analytics API range
+function toAnalyticsRange(range: PerformanceRange): "1d" | "7d" | "30d" | "90d" {
+  switch (range) {
+    case "24h": return "1d";
+    case "72h": 
+    case "7d": return "7d";
+    case "28d": return "30d";
+    case "90d": return "90d";
+    default: return "7d";
+  }
+}
+
+// Map to chart time format range
+function toChartTimeRange(range: PerformanceRange): "1d" | "7d" | "30d" {
+  switch (range) {
+    case "24h": return "1d";
+    case "72h": return "1d"; // hourly format
+    case "7d": return "7d";
+    case "28d": 
+    case "90d": return "30d"; // daily format
+    default: return "7d";
+  }
+}
+
 export default function PerformancePage() {
+  const [chartRange, setChartRange] = useState<PerformanceRange>("7d");
+  
   const {
     isLoading,
     isRefreshing,
@@ -69,13 +99,55 @@ export default function PerformancePage() {
     dataHealth,
     robloxStats,
     trackerStats,
-    performanceCharts,
-    ccuStats,
+    performanceCharts: rawPerformanceCharts,
+    ccuStats: rawCcuStats,
     refresh,
     needsTrackingScript,
     hasTrackerData,
     hasRobloxData,
-  } = useAnalytics({ enabled: true, range: "7d" });
+  } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
+  
+  // Filter chart data based on selected range
+  const { performanceCharts, ccuStats } = useMemo(() => {
+    const now = new Date();
+    const getHoursAgo = (range: PerformanceRange): number => {
+      switch (range) {
+        case "24h": return 24;
+        case "72h": return 72;
+        case "7d": return 168;
+        case "28d": return 672;
+        case "90d": return 2160;
+        default: return 168;
+      }
+    };
+    
+    const cutoffTime = new Date(now.getTime() - getHoursAgo(chartRange) * 60 * 60 * 1000);
+    
+    // Filter CCU snapshots
+    const filteredCcuSnapshots = rawCcuStats?.snapshots?.filter(
+      (s) => new Date(s.time) >= cutoffTime
+    ) ?? [];
+    
+    // Filter performance chart data
+    const filterByDate = <T extends { date: string }>(data: T[] | undefined): T[] => {
+      if (!data) return [];
+      return data.filter((d) => new Date(d.date) >= cutoffTime);
+    };
+    
+    return {
+      performanceCharts: rawPerformanceCharts ? {
+        ...rawPerformanceCharts,
+        eventsOverTime: filterByDate(rawPerformanceCharts.eventsOverTime),
+        playersOverTime: filterByDate(rawPerformanceCharts.playersOverTime),
+        sessionsOverTime: filterByDate(rawPerformanceCharts.sessionsOverTime),
+        purchasesOverTime: filterByDate(rawPerformanceCharts.purchasesOverTime),
+      } : null,
+      ccuStats: rawCcuStats ? {
+        ...rawCcuStats,
+        snapshots: filteredCcuSnapshots,
+      } : null,
+    };
+  }, [rawPerformanceCharts, rawCcuStats, chartRange]);
 
   // Safe defaults
   const safeDataHealth = dataHealth ?? {
@@ -437,7 +509,14 @@ export default function PerformancePage() {
       {/* Charts Section */}
       {(hasTrackerData || ccuStats?.snapshots?.length) && (
         <div className="space-y-6">
-          <h3 className="text-lg font-semibold text-foreground">Performance Charts</h3>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <h3 className="text-lg font-semibold text-foreground">Performance Charts</h3>
+            <RangeControls
+              value={chartRange as ChartDateRange}
+              onChange={(r) => setChartRange(r as PerformanceRange)}
+              ranges={["24h", "72h", "7d", "28d", "90d"]}
+            />
+          </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* CCU Over Time */}
@@ -461,7 +540,7 @@ export default function PerformancePage() {
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="time" 
-                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                     {...chartAxisStyle}
                   />
                   <YAxis 
@@ -478,7 +557,7 @@ export default function PerformancePage() {
                     }}
                     labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value, "CCU"]}
-                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                    labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Area 
                     type="monotone" 
@@ -514,7 +593,7 @@ export default function PerformancePage() {
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="date" 
-                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                     {...chartAxisStyle}
                   />
                   <YAxis 
@@ -530,7 +609,7 @@ export default function PerformancePage() {
                     }}
                     labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value.toLocaleString(), "Events"]}
-                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                    labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 
                     dataKey="events" 
@@ -567,7 +646,7 @@ export default function PerformancePage() {
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="date" 
-                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                     {...chartAxisStyle}
                   />
                   <YAxis 
@@ -583,7 +662,7 @@ export default function PerformancePage() {
                     }}
                     labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value.toLocaleString(), "Players"]}
-                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                    labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 
                     dataKey="players" 
@@ -620,7 +699,7 @@ export default function PerformancePage() {
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="date" 
-                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                     {...chartAxisStyle}
                   />
                   <YAxis 
@@ -636,7 +715,7 @@ export default function PerformancePage() {
                     }}
                     labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
-                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                    labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 
                     dataKey="purchases" 
