@@ -149,20 +149,13 @@ function AIAssistantContent() {
   const handleSend = async (messageOverride?: string) => {
     const text = messageOverride ?? input.trim();
     
-    // Debug log
-    if (process.env.NODE_ENV === "development") {
-      console.log("[v0] handleSend called", { text, hasImage: !!imagePreview });
-    }
-
     // Validate input
     if (!text && !imagePreview) {
-      console.log("[v0] No text or image, returning");
       return;
     }
     
     // Prevent duplicate sends
     if (isLoading) {
-      console.log("[v0] Already loading, returning");
       return;
     }
 
@@ -200,10 +193,6 @@ function AIAssistantContent() {
         image: currentImage || null,
       };
 
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] API request body keys:", Object.keys(requestBody));
-      }
-
       // Call API
       const res = await fetch("/api/ai/chat", {
         method: "POST",
@@ -212,10 +201,6 @@ function AIAssistantContent() {
       });
 
       const data = await res.json();
-
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] API response", { success: data.success, hasError: !!data.error });
-      }
 
       if (!res.ok || !data.success) {
         // Handle error
