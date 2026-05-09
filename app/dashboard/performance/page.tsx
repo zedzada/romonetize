@@ -107,9 +107,10 @@ export default function PerformancePage() {
   // Use central analytics hook for Roblox stats - single source of truth
   const { 
     dataHealth, 
-    robloxStats: analyticsRobloxStats,
+    robloxStats,
     refresh: refreshAnalytics,
-    isRefreshing: analyticsRefreshing,
+    isLoading: analyticsLoading,
+    error: analyticsError,
   } = useAnalytics({ enabled: !!game });
 
   const fetchPerformanceData = async (gameId: string) => {
@@ -289,12 +290,12 @@ export default function PerformancePage() {
     : null;
   
   // Use robloxStats from central analytics hook (single source of truth)
-  const currentCCU = analyticsRobloxStats?.ccu ?? null;
-  const totalVisits = analyticsRobloxStats?.visits ?? null;
-  const favorites = analyticsRobloxStats?.favorites ?? null;
-  const likes = analyticsRobloxStats?.likes ?? null;
-  const dislikes = analyticsRobloxStats?.dislikes ?? null;
-  const hasRobloxStats = analyticsRobloxStats !== null;
+  const currentCCU = robloxStats?.ccu ?? null;
+  const totalVisits = robloxStats?.visits ?? null;
+  const favorites = robloxStats?.favorites ?? null;
+  const likes = robloxStats?.likes ?? null;
+  const dislikes = robloxStats?.dislikes ?? null;
+  const hasRobloxStats = robloxStats !== null;
 
   // Generate retention trend data
   const retentionChartData = timeSeries.map(d => ({
@@ -332,9 +333,9 @@ export default function PerformancePage() {
           </div>
           <p className="text-muted-foreground">
             Monitor your game&apos;s analytics and metrics
-            {analyticsRobloxStats?.updatedAt && (
+            {robloxStats?.updatedAt && (
               <span className="text-xs ml-2 text-muted-foreground/60">
-                Roblox data: {new Date(analyticsRobloxStats.updatedAt).toLocaleTimeString(undefined, { timeZone: userTimezone })}
+                Roblox data: {new Date(robloxStats.updatedAt).toLocaleTimeString(undefined, { timeZone: userTimezone })}
               </span>
             )}
           </p>
