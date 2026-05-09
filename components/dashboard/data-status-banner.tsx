@@ -131,7 +131,7 @@ export function DataStatusBanner({
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Button asChild size="sm" variant="default">
-                  <Link href="/dashboard/game">
+                  <Link href="/dashboard/game/tracking-setup">
                     <Code className="w-4 h-4 mr-2" />
                     View Installation Guide
                   </Link>
@@ -270,7 +270,7 @@ export function TrackerRequiredCard({
       </p>
       {showLink && (
         <Button asChild size="sm" variant="outline">
-          <Link href="/dashboard/game">
+          <Link href="/dashboard/game/tracking-setup">
             View Installation Guide
           </Link>
         </Button>

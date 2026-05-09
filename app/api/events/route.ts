@@ -12,6 +12,9 @@ function getSupabaseAdmin() {
 
 // Valid event types - Roblox-specific naming
 const VALID_EVENT_TYPES = [
+  // Script lifecycle events
+  "script_started",     // Server script initialized (confirms tracking is working)
+  
   // Player events
   "session_start",      // Player joins game
   "session_end",        // Player leaves game
@@ -99,7 +102,7 @@ export async function POST(request: NextRequest) {
       body = await request.json();
     } catch {
       return NextResponse.json(
-        { error: "Invalid JSON body" },
+        { success: false, step: "parse", error: "Invalid JSON body" },
         { status: 400 }
       );
     }
@@ -114,7 +117,7 @@ export async function POST(request: NextRequest) {
     
     if (!apiKey) {
       return NextResponse.json(
-        { error: "Missing API key. Include x-api-key header or apiKey in body." },
+        { success: false, step: "auth", error: "Missing API key. Include x-api-key header or apiKey in body." },
         { status: 401 }
       );
     }
@@ -127,14 +130,13 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     if (gameError) {
-      console.error("[v0] Game lookup error:", JSON.stringify(gameError, null, 2));
+      console.error(`[api/events] Game lookup error: api_key=${apiKey.slice(0, 8)}..., error=${gameError.message}`);
       return NextResponse.json(
         { 
+          success: false,
+          step: "game_lookup",
           error: "Database error looking up game", 
-          message: gameError.message,
-          details: gameError.details,
-          hint: gameError.hint,
-          code: gameError.code,
+          details: gameError.message,
         },
         { status: 500 }
       );
@@ -142,14 +144,14 @@ export async function POST(request: NextRequest) {
 
     if (!game) {
       return NextResponse.json(
-        { error: "Game not found", received: apiKey },
+        { success: false, step: "game_lookup", error: "Game not found for this API key" },
         { status: 401 }
       );
     }
 
     if (game.status !== "active") {
       return NextResponse.json(
-        { error: "Game is not active. Enable tracking in dashboard.", currentStatus: game.status },
+        { success: false, step: "game_status", error: "Game is not active. Enable tracking in dashboard.", details: { currentStatus: game.status } },
         { status: 403 }
       );
     }
@@ -183,11 +185,14 @@ export async function POST(request: NextRequest) {
     if (currentCount + incomingEventCount > eventsLimit) {
       return NextResponse.json(
         { 
+          success: false,
+          step: "rate_limit",
           error: "Monthly event limit reached", 
-          currentUsage: currentCount,
-          limit: eventsLimit,
-          plan: userPlan.name,
-          upgrade: "Upgrade your plan at /dashboard/billing for more events",
+          details: {
+            currentUsage: currentCount,
+            limit: eventsLimit,
+            plan: userPlan.name,
+          },
         },
         { status: 429 }
       );
@@ -205,14 +210,14 @@ export async function POST(request: NextRequest) {
 
     if (events.length === 0) {
       return NextResponse.json(
-        { error: "No events provided." },
+        { success: false, step: "validation", error: "No events provided." },
         { status: 400 }
       );
     }
 
     if (events.length > 100) {
       return NextResponse.json(
-        { error: "Maximum 100 events per request." },
+        { success: false, step: "validation", error: "Maximum 100 events per request." },
         { status: 400 }
       );
     }
@@ -263,10 +268,10 @@ export async function POST(request: NextRequest) {
     if (validatedEvents.length === 0) {
       return NextResponse.json(
         { 
+          success: false,
+          step: "validation",
           error: "No valid events", 
-          validationErrors: errors,
-          receivedEvents: events,
-          hint: "For player_join, only eventType and playerId are required",
+          details: errors,
         },
         { status: 400 }
       );
@@ -279,14 +284,13 @@ export async function POST(request: NextRequest) {
       .select();
 
     if (insertError) {
+      console.error(`[api/events] Insert error: game_id=${game.id}, error=${insertError.message}`);
       return NextResponse.json(
         { 
+          success: false,
+          step: "insert",
           error: "Failed to store events", 
-          message: insertError.message,
-          details: insertError.details,
-          hint: insertError.hint,
-          code: insertError.code,
-          payload: validatedEvents,
+          details: insertError.message,
         },
         { status: 500 }
       );
@@ -294,7 +298,7 @@ export async function POST(request: NextRequest) {
 
     if (!insertedEvents || insertedEvents.length === 0) {
       return NextResponse.json(
-        { error: "Insert returned no rows. Events may not have been saved." },
+        { success: false, step: "insert", error: "Insert returned no rows. Events may not have been saved." },
         { status: 500 }
       );
     }
@@ -390,18 +394,27 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Log server-side for debugging (only prefix of API key)
+    console.log(`[api/events] Received: api_key=${apiKey.slice(0, 8)}..., event_types=${validatedEvents.map(e => e.event_type).join(",")}, game_id=${game.id}`);
+
     return NextResponse.json({
       success: true,
-      inserted: insertedEvents.length,
-      accepted: validatedEvents.length,
-      rejected: errors.length,
+      inserted: true,
+      event_type: validatedEvents.map(e => e.event_type),
+      game_id: game.id,
+      roblox_game_id: game.roblox_game_id || null,
+      count: insertedEvents.length,
+      rejected: errors.length > 0 ? errors.length : undefined,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error) {
+    console.error("[api/events] Unhandled error:", error);
     return NextResponse.json(
       { 
+        success: false,
+        step: "unknown",
         error: "Internal server error", 
-        message: error instanceof Error ? error.message : String(error),
+        details: error instanceof Error ? error.message : String(error),
       },
       { status: 500 }
     );

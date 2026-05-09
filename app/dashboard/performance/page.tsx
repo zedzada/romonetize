@@ -193,7 +193,7 @@ export default function PerformancePage() {
             </p>
           </div>
           <Button variant="outline" size="sm" asChild className="w-fit">
-            <Link href="/dashboard/settings/tracking">
+            <Link href="/dashboard/game/tracking-setup">
               View Installation Guide
               <ExternalLink className="w-3 h-3 ml-2" />
             </Link>

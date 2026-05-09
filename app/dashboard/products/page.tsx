@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -157,10 +158,10 @@ export default function ProductsPage() {
             </span>
           </div>
           <Button variant="outline" size="sm" asChild>
-            <a href="/dashboard/settings/tracker" className="flex items-center gap-1">
+            <Link href="/dashboard/game/tracking-setup">
               View Installation Guide
-              <ExternalLink className="w-3 h-3" />
-            </a>
+              <ExternalLink className="w-3 h-3 ml-1" />
+            </Link>
           </Button>
         </div>
       )}
