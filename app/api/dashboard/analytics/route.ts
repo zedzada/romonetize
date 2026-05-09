@@ -522,6 +522,57 @@ export async function GET(request: NextRequest) {
   
   const revenue72h = purchases72h.reduce((sum, e) => sum + getEventRobux(e), 0);
 
+  // === HOURLY MONETIZATION CHART DATA (Last 72 hours) ===
+  // This is independent of the range filter - always shows last 72 hours grouped hourly
+  const hourlyMonetization: Array<{
+    time: string;
+    totalRevenue: number;
+    devproductRevenue: number;
+    gamepassRevenue: number;
+    purchases: number;
+  }> = [];
+
+  // Create buckets for each hour in the last 72 hours
+  const hourlyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
+  
+  // Initialize all 72 hour buckets with zero values
+  for (let i = 0; i < 72; i++) {
+    const bucketTime = new Date(now72h.getTime() - i * 60 * 60 * 1000);
+    const bucketKey = bucketTime.toISOString().slice(0, 13) + ":00:00.000Z";
+    hourlyBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0 });
+  }
+
+  // Fill in actual purchase data
+  purchases72h.forEach((e) => {
+    const eventDate = new Date(e.created_at);
+    const bucketKey = eventDate.toISOString().slice(0, 13) + ":00:00.000Z";
+    const eventRobux = getEventRobux(e);
+    
+    const existing = hourlyBuckets.get(bucketKey);
+    if (existing) {
+      existing.total += eventRobux;
+      existing.purchases += 1;
+      if (e.product_type === "gamepass" || e.event_type === "gamepass_purchase") {
+        existing.gamepass += eventRobux;
+      } else {
+        existing.devproduct += eventRobux;
+      }
+    }
+  });
+
+  // Convert to sorted array (oldest first)
+  Array.from(hourlyBuckets.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([time, data]) => {
+      hourlyMonetization.push({
+        time,
+        totalRevenue: data.total,
+        devproductRevenue: data.devproduct,
+        gamepassRevenue: data.gamepass,
+        purchases: data.purchases,
+      });
+    });
+
   // Calculate avg session duration from paired events
   const sessionDurations: number[] = [];
   const activeSessions = new Map<string, Date>();
@@ -676,6 +727,95 @@ export async function GET(request: NextRequest) {
 
   // === PRODUCT STATS ===
   step = "calculate_products";
+  
+  // First, fetch synced Roblox products for name enrichment
+  let robloxProductsMap = new Map<string, { name: string; type: string; price: number }>();
+  try {
+    const { data: robloxProducts } = await supabase
+      .from("roblox_products")
+      .select("roblox_product_id, name, product_type, price_robux")
+      .eq("game_id", gameId);
+    
+    (robloxProducts || []).forEach((p) => {
+      robloxProductsMap.set(String(p.roblox_product_id), {
+        name: p.name,
+        type: p.product_type,
+        price: p.price_robux || 0,
+      });
+    });
+  } catch (err) {
+    // Non-fatal - continue without Roblox enrichment
+    sectionErrors.robloxProductsEnrich = err instanceof Error ? err.message : "Failed to fetch";
+  }
+  
+  // Collect all events by product_id to find best name/type across all events
+  const productEventMap = new Map<string, typeof purchaseEvents>();
+  [...purchaseEvents, ...clickEvents].forEach((e) => {
+    const productId = e.product_id;
+    if (!productId) return;
+    const existing = productEventMap.get(productId) || [];
+    existing.push(e);
+    productEventMap.set(productId, existing);
+  });
+  
+  // Helper: resolve product name with priority
+  // 1. event.product_name
+  // 2. event.metadata.product_name
+  // 3. matching product from roblox_products by product_id
+  // 4. matching known product name from another event with same product_id
+  // 5. fallback: Product {product_id}
+  // 6. final fallback: Unknown Product (only if no product_id)
+  function resolveProductName(productId: string | null, events: typeof purchaseEvents): string {
+    if (!productId) return "Unknown Product";
+    
+    // Check all events for this product_id for a name
+    for (const e of events) {
+      if (e.product_name && e.product_name !== "Unknown Product" && e.product_name !== "Unknown Gamepass") {
+        return e.product_name;
+      }
+      // Check metadata
+      const meta = e.metadata as Record<string, unknown> | null;
+      if (meta?.product_name && typeof meta.product_name === "string") {
+        return meta.product_name;
+      }
+    }
+    
+    // Check Roblox synced products
+    const robloxProduct = robloxProductsMap.get(productId);
+    if (robloxProduct?.name) {
+      return robloxProduct.name;
+    }
+    
+    // Fallback to Product {product_id}
+    return `Product ${productId}`;
+  }
+  
+  // Helper: resolve product type with priority
+  function resolveProductType(productId: string | null, events: typeof purchaseEvents): string {
+    // Check events
+    for (const e of events) {
+      if (e.product_type && e.product_type !== "unknown") {
+        return e.product_type;
+      }
+      if (e.event_type === "gamepass_purchase" || e.event_type === "gamepass_click") {
+        return "gamepass";
+      }
+      if (e.event_type === "devproduct_purchase" || e.event_type === "devproduct_click") {
+        return "devproduct";
+      }
+    }
+    
+    // Check Roblox synced products
+    if (productId) {
+      const robloxProduct = robloxProductsMap.get(productId);
+      if (robloxProduct?.type) {
+        return robloxProduct.type;
+      }
+    }
+    
+    return "gamepass";
+  }
+  
   const productMap = new Map<string, {
     id: string;
     name: string;
@@ -687,9 +827,10 @@ export async function GET(request: NextRequest) {
   }>();
 
   purchaseEvents.forEach((e) => {
-    const key = e.product_id || e.product_name || "unknown";
+    const key = e.product_id || "unknown";
     const eventRobux = getEventRobux(e);
     const existing = productMap.get(key);
+    
     if (existing) {
       existing.revenue += eventRobux;
       existing.purchases += 1;
@@ -697,10 +838,14 @@ export async function GET(request: NextRequest) {
     } else {
       const buyers = new Set<string>();
       if (e.player_id) buyers.add(e.player_id);
+      
+      // Get all events for this product to resolve name/type
+      const allEventsForProduct = productEventMap.get(key) || [e];
+      
       productMap.set(key, {
         id: e.product_id || key,
-        name: e.product_name || "Unknown Product",
-        type: e.product_type || "gamepass",
+        name: resolveProductName(e.product_id, allEventsForProduct),
+        type: resolveProductType(e.product_id, allEventsForProduct),
         revenue: eventRobux,
         purchases: 1,
         clicks: 0,
@@ -710,15 +855,19 @@ export async function GET(request: NextRequest) {
   });
 
   clickEvents.forEach((e) => {
-    const key = e.product_id || e.product_name || "unknown";
+    const key = e.product_id || "unknown";
     const existing = productMap.get(key);
+    
     if (existing) {
       existing.clicks += 1;
     } else {
+      // Get all events for this product to resolve name/type
+      const allEventsForProduct = productEventMap.get(key) || [e];
+      
       productMap.set(key, {
         id: e.product_id || key,
-        name: e.product_name || "Unknown Product",
-        type: e.product_type || "gamepass",
+        name: resolveProductName(e.product_id, allEventsForProduct),
+        type: resolveProductType(e.product_id, allEventsForProduct),
         revenue: 0,
         purchases: 0,
         clicks: 1,
@@ -1045,6 +1194,10 @@ export async function GET(request: NextRequest) {
         purchasesOverTime,
         revenueByProductType,
         topProducts,
+        // New: 72h hourly monetization data (always from last 72 hours, grouped hourly)
+        hourlyMonetization,
+        revenue72h,
+        purchaseCount72h: purchases72h.length,
       } : null,
       // Product analytics
       productAnalytics: {

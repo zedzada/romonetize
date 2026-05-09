@@ -137,11 +137,23 @@ export interface PerformanceCharts {
   ccuOverTime: Array<{ time: string; ccu: number }>;
 }
 
+export interface HourlyMonetizationPoint {
+  time: string;
+  totalRevenue: number;
+  devproductRevenue: number;
+  gamepassRevenue: number;
+  purchases: number;
+}
+
 export interface MonetizationCharts {
   revenueOverTime: Array<{ date: string; revenue: number }>;
   purchasesOverTime: Array<{ date: string; purchases: number }>;
   revenueByProductType: Array<{ productType: string; revenue: number }>;
   topProducts: Array<{ productId: string; productName: string; productType: string; revenue: number; purchases: number; buyers: number }>;
+  // New: 72h hourly monetization data
+  hourlyMonetization: HourlyMonetizationPoint[];
+  revenue72h: number;
+  purchaseCount72h: number;
 }
 
 export interface ProductAnalyticsItem {
