@@ -90,7 +90,7 @@ function toChartTimeRange(range: PerformanceRange): "1d" | "7d" | "30d" {
 
 // CCU History interval/range compatibility rules
 const CCU_MINUTE_COMPATIBLE_RANGES: CCUHistoryRange[] = ["1h", "24h"];
-const CCU_DAILY_ONLY_RANGES: CCUHistoryRange[] = ["28d", "90d"];
+const CCU_DAILY_ONLY_RANGES: CCUHistoryRange[] = ["7d", "28d", "90d"];
 
 function getDefaultCcuInterval(range: CCUHistoryRange): CCUHistoryInterval {
   if (range === "1h") return "1m";
@@ -106,14 +106,17 @@ export default function PerformancePage() {
   const [ccuRange, setCcuRange] = useState<CCUHistoryRange>("24h");
   const [ccuInterval, setCcuInterval] = useState<CCUHistoryInterval>("hourly");
   
-  // Handle CCU range change with auto-interval switching
+  // Handle CCU range change with auto-interval switching per requirements:
+  // 1H default: 1m, 24H default: Hourly, 7D/28D/90D default: Daily
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
     setCcuRange(newRange);
     // Auto-switch interval based on range
-    if (CCU_DAILY_ONLY_RANGES.includes(newRange) && ccuInterval !== "daily") {
-      setCcuInterval("daily");
-    } else if (!CCU_MINUTE_COMPATIBLE_RANGES.includes(newRange) && ccuInterval === "1m") {
-      setCcuInterval("hourly");
+    if (newRange === "1h") {
+      setCcuInterval("1m"); // 1H always uses 1m
+    } else if (CCU_DAILY_ONLY_RANGES.includes(newRange)) {
+      setCcuInterval("daily"); // 7D/28D/90D use daily
+    } else if (newRange === "24h" && ccuInterval === "daily") {
+      setCcuInterval("hourly"); // 24H prefers hourly over daily
     }
   }, [ccuInterval]);
   
@@ -136,7 +139,7 @@ export default function PerformancePage() {
     trackerStats,
     performanceCharts: rawPerformanceCharts,
     ccuStats: rawCcuStats,
-    ccuHistory,
+    ccuHistory: rawCcuHistory,
     refresh,
     needsTrackingScript,
     hasTrackerData,
@@ -144,9 +147,124 @@ export default function PerformancePage() {
   } = useAnalytics({ 
     enabled: true, 
     range: toAnalyticsRange(chartRange),
-    ccuRange,
-    ccuInterval,
   });
+  
+  // Process CCU history data client-side based on selected range and interval
+  // This allows instant range/interval switching without API refetch
+  const processedCcuHistory = useMemo(() => {
+    if (!rawCcuHistory?.rawSnapshots?.length) {
+      return { data: [], currentCcu: rawCcuHistory?.currentCcu ?? null, peakCcu: null, avgCcu: null };
+    }
+    
+    const now = new Date();
+    const snapshots = rawCcuHistory.rawSnapshots;
+    
+    // Calculate cutoff time based on selected range
+    const getRangeMs = (range: CCUHistoryRange): number => {
+      switch (range) {
+        case "1h": return 60 * 60 * 1000;
+        case "24h": return 24 * 60 * 60 * 1000;
+        case "7d": return 7 * 24 * 60 * 60 * 1000;
+        case "28d": return 28 * 24 * 60 * 60 * 1000;
+        case "90d": return 90 * 24 * 60 * 60 * 1000;
+        default: return 24 * 60 * 60 * 1000;
+      }
+    };
+    
+    const cutoffTime = new Date(now.getTime() - getRangeMs(ccuRange));
+    
+    // Filter snapshots by selected range
+    const filteredSnapshots = snapshots.filter((s) => new Date(s.time) >= cutoffTime);
+    
+    if (filteredSnapshots.length === 0) {
+      return { data: [], currentCcu: rawCcuHistory.currentCcu, peakCcu: null, avgCcu: null };
+    }
+    
+    // Bucket the data based on interval
+    const buckets = new Map<string, { ccu: number; latestTime: string }>();
+    
+    filteredSnapshots.forEach((snap) => {
+      const snapTime = new Date(snap.time);
+      let bucketKey: string;
+      
+      if (ccuInterval === "1m") {
+        // Per-minute buckets: round to start of minute
+        bucketKey = snapTime.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+      } else if (ccuInterval === "hourly") {
+        // Hourly buckets: round to start of hour
+        bucketKey = snapTime.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+      } else {
+        // Daily buckets: round to start of day (in local timezone)
+        const localDate = new Date(snapTime.getTime() - snapTime.getTimezoneOffset() * 60 * 1000);
+        bucketKey = localDate.toISOString().slice(0, 10); // YYYY-MM-DD
+      }
+      
+      const existing = buckets.get(bucketKey);
+      if (existing) {
+        // Use latest CCU in the bucket
+        if (snap.time > existing.latestTime) {
+          existing.ccu = snap.ccu;
+          existing.latestTime = snap.time;
+        }
+      } else {
+        buckets.set(bucketKey, { ccu: snap.ccu, latestTime: snap.time });
+      }
+    });
+    
+    // Convert to sorted array and format time labels
+    const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    
+    const data = sortedBuckets.map(([bucketKey, bucket]) => {
+      // Parse bucket key back to date for formatting
+      let date: Date;
+      if (ccuInterval === "1m") {
+        date = new Date(bucketKey + ":00.000Z");
+      } else if (ccuInterval === "hourly") {
+        date = new Date(bucketKey + ":00:00.000Z");
+      } else {
+        date = new Date(bucketKey + "T12:00:00.000Z"); // noon to avoid timezone issues
+      }
+      
+      // Format time label based on interval (client-side, user's timezone)
+      let timeLabel: string;
+      if (ccuInterval === "1m") {
+        // 1m: "2:45 PM" format
+        timeLabel = date.toLocaleTimeString(undefined, { 
+          hour: "numeric", 
+          minute: "2-digit", 
+          hour12: true 
+        });
+      } else if (ccuInterval === "hourly") {
+        // Hourly: "2 PM" format
+        timeLabel = date.toLocaleTimeString(undefined, { 
+          hour: "numeric", 
+          hour12: true 
+        });
+      } else {
+        // Daily: "May 9" format
+        timeLabel = date.toLocaleDateString(undefined, { 
+          month: "short", 
+          day: "numeric" 
+        });
+      }
+      
+      return {
+        time: bucketKey,
+        timeLabel,
+        ccu: bucket.ccu,
+      };
+    });
+    
+    // Calculate stats
+    const ccuValues = data.map((d) => d.ccu);
+    const currentCcu = ccuValues.length > 0 ? ccuValues[ccuValues.length - 1] : null;
+    const peakCcu = ccuValues.length > 0 ? Math.max(...ccuValues) : null;
+    const avgCcu = ccuValues.length > 0 
+      ? Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length) 
+      : null;
+    
+    return { data, currentCcu, peakCcu, avgCcu };
+  }, [rawCcuHistory, ccuRange, ccuInterval]);
   
   // Filter chart data based on selected range
   const { performanceCharts, ccuStats } = useMemo(() => {
@@ -548,7 +666,7 @@ export default function PerformancePage() {
       </div>
 
       {/* Charts Section */}
-      {(hasTrackerData || ccuStats?.snapshots?.length || ccuHistory?.data?.length) && (
+      {(hasTrackerData || ccuStats?.snapshots?.length || processedCcuHistory.data.length > 0) && (
         <div className="space-y-6">
           {/* Live CCU History - Large 2-column chart with its own controls */}
           <Card className="border-neutral-700/60 bg-neutral-900/50 lg:col-span-2">
@@ -564,24 +682,24 @@ export default function PerformancePage() {
                   <p className="text-sm text-muted-foreground mt-1">Concurrent players tracked from Roblox API snapshots</p>
                   
                   {/* CCU Summary Stats */}
-                  {ccuHistory && (ccuHistory.currentCcu !== null || ccuHistory.peakCcu !== null || ccuHistory.avgCcu !== null) && (
+                  {(processedCcuHistory.currentCcu !== null || processedCcuHistory.peakCcu !== null || processedCcuHistory.avgCcu !== null) && (
                     <div className="flex items-center gap-4 mt-3 text-sm">
-                      {ccuHistory.currentCcu !== null && (
+                      {processedCcuHistory.currentCcu !== null && (
                         <div className="flex items-center gap-1.5">
                           <span className="text-muted-foreground">Current:</span>
-                          <span className="font-semibold text-sky-400">{ccuHistory.currentCcu.toLocaleString()}</span>
+                          <span className="font-semibold text-sky-400">{processedCcuHistory.currentCcu.toLocaleString()}</span>
                         </div>
                       )}
-                      {ccuHistory.peakCcu !== null && (
+                      {processedCcuHistory.peakCcu !== null && (
                         <div className="flex items-center gap-1.5">
                           <span className="text-muted-foreground">Peak:</span>
-                          <span className="font-semibold text-emerald-400">{ccuHistory.peakCcu.toLocaleString()}</span>
+                          <span className="font-semibold text-emerald-400">{processedCcuHistory.peakCcu.toLocaleString()}</span>
                         </div>
                       )}
-                      {ccuHistory.avgCcu !== null && (
+                      {processedCcuHistory.avgCcu !== null && (
                         <div className="flex items-center gap-1.5">
                           <span className="text-muted-foreground">Avg:</span>
-                          <span className="font-semibold text-amber-400">{ccuHistory.avgCcu.toLocaleString()}</span>
+                          <span className="font-semibold text-amber-400">{processedCcuHistory.avgCcu.toLocaleString()}</span>
                         </div>
                       )}
                     </div>
@@ -594,6 +712,7 @@ export default function PerformancePage() {
                   <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
                     {(["1h", "24h", "7d", "28d", "90d"] as CCUHistoryRange[]).map((r) => (
                       <button
+                        type="button"
                         key={r}
                         onClick={() => handleCcuRangeChange(r)}
                         className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
@@ -621,6 +740,7 @@ export default function PerformancePage() {
                           : undefined;
                       return (
                         <button
+                          type="button"
                           key={i}
                           onClick={() => !isDisabled && handleCcuIntervalChange(i)}
                           disabled={isDisabled}
@@ -643,9 +763,9 @@ export default function PerformancePage() {
             </CardHeader>
             <CardContent>
               <div className="h-[380px]">
-                {ccuHistory?.data && ccuHistory.data.length > 0 ? (
+                {processedCcuHistory.data.length > 0 ? (
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={ccuHistory.data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <AreaChart data={processedCcuHistory.data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="liveCcuGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.4}/>
@@ -681,7 +801,7 @@ export default function PerformancePage() {
                         stroke="#38BDF8"
                         strokeWidth={3}
                         fill="url(#liveCcuGradient)"
-                        dot={ccuHistory.data.length <= 48 ? { r: 3, fill: "#38BDF8", strokeWidth: 0 } : false}
+                        dot={processedCcuHistory.data.length <= 48 ? { r: 3, fill: "#38BDF8", strokeWidth: 0 } : false}
                         activeDot={{ r: 6, fill: "#38BDF8", strokeWidth: 2, stroke: "#0a0a0a" }}
                         connectNulls
                       />
@@ -878,7 +998,7 @@ export default function PerformancePage() {
       )}
 
       {/* Empty state for charts when no tracker data and no CCU data */}
-      {!hasTrackerData && !ccuStats?.snapshots?.length && !ccuHistory?.data?.length && (
+      {!hasTrackerData && !ccuStats?.snapshots?.length && processedCcuHistory.data.length === 0 && (
         <Card className="border-neutral-700/60 bg-neutral-900/50">
           <CardContent className="pt-6 pb-6">
             <div className="text-center">
