@@ -1,130 +1,152 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useCallback } from "react";
 import Link from "next/link";
-import { ArrowLeft, Copy, Check, CheckCircle2, AlertCircle, RefreshCw, ExternalLink } from "lucide-react";
+import { ArrowLeft, Copy, Check, CheckCircle2, AlertCircle, RefreshCw, ExternalLink, Play, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import useSWR from "swr";
 
-interface GameData {
-  id: string;
-  name: string;
-  api_key: string;
-  roblox_game_id: string | null;
-  universe_id: string | null;
-  last_event_at: string | null;
+interface TrackerDebugData {
+  success: boolean;
+  selectedGame: {
+    id: string;
+    name: string;
+    roblox_game_id: string | null;
+    universe_id: string | null;
+    api_key_prefix: string | null;
+    last_event_at: string | null;
+    status: string;
+  } | null;
+  eventCountForGame: number;
+  lastEvent: {
+    event_type: string;
+    player_id: string | null;
+    created_at: string;
+  } | null;
+  recentEvents: Array<{
+    event_type: string;
+    player_id: string | null;
+    created_at: string;
+  }>;
+  trackingActive: boolean;
+  reason: string;
 }
 
 // Production URL for the tracking endpoint
 const PRODUCTION_URL = "https://www.romonetize.com/api/events";
 
-function generateLuaScript(apiKey: string, gameId: string | null): string {
-  return `-- RoMonetize Tracking Script v1.1
+function generateLuaScript(apiKey: string, universeId: string | null): string {
+  return `-- RoMonetize Tracking Script v1.2
 -- Place this script in ServerScriptService
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local MarketplaceService = game:GetService("MarketplaceService")
 
--- Configuration
+-- Configuration (DO NOT SHARE THIS API KEY)
+local API_URL = "${PRODUCTION_URL}"
 local API_KEY = "${apiKey}"
-local ENDPOINT = "${PRODUCTION_URL}"
-local ROBLOX_GAME_ID = "${gameId || "UNKNOWN"}"
 
--- Helper function to send events
-local function sendEvent(eventData)
-	eventData.apiKey = API_KEY
-	eventData.robloxGameId = ROBLOX_GAME_ID
-	
-	local success, err = pcall(function()
-		HttpService:PostAsync(
-			ENDPOINT,
-			HttpService:JSONEncode(eventData),
-			Enum.HttpContentType.ApplicationJson
-		)
-	end)
-	
-	if not success then
-		warn("[RoMonetize] Failed to send event:", err)
-	end
+-- Helper function to send events to RoMonetize
+local function sendEvent(eventType, payload)
+    local body = {
+        api_key = API_KEY,
+        event_type = eventType,
+        player_id = payload.player_id,
+        session_id = payload.session_id,
+        metadata = payload.metadata or {}
+    }
+
+    local success, result = pcall(function()
+        return HttpService:PostAsync(
+            API_URL,
+            HttpService:JSONEncode(body),
+            Enum.HttpContentType.ApplicationJson
+        )
+    end)
+
+    if success then
+        print("[RoMonetize] Event sent:", eventType, result)
+    else
+        warn("[RoMonetize] Failed to send event:", eventType, result)
+    end
 end
 
 -- Send script_started event on server startup
-task.spawn(function()
-	task.wait(2) -- Wait for server to stabilize
-	sendEvent({
-		eventType = "script_started",
-		metadata = {
-			serverStartTime = os.time(),
-			placeId = game.PlaceId,
-			gameId = game.GameId
-		}
-	})
-	print("[RoMonetize] Tracking script started")
-end)
+sendEvent("script_started", {
+    player_id = "server",
+    session_id = game.JobId,
+    metadata = {
+        place_id = game.PlaceId,
+        job_id = game.JobId,
+        universe_id = "${universeId || "unknown"}"
+    }
+})
+
+print("[RoMonetize] Tracking script initialized for universe ${universeId || "unknown"}")
 
 -- Track player joins
 Players.PlayerAdded:Connect(function(player)
-	sendEvent({
-		eventType = "player_join",
-		playerId = tostring(player.UserId),
-		metadata = {
-			username = player.Name,
-			displayName = player.DisplayName,
-			accountAge = player.AccountAge
-		}
-	})
+    sendEvent("player_join", {
+        player_id = tostring(player.UserId),
+        session_id = game.JobId .. "-" .. player.UserId,
+        metadata = {
+            username = player.Name,
+            display_name = player.DisplayName,
+            place_id = game.PlaceId,
+            job_id = game.JobId
+        }
+    })
 end)
 
 -- Track player leaves (session end)
 Players.PlayerRemoving:Connect(function(player)
-	sendEvent({
-		eventType = "session_end",
-		playerId = tostring(player.UserId),
-		metadata = {
-			username = player.Name
-		}
-	})
+    sendEvent("session_end", {
+        player_id = tostring(player.UserId),
+        session_id = game.JobId .. "-" .. player.UserId,
+        metadata = {
+            username = player.Name
+        }
+    })
 end)
 
 -- Track gamepass purchases
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
-	if wasPurchased then
-		local info = MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
-		sendEvent({
-			eventType = "gamepass_purchase",
-			playerId = tostring(player.UserId),
-			productId = tostring(gamePassId),
-			productName = info and info.Name or "Unknown",
-			productType = "gamepass",
-			robux = info and info.PriceInRobux or 0,
-			metadata = {
-				username = player.Name
-			}
-		})
-	end
+    if wasPurchased then
+        local info = MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
+        sendEvent("gamepass_purchase", {
+            player_id = tostring(player.UserId),
+            session_id = game.JobId .. "-" .. player.UserId,
+            metadata = {
+                product_id = tostring(gamePassId),
+                product_name = info and info.Name or "Unknown",
+                product_type = "gamepass",
+                robux = info and info.PriceInRobux or 0,
+                username = player.Name
+            }
+        })
+    end
 end)
 
 -- Track developer product purchases
--- You need to also handle ProcessReceipt for dev products
 MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)
-	if wasPurchased then
-		local player = Players:GetPlayerByUserId(userId)
-		local info = MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
-		sendEvent({
-			eventType = "devproduct_purchase",
-			playerId = tostring(userId),
-			productId = tostring(productId),
-			productName = info and info.Name or "Unknown",
-			productType = "devproduct",
-			robux = info and info.PriceInRobux or 0,
-			metadata = {
-				username = player and player.Name or "Unknown"
-			}
-		})
-	end
+    if wasPurchased then
+        local player = Players:GetPlayerByUserId(userId)
+        local info = MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
+        sendEvent("devproduct_purchase", {
+            player_id = tostring(userId),
+            session_id = game.JobId .. "-" .. userId,
+            metadata = {
+                product_id = tostring(productId),
+                product_name = info and info.Name or "Unknown",
+                product_type = "devproduct",
+                robux = info and info.PriceInRobux or 0,
+                username = player and player.Name or "Unknown"
+            }
+        })
+    end
 end)
 
 print("[RoMonetize] Tracking script loaded successfully")
@@ -136,57 +158,58 @@ const fetcher = (url: string) => fetch(url).then(res => res.json());
 
 export default function TrackingSetupPage() {
   const [copied, setCopied] = useState(false);
-  const [checking, setChecking] = useState(false);
-  const [debugInfo, setDebugInfo] = useState<{
-    lastEvent: { event_type: string; created_at: string } | null;
-    eventCount: number;
-  } | null>(null);
+  const [sendingTestEvent, setSendingTestEvent] = useState(false);
+  const [testEventResult, setTestEventResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Fetch selected game via analytics API (reuses existing endpoint)
-  const { data: analyticsData, isLoading: loading, mutate } = useSWR(
+  // Fetch tracker debug data
+  const { data: debugData, isLoading: loading, mutate } = useSWR<TrackerDebugData>(
+    "/api/tracker/debug",
+    fetcher,
+    { revalidateOnFocus: false, refreshInterval: 0 }
+  );
+
+  // Also fetch the full API key from analytics endpoint
+  const { data: analyticsData } = useSWR(
     "/api/dashboard/analytics",
     fetcher,
     { revalidateOnFocus: false }
   );
 
-  // Extract game data from analytics response
-  const game: GameData | null = analyticsData?.dataHealth ? {
-    id: analyticsData.dataHealth.selectedGameId,
-    name: analyticsData.dataHealth.gameName || "Unknown Game",
-    api_key: analyticsData.dataHealth.apiKey || "",
-    roblox_game_id: analyticsData.dataHealth.robloxGameId,
-    universe_id: analyticsData.dataHealth.universeId || analyticsData.dataHealth.robloxGameId,
-    last_event_at: analyticsData.dataHealth.lastTrackerEventAt,
-  } : null;
+  const game = debugData?.selectedGame;
+  const fullApiKey = analyticsData?.dataHealth?.apiKey || "";
 
   const handleCopy = async () => {
-    if (!game) return;
-    const script = generateLuaScript(game.api_key, game.roblox_game_id);
+    if (!fullApiKey) return;
+    const universeId = game?.universe_id || game?.roblox_game_id;
+    const script = generateLuaScript(fullApiKey, universeId);
     await navigator.clipboard.writeText(script);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleCheckStatus = useCallback(async () => {
-    if (!game) return;
-    setChecking(true);
+    await mutate();
+  }, [mutate]);
+
+  const handleSendTestEvent = async () => {
+    setSendingTestEvent(true);
+    setTestEventResult(null);
     try {
-      const res = await fetch(`/api/events/debug?gameId=${game.id}`);
+      const res = await fetch("/api/tracker/test-event", { method: "POST" });
       const data = await res.json();
       if (data.success) {
-        setDebugInfo({
-          lastEvent: data.lastEvent,
-          eventCount: data.eventCount,
-        });
-        // Refresh analytics data to get updated last_event_at
-        mutate();
+        setTestEventResult({ success: true, message: "Test event inserted successfully! Refresh status to verify." });
+        // Refresh debug data
+        await mutate();
+      } else {
+        setTestEventResult({ success: false, message: data.error || "Failed to send test event" });
       }
     } catch (error) {
-      console.error("Failed to check status:", error);
+      setTestEventResult({ success: false, message: "Network error: " + (error instanceof Error ? error.message : String(error)) });
     } finally {
-      setChecking(false);
+      setSendingTestEvent(false);
     }
-  }, [game, mutate]);
+  };
 
   if (loading) {
     return (
@@ -210,7 +233,7 @@ export default function TrackingSetupPage() {
             <AlertCircle className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-lg font-semibold mb-2">No Game Selected</h2>
             <p className="text-muted-foreground mb-4">
-              Please select a game first to set up tracking.
+              Please connect a game first to set up tracking.
             </p>
             <Button asChild>
               <Link href="/dashboard/game">Go to My Game</Link>
@@ -221,8 +244,11 @@ export default function TrackingSetupPage() {
     );
   }
 
-  const hasTracking = !!game.last_event_at || (debugInfo && debugInfo.eventCount > 0);
-  const luaScript = generateLuaScript(game.api_key, game.roblox_game_id);
+  const hasTracking = debugData?.trackingActive || false;
+  const eventCount = debugData?.eventCountForGame || 0;
+  const lastEvent = debugData?.lastEvent;
+  const universeId = game.universe_id || game.roblox_game_id;
+  const luaScript = generateLuaScript(fullApiKey, universeId);
 
   return (
     <div className="space-y-6">
@@ -242,7 +268,7 @@ export default function TrackingSetupPage() {
         </p>
       </div>
 
-      {/* Game Info Card */}
+      {/* Game Info & Debug Card */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Selected Game</CardTitle>
@@ -256,18 +282,18 @@ export default function TrackingSetupPage() {
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Universe ID</p>
-              <p className="font-mono text-sm text-foreground">{game.universe_id || game.roblox_game_id || "—"}</p>
+              <p className="font-mono text-sm text-foreground">{universeId || "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">API Key</p>
-              <p className="font-mono text-sm text-foreground">{game.api_key.slice(0, 8)}...{game.api_key.slice(-4)}</p>
+              <p className="font-mono text-sm text-foreground">{game.api_key_prefix || "—"}</p>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Tracking Status</p>
               {hasTracking ? (
                 <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/20">
                   <CheckCircle2 className="w-3 h-3 mr-1" />
-                  Active
+                  Active ({eventCount} events)
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20">
@@ -278,25 +304,58 @@ export default function TrackingSetupPage() {
             </div>
           </div>
 
-          {/* Check Status Button */}
-          <div className="flex items-center gap-4 pt-2">
-            <Button variant="outline" size="sm" onClick={handleCheckStatus} disabled={checking}>
-              <RefreshCw className={`w-4 h-4 mr-2 ${checking ? "animate-spin" : ""}`} />
-              {checking ? "Checking..." : "Check Status"}
-            </Button>
-            {debugInfo && (
-              <div className="text-sm text-muted-foreground">
-                {debugInfo.eventCount > 0 ? (
-                  <span className="text-green-600">
-                    {debugInfo.eventCount} event(s) received. Last: {debugInfo.lastEvent?.event_type} at{" "}
-                    {new Date(debugInfo.lastEvent?.created_at || "").toLocaleString()}
-                  </span>
+          {/* Event Info */}
+          <div className="bg-muted/30 rounded-lg p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Events received:</span>
+              <span className="font-mono text-sm">{eventCount}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Last event:</span>
+              <span className="font-mono text-sm">
+                {lastEvent ? (
+                  <>
+                    {lastEvent.event_type} at {new Date(lastEvent.created_at).toLocaleString()}
+                  </>
                 ) : (
-                  <span>No events received yet</span>
+                  "None"
                 )}
-              </div>
-            )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Production endpoint:</span>
+              <code className="font-mono text-xs bg-muted px-2 py-1 rounded">{PRODUCTION_URL}</code>
+            </div>
           </div>
+
+          {/* Action Buttons */}
+          <div className="flex flex-wrap items-center gap-3 pt-2">
+            <Button variant="outline" size="sm" onClick={handleCheckStatus}>
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Refresh Status
+            </Button>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={handleSendTestEvent} 
+              disabled={sendingTestEvent}
+            >
+              <Play className={`w-4 h-4 mr-2 ${sendingTestEvent ? "animate-pulse" : ""}`} />
+              {sendingTestEvent ? "Sending..." : "Send Server Test Event"}
+            </Button>
+          </div>
+
+          {/* Test Event Result */}
+          {testEventResult && (
+            <div className={`p-3 rounded-lg text-sm ${testEventResult.success ? "bg-green-500/10 text-green-700 border border-green-500/20" : "bg-red-500/10 text-red-700 border border-red-500/20"}`}>
+              {testEventResult.success ? (
+                <CheckCircle2 className="w-4 h-4 inline mr-2" />
+              ) : (
+                <AlertCircle className="w-4 h-4 inline mr-2" />
+              )}
+              {testEventResult.message}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -318,15 +377,19 @@ export default function TrackingSetupPage() {
             <li className="flex gap-4">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">2</span>
               <div>
-                <p className="font-medium text-foreground">Go to ServerScriptService</p>
-                <p className="text-sm text-muted-foreground">In the Explorer panel, find and expand ServerScriptService</p>
+                <p className="font-medium text-foreground">Enable HTTP Requests</p>
+                <p className="text-sm text-muted-foreground">
+                  Game Settings → Security → Allow HTTP Requests → <strong>Enable</strong>
+                </p>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">3</span>
               <div>
-                <p className="font-medium text-foreground">Create a new Script</p>
-                <p className="text-sm text-muted-foreground">Right-click ServerScriptService → Insert Object → Script. Name it <code className="px-1 py-0.5 rounded bg-muted">RoMonetizeTracker</code></p>
+                <p className="font-medium text-foreground">Create a Script in ServerScriptService</p>
+                <p className="text-sm text-muted-foreground">
+                  In Explorer, right-click ServerScriptService → Insert Object → Script. Name it <code className="px-1 py-0.5 rounded bg-muted">RoMonetizeTracker</code>
+                </p>
               </div>
             </li>
             <li className="flex gap-4">
@@ -339,31 +402,29 @@ export default function TrackingSetupPage() {
             <li className="flex gap-4">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">5</span>
               <div>
-                <p className="font-medium text-foreground">Enable HTTP Requests</p>
-                <p className="text-sm text-muted-foreground">
-                  In Roblox Studio: Game Settings → Security → Allow HTTP Requests → Enable
-                </p>
+                <p className="font-medium text-foreground">Publish the game</p>
+                <p className="text-sm text-muted-foreground">File → Publish to Roblox. The script only runs in published games.</p>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">6</span>
               <div>
-                <p className="font-medium text-foreground">Publish the game</p>
-                <p className="text-sm text-muted-foreground">File → Publish to Roblox. The script only works in published games, not in Studio test mode.</p>
+                <p className="font-medium text-foreground">Join the live published game</p>
+                <p className="text-sm text-muted-foreground">Open Roblox app and join your published game (not Studio Play Solo)</p>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">7</span>
               <div>
-                <p className="font-medium text-foreground">Join the live published game</p>
-                <p className="text-sm text-muted-foreground">Open Roblox and join your published game (not Studio)</p>
+                <p className="font-medium text-foreground">Wait 30-60 seconds</p>
+                <p className="text-sm text-muted-foreground">The script_started event is sent when the server starts</p>
               </div>
             </li>
             <li className="flex gap-4">
               <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/10 text-primary text-sm font-medium flex items-center justify-center">8</span>
               <div>
-                <p className="font-medium text-foreground">Wait 30-60 seconds, then check status</p>
-                <p className="text-sm text-muted-foreground">Click "Check Status" above or "Refresh Data" in the Performance page to verify events are being received</p>
+                <p className="font-medium text-foreground">Click Refresh Status above</p>
+                <p className="text-sm text-muted-foreground">Verify events are being received</p>
               </div>
             </li>
           </ol>
@@ -378,7 +439,7 @@ export default function TrackingSetupPage() {
               <CardTitle className="text-lg">Tracking Script</CardTitle>
               <CardDescription>Copy this script into ServerScriptService</CardDescription>
             </div>
-            <Button variant="outline" size="sm" onClick={handleCopy}>
+            <Button variant="outline" size="sm" onClick={handleCopy} disabled={!fullApiKey}>
               {copied ? (
                 <>
                   <Check className="w-4 h-4 mr-2 text-green-500" />
@@ -394,8 +455,48 @@ export default function TrackingSetupPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="bg-zinc-950 rounded-lg p-4 overflow-x-auto">
+          <div className="bg-zinc-950 rounded-lg p-4 overflow-x-auto max-h-96">
             <pre className="text-sm text-zinc-300 font-mono whitespace-pre">{luaScript}</pre>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Troubleshooting */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5 text-amber-500" />
+            Troubleshooting
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+            <li>
+              <strong className="text-foreground">Roblox Studio → Game Settings → Security → Enable HTTP Requests</strong> must be ON.
+            </li>
+            <li>
+              <strong className="text-foreground">Script must be in ServerScriptService</strong>, not StarterPlayerScripts or other locations.
+            </li>
+            <li>
+              <strong className="text-foreground">You must publish the game</strong> after adding the script. File → Publish to Roblox.
+            </li>
+            <li>
+              <strong className="text-foreground">You must join the live published game</strong>, not just Studio Play Solo.
+            </li>
+            <li>
+              <strong className="text-foreground">Check Roblox server Output</strong> for &quot;[RoMonetize] Event sent&quot; or error messages.
+            </li>
+            <li>
+              If you see <code className="px-1 py-0.5 rounded bg-muted">&quot;HTTP requests are not enabled&quot;</code>, enable HTTP Requests in Game Settings.
+            </li>
+            <li>
+              If you see <code className="px-1 py-0.5 rounded bg-muted">401</code> or <code className="px-1 py-0.5 rounded bg-muted">403</code> errors, copy the latest script again because the API key may be wrong.
+            </li>
+          </ol>
+          <div className="pt-4 border-t border-border">
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">Still not working?</strong> Click &quot;Send Server Test Event&quot; above. If it succeeds but Roblox events do not appear, the issue is in your Roblox script.
+            </p>
           </div>
         </CardContent>
       </Card>
@@ -409,13 +510,7 @@ export default function TrackingSetupPage() {
           <div className="flex gap-3">
             <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              <strong className="text-foreground">HTTP Requests must be enabled</strong> in Game Settings → Security for the script to work.
-            </p>
-          </div>
-          <div className="flex gap-3">
-            <AlertCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-            <p className="text-sm text-muted-foreground">
-              <strong className="text-foreground">The script only works in published games</strong>, not in Roblox Studio test mode.
+              <strong className="text-foreground">Keep your API key secret.</strong> Never share it publicly or commit it to public repositories.
             </p>
           </div>
           <div className="flex gap-3">
