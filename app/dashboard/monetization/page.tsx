@@ -37,14 +37,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Chart color palette - bright and visible
+// Chart color palette - vivid and highly visible on dark mode
 const COLORS = {
-  totalRevenue: "#3b82f6",    // Bright blue
-  devProduct: "#22c55e",       // Green
-  gamepass: "#ec4899",         // Pink/Magenta
-  purchases: "#f59e0b",        // Amber
-  grid: "#374151",
-  axis: "#9ca3af",
+  totalRevenue: "#3B82F6",    // Bright blue
+  devProduct: "#22C55E",      // Vivid green
+  gamepass: "#EC4899",        // Hot pink
+  purchases: "#F59E0B",       // Amber
+  grid: "#4B5563",            // Visible grid
+  axis: "#D1D5DB",            // Bright axis labels
 };
 
 // Safe number formatter
@@ -514,19 +514,19 @@ export default function MonetizationPage() {
                   <AreaChart data={processedChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="totalRevenueGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={COLORS.totalRevenue} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={COLORS.totalRevenue} stopOpacity={0.02}/>
+                        <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={0.35}/>
+                        <stop offset="100%" stopColor={COLORS.totalRevenue} stopOpacity={0.05}/>
                       </linearGradient>
                       <linearGradient id="devProductGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={COLORS.devProduct} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={COLORS.devProduct} stopOpacity={0.02}/>
+                        <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.35}/>
+                        <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={0.05}/>
                       </linearGradient>
                       <linearGradient id="gamepassGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={COLORS.gamepass} stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor={COLORS.gamepass} stopOpacity={0.02}/>
+                        <stop offset="0%" stopColor={COLORS.gamepass} stopOpacity={0.35}/>
+                        <stop offset="100%" stopColor={COLORS.gamepass} stopOpacity={0.05}/>
                       </linearGradient>
                     </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
                     <XAxis 
                       dataKey="time" 
                       tickFormatter={(v) => {
@@ -557,10 +557,10 @@ export default function MonetizationPage() {
                         dataKey="totalRevenue"
                         name="Total Revenue"
                         stroke={COLORS.totalRevenue}
-                        strokeWidth={3}
+                        strokeWidth={3.5}
                         fill="url(#totalRevenueGradient)"
-                        dot={false}
-                        activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
+                        dot={{ r: 2, fill: COLORS.totalRevenue, strokeWidth: 0 }}
+                        activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 3, stroke: "#0a0a0a" }}
                       />
                     ) : (
                       <>
@@ -569,9 +569,9 @@ export default function MonetizationPage() {
                           dataKey="devproductRevenue"
                           name="Dev Products"
                           stroke={COLORS.devProduct}
-                          strokeWidth={2.5}
+                          strokeWidth={3}
                           fill="url(#devProductGradient)"
-                          dot={false}
+                          dot={{ r: 2, fill: COLORS.devProduct, strokeWidth: 0 }}
                           activeDot={{ r: 5, fill: COLORS.devProduct, strokeWidth: 2, stroke: "#0a0a0a" }}
                         />
                         <Area
@@ -579,9 +579,9 @@ export default function MonetizationPage() {
                           dataKey="gamepassRevenue"
                           name="Game Passes"
                           stroke={COLORS.gamepass}
-                          strokeWidth={2.5}
+                          strokeWidth={3}
                           fill="url(#gamepassGradient)"
-                          dot={false}
+                          dot={{ r: 2, fill: COLORS.gamepass, strokeWidth: 0 }}
                           activeDot={{ r: 5, fill: COLORS.gamepass, strokeWidth: 2, stroke: "#0a0a0a" }}
                         />
                       </>
@@ -619,7 +619,13 @@ export default function MonetizationPage() {
                 <div className="h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={monetizationCharts.revenueOverTime} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} vertical={false} />
+                      <defs>
+                        <linearGradient id="dailyRevenueGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={1}/>
+                          <stop offset="100%" stopColor={COLORS.totalRevenue} stopOpacity={0.6}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
                       <XAxis 
                         dataKey="date" 
                         tickFormatter={(v) => formatChartTime(v, "7d")}
@@ -636,15 +642,15 @@ export default function MonetizationPage() {
                         width={50}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px" }}
-                        labelStyle={{ color: "#e5e5e5", fontWeight: 600 }}
+                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
+                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                         formatter={(value: number) => [`R$${value.toLocaleString()}`, "Revenue"]}
                       />
                       <Bar 
                         dataKey="revenue" 
-                        fill={COLORS.totalRevenue}
-                        radius={[4, 4, 0, 0]}
-                        maxBarSize={40}
+                        fill="url(#dailyRevenueGradient)"
+                        radius={[6, 6, 0, 0]}
+                        maxBarSize={45}
                       />
                     </BarChart>
                   </ResponsiveContainer>
@@ -670,11 +676,11 @@ export default function MonetizationPage() {
                     <AreaChart data={monetizationCharts.purchasesOverTime} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="purchasesGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={COLORS.purchases} stopOpacity={0.3}/>
-                          <stop offset="95%" stopColor={COLORS.purchases} stopOpacity={0.02}/>
+                          <stop offset="0%" stopColor={COLORS.purchases} stopOpacity={0.4}/>
+                          <stop offset="100%" stopColor={COLORS.purchases} stopOpacity={0.05}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
                       <XAxis 
                         dataKey="date" 
                         tickFormatter={(v) => formatChartTime(v, "7d")}
@@ -691,17 +697,17 @@ export default function MonetizationPage() {
                         width={30}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px" }}
-                        labelStyle={{ color: "#e5e5e5", fontWeight: 600 }}
+                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
+                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                         formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
                       />
                       <Area 
                         type="monotone"
                         dataKey="purchases" 
                         stroke={COLORS.purchases}
-                        strokeWidth={2}
+                        strokeWidth={3}
                         fill="url(#purchasesGradient)"
-                        dot={false}
+                        dot={{ r: 2, fill: COLORS.purchases, strokeWidth: 0 }}
                         activeDot={{ r: 5, fill: COLORS.purchases, strokeWidth: 2, stroke: "#0a0a0a" }}
                       />
                     </AreaChart>
@@ -800,7 +806,13 @@ export default function MonetizationPage() {
                       layout="vertical"
                       margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.3} horizontal={true} vertical={false} />
+                      <defs>
+                        <linearGradient id="topProductsGradient" x1="0" y1="0" x2="1" y2="0">
+                          <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.8}/>
+                          <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={1}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} horizontal={true} vertical={false} />
                       <XAxis 
                         type="number"
                         tickFormatter={(v) => `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
@@ -814,12 +826,12 @@ export default function MonetizationPage() {
                         width={100}
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
+                        tick={{ fill: COLORS.axis, fontSize: 11 }}
                         tickFormatter={(v) => v.length > 14 ? v.slice(0, 14) + "..." : v}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px" }}
-                        labelStyle={{ color: "#e5e5e5", fontWeight: 600 }}
+                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
+                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                         formatter={(value: number, name: string, props: { payload?: { productType?: string; purchases?: number } }) => {
                           const payload = props.payload;
                           return [
@@ -833,9 +845,9 @@ export default function MonetizationPage() {
                       />
                       <Bar 
                         dataKey="revenue" 
-                        fill={CHART_COLORS.emerald}
-                        radius={[0, 4, 4, 0]}
-                        maxBarSize={28}
+                        fill="url(#topProductsGradient)"
+                        radius={[0, 6, 6, 0]}
+                        maxBarSize={30}
                       />
                     </BarChart>
                   </ResponsiveContainer>
