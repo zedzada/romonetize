@@ -490,7 +490,15 @@ export async function GET(request: NextRequest) {
   const uniquePlayers = allPlayerIds.size;
   const totalSessions = sessionEvents.length;
   const totalPurchases = purchaseEvents.length;
-  const totalRevenue = purchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+  
+  // Helper to get robux from event (top-level column OR metadata fallback)
+  const getEventRobux = (e: typeof purchaseEvents[0]): number => {
+    const topLevelRobux = e.robux;
+    const metadataRobux = e.metadata && typeof e.metadata === "object" ? (e.metadata as Record<string, unknown>).robux : undefined;
+    return Number(topLevelRobux ?? metadataRobux ?? 0);
+  };
+  
+  const totalRevenue = purchaseEvents.reduce((sum, e) => sum + getEventRobux(e), 0);
 
   // Calculate avg session duration from paired events
   const sessionDurations: number[] = [];
@@ -634,10 +642,10 @@ export async function GET(request: NextRequest) {
   const payingUsers = payingPlayerIds.size;
   const gamepassRevenue = purchaseEvents
     .filter((e) => e.product_type === "gamepass" || e.event_type === "gamepass_purchase")
-    .reduce((sum, e) => sum + (e.robux || 0), 0);
+    .reduce((sum, e) => sum + getEventRobux(e), 0);
   const devproductRevenue = purchaseEvents
     .filter((e) => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
-    .reduce((sum, e) => sum + (e.robux || 0), 0);
+    .reduce((sum, e) => sum + getEventRobux(e), 0);
 
   const arpdau = uniquePlayers > 0 ? totalRevenue / uniquePlayers : 0;
   const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
@@ -658,9 +666,10 @@ export async function GET(request: NextRequest) {
 
   purchaseEvents.forEach((e) => {
     const key = e.product_id || e.product_name || "unknown";
+    const eventRobux = getEventRobux(e);
     const existing = productMap.get(key);
     if (existing) {
-      existing.revenue += e.robux || 0;
+      existing.revenue += eventRobux;
       existing.purchases += 1;
       if (e.player_id) existing.uniqueBuyers.add(e.player_id);
     } else {
@@ -670,7 +679,7 @@ export async function GET(request: NextRequest) {
         id: e.product_id || key,
         name: e.product_name || "Unknown Product",
         type: e.product_type || "gamepass",
-        revenue: e.robux || 0,
+        revenue: eventRobux,
         purchases: 1,
         clicks: 0,
         uniqueBuyers: buyers,
@@ -946,6 +955,27 @@ export async function GET(request: NextRequest) {
           source: g.source,
           group_name: g.group_name,
         })),
+        // Purchase revenue debug info
+        purchaseRevenueDebug: {
+          purchaseEventCount: purchaseEvents.length,
+          purchaseEvents: purchaseEvents.slice(0, 20).map(e => ({
+            id: e.id,
+            event_type: e.event_type,
+            player_id: e.player_id,
+            product_id: e.product_id,
+            product_name: e.product_name,
+            product_type: e.product_type,
+            robux: e.robux,
+            metadata_robux: e.metadata && typeof e.metadata === "object" ? (e.metadata as Record<string, unknown>).robux : undefined,
+            created_at: e.created_at,
+          })),
+          revenueFromColumn: purchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0),
+          revenueFromMetadata: purchaseEvents.reduce((sum, e) => {
+            const metaRobux = e.metadata && typeof e.metadata === "object" ? (e.metadata as Record<string, unknown>).robux : 0;
+            return sum + Number(metaRobux || 0);
+          }, 0),
+          finalRevenue: totalRevenue,
+        },
       },
     } : {}),
   });
