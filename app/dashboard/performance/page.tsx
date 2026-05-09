@@ -301,7 +301,7 @@ export default function PerformancePage() {
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.totalEvents)}
+                  {formatNumber(safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -348,9 +348,13 @@ export default function PerformancePage() {
                 <span className="text-xs text-muted-foreground">Avg Session</span>
               </div>
               {safeDataHealth.hasTrackerEvents ? (
-                <div className="text-2xl font-bold text-foreground">
-                  {formatDuration(safeTrackerStats.avgSessionDuration)}
-                </div>
+                safeTrackerStats.avgSessionDuration !== null ? (
+                  <div className="text-2xl font-bold text-foreground">
+                    {formatDuration(safeTrackerStats.avgSessionDuration)}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">Not enough data yet</div>
+                )
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
               )}

@@ -263,14 +263,27 @@ export async function GET(request: NextRequest) {
     sectionErrors.events = err instanceof Error ? err.message : "Failed to fetch events";
   }
 
-  // Get total event count for dataHealth (all-time, not just range)
+  // Get total event count and latest event time for dataHealth (all-time, not just range)
   let totalEventsCount = 0;
+  let latestEventAt: string | null = null;
   try {
     const { count } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId);
     totalEventsCount = count || 0;
+
+    // Get latest event time if we have events
+    if (totalEventsCount > 0) {
+      const { data: latestEvent } = await supabase
+        .from("events")
+        .select("created_at")
+        .eq("game_id", gameId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .single();
+      latestEventAt = latestEvent?.created_at || null;
+    }
   } catch {
     // Ignore count error
   }
@@ -456,7 +469,8 @@ export async function GET(request: NextRequest) {
     apiKey: selectedGame.api_key, // For tracking setup page
     hasTrackerEvents,
     trackerEventsCount: totalEventsCount,
-    lastTrackerEventAt: selectedGame.last_event_at,
+    // Use latestEventAt from events query, fall back to games.last_event_at
+    lastTrackerEventAt: latestEventAt || selectedGame.last_event_at,
     hasRobloxApiData: hasRobloxApiData || robloxStats !== null,
     robloxApiLastSyncedAt: selectedGame.last_roblox_sync || robloxStats?.updatedAt || null,
     // Products sync info (will be populated later)
@@ -861,16 +875,17 @@ export async function GET(request: NextRequest) {
         purchaseRate,
       },
       // Tracker stats (for Game Performance tab)
+      // Always return object with safe values when tracker is active
       trackerStats: hasTrackerEvents ? {
-        totalEvents: allEvents.length,
-        uniquePlayers,
-        totalSessions,
-        avgSessionDuration,
+        totalEvents: totalEventsCount,
+        uniquePlayers: uniquePlayers || 0,
+        totalSessions: totalSessions || 0,
+        avgSessionDuration: avgSessionDuration || null,
         avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
-        newPlayers,
-        returningPlayers,
-        totalPurchases,
-        lastEventTime: allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null,
+        newPlayers: newPlayers || 0,
+        returningPlayers: returningPlayers || 0,
+        totalPurchases: totalPurchases || 0,
+        lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
       } : null,
       // Revenue stats (for Monetization tab)
       revenueStats: hasTrackerEvents ? {
