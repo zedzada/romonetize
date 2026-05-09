@@ -573,6 +573,63 @@ export async function GET(request: NextRequest) {
       });
     });
 
+  // === MINUTE-LEVEL MONETIZATION CHART DATA (Last 24 hours) ===
+  // For real-time 1-minute interval support - key RoMonetize differentiator
+  const minuteMonetization: Array<{
+    time: string;
+    totalRevenue: number;
+    devproductRevenue: number;
+    gamepassRevenue: number;
+    purchases: number;
+  }> = [];
+
+  // Create buckets for each minute in the last 24 hours (1440 buckets max)
+  const minuteBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
+  const now24h = new Date();
+  const start24h = new Date(now24h.getTime() - 24 * 60 * 60 * 1000);
+
+  // Initialize all minute buckets with zero values
+  for (let i = 0; i < 1440; i++) {
+    const bucketTime = new Date(now24h.getTime() - i * 60 * 1000);
+    // Round to minute: YYYY-MM-DDTHH:mm:00.000Z
+    const bucketKey = bucketTime.toISOString().slice(0, 16) + ":00.000Z";
+    minuteBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0 });
+  }
+
+  // Fill in actual purchase data from purchases72h (filter to last 24h)
+  purchases72h.forEach((e) => {
+    const eventDate = new Date(e.created_at);
+    if (eventDate < start24h) return; // Skip if older than 24h
+    
+    // Round to minute
+    const bucketKey = eventDate.toISOString().slice(0, 16) + ":00.000Z";
+    const eventRobux = getEventRobux(e);
+    
+    const existing = minuteBuckets.get(bucketKey);
+    if (existing) {
+      existing.total += eventRobux;
+      existing.purchases += 1;
+      if (e.product_type === "gamepass" || e.event_type === "gamepass_purchase") {
+        existing.gamepass += eventRobux;
+      } else {
+        existing.devproduct += eventRobux;
+      }
+    }
+  });
+
+  // Convert to sorted array (oldest first)
+  Array.from(minuteBuckets.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([time, data]) => {
+      minuteMonetization.push({
+        time,
+        totalRevenue: data.total,
+        devproductRevenue: data.devproduct,
+        gamepassRevenue: data.gamepass,
+        purchases: data.purchases,
+      });
+    });
+
   // Calculate avg session duration from paired events
   const sessionDurations: number[] = [];
   const activeSessions = new Map<string, Date>();
@@ -1188,17 +1245,19 @@ export async function GET(request: NextRequest) {
         purchasesOverTime,
         ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
       } : null,
-      // Monetization charts
-      monetizationCharts: hasTrackerEvents ? {
-        revenueOverTime: revenueChart.map(r => ({ date: r.time, revenue: r.revenue })),
-        purchasesOverTime,
-        revenueByProductType,
-        topProducts,
-        // New: 72h hourly monetization data (always from last 72 hours, grouped hourly)
-        hourlyMonetization,
-        revenue72h,
-        purchaseCount72h: purchases72h.length,
-      } : null,
+  // Monetization charts
+  monetizationCharts: hasTrackerEvents ? {
+  revenueOverTime: revenueChart.map(r => ({ date: r.time, revenue: r.revenue })),
+  purchasesOverTime,
+  revenueByProductType,
+  topProducts,
+  // 72h hourly monetization data (always from last 72 hours, grouped hourly)
+  hourlyMonetization,
+  // 24h minute-level monetization data (always from last 24 hours, grouped per minute)
+  minuteMonetization,
+  revenue72h,
+  purchaseCount72h: purchases72h.length,
+  } : null,
       // Product analytics
       productAnalytics: {
         products: products.map(p => ({

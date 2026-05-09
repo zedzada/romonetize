@@ -58,9 +58,17 @@ function formatRobux(value: number | null | undefined): string {
   return `R$${value.toLocaleString()}`;
 }
 
-type ChartRange = "24h" | "72h" | "7d" | "28d";
-type ChartInterval = "hourly" | "daily";
+type ChartRange = "1h" | "6h" | "24h" | "72h" | "7d" | "28d";
+type ChartInterval = "1m" | "hourly" | "daily";
 type ChartMode = "total" | "gamepasses" | "devproducts";
+
+// Ranges that support 1m interval (max 24h of minute data)
+const MINUTE_COMPATIBLE_RANGES: ChartRange[] = ["1h", "6h", "24h"];
+
+// Helper to check if range supports 1m interval
+function supportsMinuteInterval(range: ChartRange): boolean {
+  return MINUTE_COMPATIBLE_RANGES.includes(range);
+}
 
 // Custom tooltip for the hero chart - shows mode-specific data
 function HeroChartTooltip({ 
@@ -87,12 +95,14 @@ function HeroChartTooltip({
   if (!active || !payload?.length) return null;
   
   const date = new Date(label || "");
+  // For minute mode, show HH:mm format prominently
   const formattedTime = date.toLocaleString(undefined, {
     weekday: "short",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    hour12: true,
   });
 
   // Get the underlying data point
@@ -210,6 +220,24 @@ export default function MonetizationPage() {
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
 
+  // Handle range change with auto-switch interval if incompatible
+  const handleRangeChange = (newRange: ChartRange) => {
+    setChartRange(newRange);
+    // If switching to a range that doesn't support 1m, auto-switch to hourly
+    if (!supportsMinuteInterval(newRange) && chartInterval === "1m") {
+      setChartInterval("hourly");
+    }
+  };
+
+  // Handle interval change with auto-switch range if incompatible
+  const handleIntervalChange = (newInterval: ChartInterval) => {
+    setChartInterval(newInterval);
+    // If switching to 1m but range is incompatible, switch to 1h
+    if (newInterval === "1m" && !supportsMinuteInterval(chartRange)) {
+      setChartRange("1h");
+    }
+  };
+
   const {
     isLoading,
     isRefreshing,
@@ -231,23 +259,10 @@ export default function MonetizationPage() {
     arpdau: revenueStats?.arpdau ?? 0,
   };
 
-  // Process hourly data based on selected range and interval
+  // Process chart data based on selected range and interval
   const processedChartData = useMemo(() => {
-    if (!monetizationCharts?.hourlyMonetization?.length) return [];
-    
-    const hourlyData = monetizationCharts.hourlyMonetization;
     const now = new Date();
     
-    // Filter by range
-    let hoursToShow = 72;
-    if (chartRange === "24h") hoursToShow = 24;
-    else if (chartRange === "72h") hoursToShow = 72;
-    else if (chartRange === "7d") hoursToShow = 168;
-    else if (chartRange === "28d") hoursToShow = 672;
-
-    const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
-    let filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
-
     // Helper to normalize all values to numbers
     const normalizePoint = (point: { time: string; totalRevenue: number; devproductRevenue: number; gamepassRevenue: number; purchases: number }) => ({
       time: point.time,
@@ -256,6 +271,50 @@ export default function MonetizationPage() {
       gamepassRevenue: Number(point.gamepassRevenue ?? 0),
       purchases: Number(point.purchases ?? 0),
     });
+
+    // Calculate minutes to show based on range
+    const getMinutesToShow = (range: ChartRange): number => {
+      switch (range) {
+        case "1h": return 60;
+        case "6h": return 360;
+        case "24h": return 1440;
+        default: return 1440; // Max 24h for minute data
+      }
+    };
+
+    // Calculate hours to show based on range
+    const getHoursToShow = (range: ChartRange): number => {
+      switch (range) {
+        case "1h": return 1;
+        case "6h": return 6;
+        case "24h": return 24;
+        case "72h": return 72;
+        case "7d": return 168;
+        case "28d": return 672;
+        default: return 72;
+      }
+    };
+
+    // === MINUTE INTERVAL ===
+    if (chartInterval === "1m") {
+      if (!monetizationCharts?.minuteMonetization?.length) return [];
+      
+      const minuteData = monetizationCharts.minuteMonetization;
+      const minutesToShow = getMinutesToShow(chartRange);
+      const cutoffTime = new Date(now.getTime() - minutesToShow * 60 * 1000);
+      
+      return minuteData
+        .filter(d => new Date(d.time) >= cutoffTime)
+        .map(normalizePoint);
+    }
+
+    // === HOURLY / DAILY INTERVAL ===
+    if (!monetizationCharts?.hourlyMonetization?.length) return [];
+    
+    const hourlyData = monetizationCharts.hourlyMonetization;
+    const hoursToShow = getHoursToShow(chartRange);
+    const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
+    let filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
 
     // If daily interval, aggregate by day
     if (chartInterval === "daily") {
@@ -284,7 +343,7 @@ export default function MonetizationPage() {
 
     // Normalize all data points to ensure numeric values
     return filteredData.map(normalizePoint);
-  }, [monetizationCharts?.hourlyMonetization, chartRange, chartInterval]);
+  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval]);
 
   // Calculate totals for current view
   const chartTotals = useMemo(() => {
@@ -339,19 +398,6 @@ export default function MonetizationPage() {
     
     // Minimum Y max of 10 for visibility, with 25% padding
     const yMax = rawMax <= 0 ? 10 : Math.max(10, Math.ceil(rawMax * 1.25));
-    
-    // Debug logging (development only)
-    if (process.env.NODE_ENV === "development") {
-      console.log("[v0] Revenue chart total mode", {
-        chartMode,
-        chartDataLength: processedChartData.length,
-        firstNonZero: processedChartData.find(
-          (p) => p.totalRevenue || p.gamepassRevenue || p.devproductRevenue
-        ),
-        rawMax,
-        yMax,
-      });
-    }
     
     return yMax;
   }, [processedChartData, chartMode]);
@@ -606,19 +652,19 @@ export default function MonetizationPage() {
                 Revenue & Sales
               </CardTitle>
               <p className="text-sm text-neutral-400 mt-0.5">
-                {chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : "Last 28 days"}
-                {chartInterval === "hourly" ? " (hourly)" : " (daily)"}
+                {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : "Last 28 days"}
+                {chartInterval === "1m" ? " (per minute)" : chartInterval === "hourly" ? " (hourly)" : " (daily)"}
               </p>
             </div>
             {/* Chart Controls */}
             <div className="flex flex-wrap items-center gap-2">
               {/* Range selector */}
               <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
-                {(["24h", "72h", "7d", "28d"] as ChartRange[]).map((r) => (
+                {(["1h", "6h", "24h", "72h", "7d", "28d"] as ChartRange[]).map((r) => (
                   <button
                     key={r}
-                    onClick={() => setChartRange(r)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    onClick={() => handleRangeChange(r)}
+                    className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
                       chartRange === r
                         ? "bg-neutral-700 text-white"
                         : "text-neutral-400 hover:text-neutral-200"
@@ -630,19 +676,28 @@ export default function MonetizationPage() {
               </div>
               {/* Interval selector */}
               <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
-                {(["hourly", "daily"] as ChartInterval[]).map((i) => (
-                  <button
-                    key={i}
-                    onClick={() => setChartInterval(i)}
-                    className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors capitalize ${
-                      chartInterval === i
-                        ? "bg-neutral-700 text-white"
-                        : "text-neutral-400 hover:text-neutral-200"
-                    }`}
-                  >
-                    {i}
-                  </button>
-                ))}
+                {(["1m", "hourly", "daily"] as ChartInterval[]).map((i) => {
+                  // Disable 1m for ranges > 24h
+                  const isDisabled = i === "1m" && !supportsMinuteInterval(chartRange);
+                  const label = i === "1m" ? "1m" : i === "hourly" ? "Hourly" : "Daily";
+                  return (
+                    <button
+                      key={i}
+                      onClick={() => !isDisabled && handleIntervalChange(i)}
+                      disabled={isDisabled}
+                      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                        chartInterval === i
+                          ? i === "1m" ? "bg-emerald-600 text-white" : "bg-neutral-700 text-white"
+                          : isDisabled
+                            ? "text-neutral-600 cursor-not-allowed"
+                            : "text-neutral-400 hover:text-neutral-200"
+                      }`}
+                      title={isDisabled ? "1m interval only available for 1H, 6H, 24H ranges" : undefined}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </div>
               {/* Mode selector: Total / Gamepasses / Dev Products */}
               <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
@@ -713,7 +768,7 @@ export default function MonetizationPage() {
                 <div className="w-px h-10 bg-neutral-700" />
                 <div>
                   <p className="text-2xl font-bold text-white">{chartTotals.activeBuckets}</p>
-                  <p className="text-xs text-neutral-400">Active {chartInterval === "hourly" ? "Hours" : "Days"}</p>
+                  <p className="text-xs text-neutral-400">Active {chartInterval === "1m" ? "Minutes" : chartInterval === "hourly" ? "Hours" : "Days"}</p>
                 </div>
               </div>
 
@@ -746,8 +801,17 @@ export default function MonetizationPage() {
                 {/* Empty state when no data for selected mode */}
                 {!hasCurrentModeData && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-neutral-900/80 rounded-lg">
-                    <p className="text-neutral-400 text-sm font-medium">No revenue for this view</p>
-                    <p className="text-neutral-500 text-xs mt-1">Try another product type or range.</p>
+                    {chartInterval === "1m" ? (
+                      <>
+                        <p className="text-neutral-400 text-sm font-medium">No revenue in this minute-level range yet</p>
+                        <p className="text-neutral-500 text-xs mt-1">New purchases will appear here in real time.</p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-neutral-400 text-sm font-medium">No revenue for this view</p>
+                        <p className="text-neutral-500 text-xs mt-1">Try another product type or range.</p>
+                      </>
+                    )}
                   </div>
                 )}
                 
@@ -760,6 +824,9 @@ export default function MonetizationPage() {
                         dataKey="time" 
                         tickFormatter={(v) => {
                           const date = new Date(v);
+                          if (chartInterval === "1m") {
+                            return date.toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
+                          }
                           if (chartInterval === "hourly") {
                             return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
                           }
@@ -767,8 +834,9 @@ export default function MonetizationPage() {
                         }}
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 11 }}
+                        tick={{ fill: COLORS.axis, fontSize: 10 }}
                         tickMargin={10}
+                        interval={chartInterval === "1m" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
                       />
                       <YAxis 
                         domain={[0, yAxisMax]}
@@ -830,6 +898,9 @@ export default function MonetizationPage() {
                         dataKey="time" 
                         tickFormatter={(v) => {
                           const date = new Date(v);
+                          if (chartInterval === "1m") {
+                            return date.toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
+                          }
                           if (chartInterval === "hourly") {
                             return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
                           }
@@ -837,8 +908,9 @@ export default function MonetizationPage() {
                         }}
                         axisLine={false}
                         tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 11 }}
+                        tick={{ fill: COLORS.axis, fontSize: 10 }}
                         tickMargin={10}
+                        interval={chartInterval === "1m" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
                       />
                       <YAxis 
                         domain={[0, yAxisMax]}

@@ -150,8 +150,10 @@ export interface MonetizationCharts {
   purchasesOverTime: Array<{ date: string; purchases: number }>;
   revenueByProductType: Array<{ productType: string; revenue: number }>;
   topProducts: Array<{ productId: string; productName: string; productType: string; revenue: number; purchases: number; buyers: number }>;
-  // New: 72h hourly monetization data
+  // 72h hourly monetization data
   hourlyMonetization: HourlyMonetizationPoint[];
+  // 24h minute-level monetization data (for real-time 1m interval)
+  minuteMonetization: HourlyMonetizationPoint[];
   revenue72h: number;
   purchaseCount72h: number;
 }
