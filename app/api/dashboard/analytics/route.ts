@@ -500,6 +500,28 @@ export async function GET(request: NextRequest) {
   
   const totalRevenue = purchaseEvents.reduce((sum, e) => sum + getEventRobux(e), 0);
 
+  // === 72h REVENUE (like Roblox Dashboard) ===
+  const now72h = new Date();
+  const start72h = new Date(now72h.getTime() - 72 * 60 * 60 * 1000);
+  
+  // Query purchase_success events from the last 72 hours (regardless of range filter)
+  let purchases72h: typeof purchaseEvents = [];
+  try {
+    const { data: events72h } = await supabase
+      .from("events")
+      .select("id, event_type, player_id, product_id, product_name, product_type, robux, created_at, game_id, metadata")
+      .eq("game_id", gameId)
+      .in("event_type", purchaseTypes)
+      .gte("created_at", start72h.toISOString())
+      .order("created_at", { ascending: false });
+    
+    purchases72h = events72h || [];
+  } catch (err) {
+    sectionErrors.revenue72h = err instanceof Error ? err.message : "Failed to fetch 72h revenue";
+  }
+  
+  const revenue72h = purchases72h.reduce((sum, e) => sum + getEventRobux(e), 0);
+
   // Calculate avg session duration from paired events
   const sessionDurations: number[] = [];
   const activeSessions = new Map<string, Date>();
@@ -973,6 +995,7 @@ export async function GET(request: NextRequest) {
       // Revenue stats (for Monetization tab)
       revenueStats: hasTrackerEvents ? {
         totalRevenue,
+        revenue72h,
         gamepassRevenue,
         devproductRevenue,
         totalPurchases,
@@ -1080,6 +1103,21 @@ export async function GET(request: NextRequest) {
             return sum + Number(metaRobux || 0);
           }, 0),
           finalRevenue: totalRevenue,
+        },
+        // 72h Revenue debug (like Roblox Dashboard)
+        revenue72hDebug: {
+          windowStart: start72h.toISOString(),
+          purchaseCount72h: purchases72h.length,
+          revenue72h,
+          recentPurchases: purchases72h.slice(0, 10).map(e => ({
+            event_type: e.event_type,
+            player_id: e.player_id,
+            product_id: e.product_id,
+            product_name: e.product_name,
+            product_type: e.product_type,
+            robux: getEventRobux(e),
+            created_at: e.created_at,
+          })),
         },
       },
     } : {}),

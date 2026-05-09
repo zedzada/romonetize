@@ -72,6 +72,7 @@ export default function MonetizationPage() {
   // Safe defaults for revenue stats
   const safeRevenueStats = {
     totalRevenue: revenueStats?.totalRevenue ?? null,
+    revenue72h: revenueStats?.revenue72h ?? null,
     totalPurchases: revenueStats?.totalPurchases ?? null,
     payingUsers: revenueStats?.payingUsers ?? null,
     arppu: revenueStats?.arppu ?? null,
@@ -185,19 +186,19 @@ export default function MonetizationPage() {
       )}
 
       {/* Revenue Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-        {/* Revenue */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* Total Revenue */}
         <Card className="border-border/50">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-green-500" />
-              <span className="text-xs text-muted-foreground">Revenue</span>
+              <span className="text-xs text-muted-foreground">Total Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : safeRevenueStats.totalRevenue === 0 ? (
-                <span className="text-lg font-medium text-muted-foreground">R$ 0</span>
+                <span className="text-lg font-medium text-muted-foreground">R$0</span>
               ) : (
                 formatRobux(safeRevenueStats.totalRevenue)
               )}
@@ -205,6 +206,24 @@ export default function MonetizationPage() {
             {hasTrackerData && safeRevenueStats.totalRevenue === 0 && (
               <p className="text-[10px] text-muted-foreground mt-1">No purchases tracked yet</p>
             )}
+          </CardContent>
+        </Card>
+
+        {/* 72h Revenue */}
+        <Card className="border-border/50">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs text-muted-foreground">72h Revenue</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                formatRobux(safeRevenueStats.revenue72h ?? 0)
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Last 72 hours</p>
           </CardContent>
         </Card>
 
