@@ -708,15 +708,9 @@ export default function MonetizationPage() {
                 </ResponsiveContainer>
               </div>
               
-              {/* Legend */}
+              {/* Legend - single item for selected mode */}
               <ChartLegend 
-                items={chartBreakdown === "total" 
-                  ? [{ name: "Total Revenue", color: COLORS.totalRevenue, value: chartTotals.total }]
-                  : [
-                      { name: "Dev Products", color: COLORS.devProduct, value: chartTotals.devproduct },
-                      { name: "Game Passes", color: COLORS.gamepass, value: chartTotals.gamepass },
-                    ]
-                }
+                items={[{ name: modeConfig.label, color: modeConfig.color, value: modeConfig.revenue }]}
               />
             </>
           )}
