@@ -15,7 +15,8 @@ interface TrackerDebugData {
     name: string;
     roblox_game_id: string | null;
     universe_id: string | null;
-    api_key_prefix: string | null;
+    api_key: string | null;        // Full API key for script generation
+    api_key_prefix: string | null; // Prefix for display
     last_event_at: string | null;
     status: string;
   } | null;
@@ -95,6 +96,11 @@ local function sendEvent(eventType, data)
         event_type = eventType,
         player_id = data.player_id or "server",
         session_id = data.session_id or sessionId,
+        -- Product fields at top level for revenue tracking
+        product_id = data.product_id,
+        product_name = data.product_name,
+        product_type = data.product_type,
+        robux = data.robux,
         metadata = data.metadata or {}
     }
     
@@ -193,14 +199,24 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
         print("[RoMonetize] Gamepass purchased:", gamePassId, "by", player.Name)
         
         local info = MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
-        sendEvent("gamepass_purchase", {
+        local productName = info and info.Name or "Unknown Gamepass"
+        local priceRobux = info and info.PriceInRobux or 0
+        
+        print("[RoMonetize] Gamepass info - Name:", productName, "Price:", priceRobux)
+        
+        -- Send purchase_success with top-level product fields for revenue tracking
+        sendEvent("purchase_success", {
             player_id = tostring(player.UserId),
             session_id = sessionId .. "-" .. player.UserId,
+            product_id = tostring(gamePassId),
+            product_name = productName,
+            product_type = "gamepass",
+            robux = priceRobux,
             metadata = {
                 product_id = tostring(gamePassId),
-                product_name = info and info.Name or "Unknown",
+                product_name = productName,
                 product_type = "gamepass",
-                robux = info and info.PriceInRobux or 0,
+                robux = priceRobux,
                 username = player.Name
             }
         })
@@ -216,14 +232,24 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
         
         local player = Players:GetPlayerByUserId(userId)
         local info = MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
-        sendEvent("devproduct_purchase", {
+        local productName = info and info.Name or "Unknown DevProduct"
+        local priceRobux = info and info.PriceInRobux or 0
+        
+        print("[RoMonetize] DevProduct info - Name:", productName, "Price:", priceRobux)
+        
+        -- Send purchase_success with top-level product fields for revenue tracking
+        sendEvent("purchase_success", {
             player_id = tostring(userId),
             session_id = sessionId .. "-" .. userId,
+            product_id = tostring(productId),
+            product_name = productName,
+            product_type = "devproduct",
+            robux = priceRobux,
             metadata = {
                 product_id = tostring(productId),
-                product_name = info and info.Name or "Unknown",
+                product_name = productName,
                 product_type = "devproduct",
-                robux = info and info.PriceInRobux or 0,
+                robux = priceRobux,
                 username = player and player.Name or "Unknown"
             }
         })
@@ -243,22 +269,15 @@ export default function TrackingSetupPage() {
   const [sendingTestEvent, setSendingTestEvent] = useState(false);
   const [testEventResult, setTestEventResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Fetch tracker debug data
+  // Fetch tracker debug data - uses same selected game logic as dashboard header
   const { data: debugData, isLoading: loading, mutate } = useSWR<TrackerDebugData>(
     "/api/tracker/debug",
     fetcher,
     { revalidateOnFocus: false, refreshInterval: 0 }
   );
 
-  // Also fetch the full API key from analytics endpoint
-  const { data: analyticsData } = useSWR(
-    "/api/dashboard/analytics",
-    fetcher,
-    { revalidateOnFocus: false }
-  );
-
   const game = debugData?.selectedGame;
-  const fullApiKey = analyticsData?.dataHealth?.apiKey || "";
+  const fullApiKey = game?.api_key || "";
 
   const handleCopy = async () => {
     if (!fullApiKey) return;

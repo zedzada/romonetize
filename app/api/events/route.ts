@@ -66,10 +66,17 @@ const LEGACY_EVENT_MAP: Record<string, string> = {
 };
 
 // Normalize camelCase to snake_case (Roblox sends camelCase, DB expects snake_case)
+// Also extracts product fields from metadata as fallback for compatibility
 function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   // Support both camelCase and snake_case for each field
   const eventType = String(raw.event_type ?? raw.eventType ?? "");
-  const productType = raw.product_type ?? raw.productType;
+  const metadata = (raw.metadata ?? {}) as Record<string, unknown>;
+  
+  // Extract product fields - top level first, then metadata fallback
+  const productType = raw.product_type ?? raw.productType ?? metadata.product_type ?? metadata.productType;
+  const productId = raw.product_id ?? raw.productId ?? metadata.product_id ?? metadata.productId;
+  const productName = raw.product_name ?? raw.productName ?? metadata.product_name ?? metadata.productName;
+  const robux = raw.robux ?? metadata.robux;
   
   // Normalize legacy purchase_success based on product_type
   let normalizedEventType = eventType;
@@ -82,11 +89,11 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   const normalized: Record<string, unknown> = {
     event_type: normalizedEventType,
     player_id: raw.player_id ?? raw.playerId,
-    product_id: raw.product_id ?? raw.productId,
-    product_name: raw.product_name ?? raw.productName,
+    product_id: productId,
+    product_name: productName,
     product_type: productType,
-    robux: raw.robux,
-    metadata: raw.metadata ?? {},
+    robux: typeof robux === "number" ? robux : (typeof robux === "string" ? parseInt(robux, 10) : undefined),
+    metadata: metadata,
   };
   
   return normalized;
