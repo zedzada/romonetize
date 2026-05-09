@@ -57,12 +57,26 @@ export default function ProductsPage() {
   const safeProductStats = productStats ?? {};
   const safeSyncedProducts = Array.isArray(syncedProducts?.products)
     ? syncedProducts.products
-    : Array.isArray(safeProductStats.products)
-    ? safeProductStats.products
     : [];
 
   const hasTrackerEvents = dataHealth?.hasTrackerEvents ?? false;
   const hasSyncedProducts = safeSyncedProducts.length > 0;
+
+  // Merged products: prioritize productAnalytics, fall back to productStats.products
+  // This ensures products from purchase_success events appear even if Roblox sync is empty
+  const trackerProducts = 
+    (productAnalytics?.products && productAnalytics.products.length > 0)
+      ? productAnalytics.products
+      : Array.isArray(safeProductStats.products)
+        ? safeProductStats.products
+        : [];
+
+  const hasTrackerProducts = trackerProducts.length > 0;
+  
+  // Total products count = unique products from tracker OR synced Roblox products
+  const totalProductsCount = hasTrackerProducts 
+    ? trackerProducts.length 
+    : safeSyncedProducts.length;
 
   // Handle sync Roblox data
   const handleSyncRoblox = async () => {
@@ -183,7 +197,7 @@ export default function ProductsPage() {
               <span className="text-xs text-muted-foreground">Total Products</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {formatNumber(safeSyncedProducts.length)}
+              {formatNumber(totalProductsCount)}
             </div>
           </CardContent>
         </Card>
@@ -248,7 +262,7 @@ export default function ProductsPage() {
       </div>
 
       {/* Products from Tracker (purchase_success events) */}
-      {hasTrackerEvents && productAnalytics && productAnalytics.products.length > 0 && (
+      {hasTrackerEvents && hasTrackerProducts && (
         <Card className="border-border/50">
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
@@ -276,48 +290,62 @@ export default function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {productAnalytics.products.map((product) => (
-                    <tr key={product.productId} className="border-b border-border/50 hover:bg-muted/30">
-                      <td className="py-3 px-2">
-                        <div className="font-medium text-foreground">{product.productName}</div>
-                        <div className="text-xs text-muted-foreground">ID: {product.productId}</div>
-                      </td>
-                      <td className="py-3 px-2">
-                        <Badge variant="outline" className="text-xs capitalize">
-                          {product.productType === "gamepass" ? "Game Pass" : product.productType === "devproduct" ? "Dev Product" : product.productType}
-                        </Badge>
-                      </td>
-                      <td className="py-3 px-2 text-right font-mono text-green-600">
-                        {formatRobux(product.revenue)}
-                      </td>
-                      <td className="py-3 px-2 text-right">
-                        {formatNumber(product.purchases)}
-                      </td>
-                      <td className="py-3 px-2 text-right">
-                        {formatNumber(product.buyers)}
-                      </td>
-                      <td className="py-3 px-2 text-right">
-                        {product.views > 0 ? formatNumber(product.views) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-2 text-right">
-                        {product.clicks > 0 ? formatNumber(product.clicks) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-2 text-right">
-                        {product.conversionRate !== null ? (
-                          formatPercent(product.conversionRate)
-                        ) : (
-                          <span className="text-xs text-muted-foreground">Needs view events</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-2 text-right font-mono">
-                        {formatRobux(product.revenuePerBuyer)}
-                      </td>
-                    </tr>
-                  ))}
+                  {trackerProducts.map((product) => {
+                    // Normalize product shape for both productAnalytics and productStats formats
+                    const productId = product.productId ?? product.id ?? "unknown";
+                    const productName = product.productName ?? product.name ?? productId;
+                    const productType = product.productType ?? product.type ?? "unknown";
+                    const revenue = product.revenue ?? 0;
+                    const purchases = product.purchases ?? 0;
+                    const buyers = product.buyers ?? product.uniqueBuyers ?? 0;
+                    const views = product.views ?? 0;
+                    const clicks = product.clicks ?? 0;
+                    const conversionRate = product.conversionRate ?? null;
+                    const revenuePerBuyer = product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? revenue / buyers : 0);
+                    
+                    return (
+                      <tr key={productId} className="border-b border-border/50 hover:bg-muted/30">
+                        <td className="py-3 px-2">
+                          <div className="font-medium text-foreground">{productName}</div>
+                          <div className="text-xs text-muted-foreground">ID: {productId}</div>
+                        </td>
+                        <td className="py-3 px-2">
+                          <Badge variant="outline" className="text-xs capitalize">
+                            {productType === "gamepass" ? "Game Pass" : productType === "devproduct" ? "Dev Product" : productType}
+                          </Badge>
+                        </td>
+                        <td className="py-3 px-2 text-right font-mono text-green-600">
+                          {formatRobux(revenue)}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          {formatNumber(purchases)}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          {formatNumber(buyers)}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          {views > 0 ? formatNumber(views) : (
+                            <span className="text-xs text-muted-foreground">0</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          {clicks > 0 ? formatNumber(clicks) : (
+                            <span className="text-xs text-muted-foreground">0</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-2 text-right">
+                          {conversionRate !== null ? (
+                            formatPercent(conversionRate)
+                          ) : (
+                            <span className="text-xs text-muted-foreground">Needs view events</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-2 text-right font-mono">
+                          {formatRobux(revenuePerBuyer)}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -325,16 +353,35 @@ export default function ProductsPage() {
         </Card>
       )}
 
-      {/* Synced Roblox Products List */}
-      <Card className="border-border/50">
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Synced Roblox Products</CardTitle>
-          <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
-            Roblox API
-          </Badge>
-        </CardHeader>
-        <CardContent>
-          {hasSyncedProducts ? (
+      {/* Empty state when tracker is active but no products yet */}
+      {hasTrackerEvents && !hasTrackerProducts && !hasSyncedProducts && (
+        <Card className="border-border/50">
+          <CardContent className="pt-6">
+            <div className="text-center py-8">
+              <Package className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
+              <p className="text-foreground font-medium mb-2">No products tracked yet</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Sync Roblox products or make a tracked purchase to populate this table.
+              </p>
+              <Button onClick={handleSyncRoblox} variant="outline">
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Sync Roblox Data
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Synced Roblox Products List - only show if synced products exist */}
+      {hasSyncedProducts && (
+        <Card className="border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle className="text-lg">Synced Roblox Products</CardTitle>
+            <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
+              Roblox API
+            </Badge>
+          </CardHeader>
+          <CardContent>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -413,18 +460,9 @@ export default function ProductsPage() {
                 </tbody>
               </table>
             </div>
-          ) : (
-            <div className="text-center py-12">
-              <Package className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
-              <p className="text-muted-foreground mb-4">No Roblox products synced yet</p>
-              <Button onClick={handleSyncRoblox} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Sync Roblox Data
-              </Button>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
