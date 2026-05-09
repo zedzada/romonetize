@@ -119,12 +119,9 @@ export type CCUHistoryRange = "1h" | "24h" | "7d" | "28d" | "90d";
 export type CCUHistoryInterval = "1m" | "hourly" | "daily";
 
 export interface CCUHistory {
-  range: CCUHistoryRange;
-  interval: CCUHistoryInterval;
   currentCcu: number | null;
-  peakCcu: number | null;
-  avgCcu: number | null;
-  data: Array<{ time: string; timeLabel: string; ccu: number | null }>;
+  // Raw snapshots - client handles bucketing and time formatting
+  rawSnapshots: Array<{ time: string; ccu: number }>;
 }
 
 export interface OverviewStats {
@@ -218,8 +215,6 @@ interface UseAnalyticsOptions {
   gameId?: string;
   range?: DateRange;
   enabled?: boolean;
-  ccuRange?: CCUHistoryRange;
-  ccuInterval?: CCUHistoryInterval;
 }
 
 const fetcher = async (url: string) => {
@@ -238,15 +233,12 @@ const fetcher = async (url: string) => {
  * Centralized analytics hook that provides consistent data across all dashboard tabs
  * Uses SWR for caching, deduplication, and revalidation
  */
-export function useAnalytics({ gameId, range = "7d", enabled = true, ccuRange, ccuInterval }: UseAnalyticsOptions = {}) {
+export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   
-  // Build API URL with optional CCU history params
-  const ccuParams = ccuRange || ccuInterval 
-    ? `${ccuRange ? `&ccuRange=${ccuRange}` : ""}${ccuInterval ? `&ccuInterval=${ccuInterval}` : ""}`
-    : "";
+  // Build API URL
   const apiUrl = enabled
-    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${ccuParams}`
+    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}`
     : null;
 
   // Use SWR for data fetching with caching

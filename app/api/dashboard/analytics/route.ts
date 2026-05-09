@@ -990,47 +990,22 @@ export async function GET(request: NextRequest) {
     sectionErrors.ccu = err instanceof Error ? err.message : "Failed to fetch CCU";
   }
 
-  // === CCU HISTORY (from roblox_game_syncs - supports minute/hourly/daily intervals) ===
-  // This uses roblox_game_syncs which has more frequent snapshots from API syncs
-  type CcuHistoryInterval = "1m" | "hourly" | "daily";
-  type CcuHistoryRange = "1h" | "24h" | "7d" | "28d" | "90d";
-  
-  const ccuHistoryRangeParam = (searchParams.get("ccuRange") || "24h") as CcuHistoryRange;
-  const ccuHistoryIntervalParam = (searchParams.get("ccuInterval") || "hourly") as CcuHistoryInterval;
-  
-  // Calculate hours for CCU history range
-  const getCcuRangeHours = (r: CcuHistoryRange): number => {
-    switch (r) {
-      case "1h": return 1;
-      case "24h": return 24;
-      case "7d": return 168;
-      case "28d": return 672;
-      case "90d": return 2160;
-      default: return 24;
-    }
-  };
-  
-  const ccuHistoryHours = getCcuRangeHours(ccuHistoryRangeParam);
-  const ccuHistoryStart = new Date(now.getTime() - ccuHistoryHours * 60 * 60 * 1000);
+  // === CCU HISTORY (from roblox_game_syncs - RAW SNAPSHOTS) ===
+  // Returns raw snapshots for client-side bucketing/filtering (no page reload on range change)
+  // Always fetch last 90 days of data - client will filter by selected range
+  const ccuHistoryStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
   
   let ccuHistory: {
-    range: CcuHistoryRange;
-    interval: CcuHistoryInterval;
     currentCcu: number | null;
-    peakCcu: number | null;
-    avgCcu: number | null;
-    data: Array<{ time: string; timeLabel: string; ccu: number | null }>;
+    // Raw snapshots - client handles bucketing and time formatting
+    rawSnapshots: Array<{ time: string; ccu: number }>;
   } = {
-    range: ccuHistoryRangeParam,
-    interval: ccuHistoryIntervalParam,
     currentCcu: robloxStats?.ccu ?? null,
-    peakCcu: null,
-    avgCcu: null,
-    data: [],
+    rawSnapshots: [],
   };
   
   try {
-    // Fetch all roblox_game_syncs in range
+    // Fetch all roblox_game_syncs in last 90 days (raw data)
     const { data: syncSnapshots } = await supabase
       .from("roblox_game_syncs")
       .select("ccu, synced_at")
@@ -1039,67 +1014,16 @@ export async function GET(request: NextRequest) {
       .order("synced_at", { ascending: true });
     
     if (syncSnapshots && syncSnapshots.length > 0) {
-      // Bucket the data based on interval
-      const buckets = new Map<string, { ccu: number; count: number; latestTime: string }>();
+      ccuHistory.rawSnapshots = syncSnapshots
+        .filter((snap) => snap.ccu !== null)
+        .map((snap) => ({
+          time: snap.synced_at,
+          ccu: snap.ccu as number,
+        }));
       
-      syncSnapshots.forEach((snap) => {
-        if (snap.ccu === null) return;
-        const snapTime = new Date(snap.synced_at);
-        let bucketKey: string;
-        
-        if (ccuHistoryIntervalParam === "1m") {
-          // Per-minute buckets
-          bucketKey = snapTime.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
-        } else if (ccuHistoryIntervalParam === "hourly") {
-          // Hourly buckets
-          bucketKey = snapTime.toISOString().slice(0, 13); // YYYY-MM-DDTHH
-        } else {
-          // Daily buckets
-          bucketKey = snapTime.toISOString().slice(0, 10); // YYYY-MM-DD
-        }
-        
-        const existing = buckets.get(bucketKey);
-        if (existing) {
-          // Use latest CCU in the bucket
-          if (snap.synced_at > existing.latestTime) {
-            existing.ccu = snap.ccu;
-            existing.latestTime = snap.synced_at;
-          }
-          existing.count++;
-        } else {
-          buckets.set(bucketKey, { ccu: snap.ccu, count: 1, latestTime: snap.synced_at });
-        }
-      });
-      
-      // Convert to sorted array
-      const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
-      
-      // Format time labels
-      ccuHistory.data = sortedBuckets.map(([bucketKey, data]) => {
-        let timeLabel: string;
-        const date = new Date(bucketKey + (ccuHistoryIntervalParam === "daily" ? "T00:00:00Z" : ":00:00Z"));
-        
-        if (ccuHistoryIntervalParam === "1m") {
-          timeLabel = date.toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
-        } else if (ccuHistoryIntervalParam === "hourly") {
-          timeLabel = date.toLocaleString(undefined, { hour: "numeric", hour12: true });
-        } else {
-          timeLabel = date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-        }
-        
-        return {
-          time: bucketKey,
-          timeLabel,
-          ccu: data.ccu,
-        };
-      });
-      
-      // Calculate stats
-      const ccuValues = ccuHistory.data.map(d => d.ccu).filter((c): c is number => c !== null);
-      if (ccuValues.length > 0) {
-        ccuHistory.currentCcu = ccuValues[ccuValues.length - 1];
-        ccuHistory.peakCcu = Math.max(...ccuValues);
-        ccuHistory.avgCcu = Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length);
+      // Update current CCU from latest snapshot if available
+      if (ccuHistory.rawSnapshots.length > 0) {
+        ccuHistory.currentCcu = ccuHistory.rawSnapshots[ccuHistory.rawSnapshots.length - 1].ccu;
       }
     }
   } catch (err) {
