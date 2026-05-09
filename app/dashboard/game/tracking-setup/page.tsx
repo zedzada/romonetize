@@ -38,87 +38,162 @@ interface TrackerDebugData {
 const PRODUCTION_URL = "https://www.romonetize.com/api/events";
 
 function generateLuaScript(apiKey: string, universeId: string | null): string {
-  return `-- RoMonetize Tracking Script v1.2
+  // If no API key, show placeholder warning
+  if (!apiKey || apiKey.length < 10) {
+    return `-- RoMonetize Tracking Script
+-- ERROR: No API key found. Please connect a game first.
+warn("[RoMonetize] No API key configured. Go to My Game to connect your Roblox game.")
+`;
+  }
+
+  return `-- RoMonetize Tracking Script v2.0
 -- Place this script in ServerScriptService
+-- DO NOT SHARE THIS SCRIPT - it contains your secret API key
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
 local MarketplaceService = game:GetService("MarketplaceService")
 
--- Configuration (DO NOT SHARE THIS API KEY)
+--------------------------------------------------------------------------------
+-- CONFIGURATION (DO NOT SHARE)
+--------------------------------------------------------------------------------
 local API_URL = "${PRODUCTION_URL}"
 local API_KEY = "${apiKey}"
 
--- Helper function to send events to RoMonetize
-local function sendEvent(eventType, payload)
+--------------------------------------------------------------------------------
+-- INITIALIZATION
+--------------------------------------------------------------------------------
+print("[RoMonetize] Tracker initializing...")
+print("[RoMonetize] API_URL:", API_URL)
+print("[RoMonetize] API_KEY:", string.sub(API_KEY, 1, 8) .. "...")
+
+-- Validate API key
+if API_KEY == "" or API_KEY == "YOUR_API_KEY_HERE" or #API_KEY < 10 then
+    warn("[RoMonetize] ERROR: Invalid or missing API key!")
+    warn("[RoMonetize] Go to romonetize.com/dashboard/game/tracking-setup to get your API key")
+    return
+end
+
+local isStudio = RunService:IsStudio()
+local sessionId = game.JobId ~= "" and game.JobId or ("studio-" .. tostring(os.time()))
+
+print("[RoMonetize] IsStudio:", isStudio)
+print("[RoMonetize] SessionId:", sessionId)
+print("[RoMonetize] PlaceId:", game.PlaceId)
+print("[RoMonetize] GameId:", game.GameId)
+
+--------------------------------------------------------------------------------
+-- SEND EVENT FUNCTION (using RequestAsync for full response visibility)
+--------------------------------------------------------------------------------
+local function sendEvent(eventType, data)
+    print("[RoMonetize] Sending event:", eventType)
+    
     local body = {
         api_key = API_KEY,
         event_type = eventType,
-        player_id = payload.player_id,
-        session_id = payload.session_id,
-        metadata = payload.metadata or {}
+        player_id = data.player_id or "server",
+        session_id = data.session_id or sessionId,
+        metadata = data.metadata or {}
     }
-
-    local success, result = pcall(function()
-        return HttpService:PostAsync(
-            API_URL,
-            HttpService:JSONEncode(body),
-            Enum.HttpContentType.ApplicationJson
-        )
+    
+    local jsonBody = HttpService:JSONEncode(body)
+    
+    local success, response = pcall(function()
+        return HttpService:RequestAsync({
+            Url = API_URL,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json"
+            },
+            Body = jsonBody
+        })
     end)
-
+    
     if success then
-        print("[RoMonetize] Event sent:", eventType, result)
+        print("[RoMonetize] Response success:", response.Success)
+        print("[RoMonetize] Status:", response.StatusCode)
+        print("[RoMonetize] Body:", response.Body)
+        
+        if response.Success then
+            print("[RoMonetize] Event sent successfully:", eventType)
+        else
+            warn("[RoMonetize] Event failed with status:", response.StatusCode)
+            warn("[RoMonetize] Response body:", response.Body)
+        end
     else
-        warn("[RoMonetize] Failed to send event:", eventType, result)
+        warn("[RoMonetize] HTTP request failed!")
+        warn("[RoMonetize] Error:", tostring(response))
+        warn("[RoMonetize] This usually means HTTP Requests are disabled.")
+        warn("[RoMonetize] Go to Game Settings > Security > Allow HTTP Requests > Enable")
     end
 end
 
--- Send script_started event on server startup
+--------------------------------------------------------------------------------
+-- SEND script_started EVENT IMMEDIATELY
+--------------------------------------------------------------------------------
+print("[RoMonetize] Sending script_started event...")
+
 sendEvent("script_started", {
     player_id = "server",
-    session_id = game.JobId,
+    session_id = sessionId,
     metadata = {
         place_id = game.PlaceId,
+        game_id = game.GameId,
         job_id = game.JobId,
-        universe_id = "${universeId || "unknown"}"
+        universe_id = "${universeId || "unknown"}",
+        studio = isStudio
     }
 })
 
-print("[RoMonetize] Tracking script initialized for universe ${universeId || "unknown"}")
+print("[RoMonetize] Tracker initialized for universe ${universeId || "unknown"}")
 
--- Track player joins
+--------------------------------------------------------------------------------
+-- PLAYER JOIN
+--------------------------------------------------------------------------------
 Players.PlayerAdded:Connect(function(player)
+    print("[RoMonetize] Player joined:", player.Name, player.UserId)
+    
     sendEvent("player_join", {
         player_id = tostring(player.UserId),
-        session_id = game.JobId .. "-" .. player.UserId,
+        session_id = sessionId .. "-" .. player.UserId,
         metadata = {
             username = player.Name,
             display_name = player.DisplayName,
             place_id = game.PlaceId,
-            job_id = game.JobId
+            game_id = game.GameId,
+            job_id = game.JobId,
+            studio = isStudio
         }
     })
 end)
 
--- Track player leaves (session end)
+--------------------------------------------------------------------------------
+-- PLAYER LEAVE (session_end)
+--------------------------------------------------------------------------------
 Players.PlayerRemoving:Connect(function(player)
+    print("[RoMonetize] Player leaving:", player.Name)
+    
     sendEvent("session_end", {
         player_id = tostring(player.UserId),
-        session_id = game.JobId .. "-" .. player.UserId,
+        session_id = sessionId .. "-" .. player.UserId,
         metadata = {
             username = player.Name
         }
     })
 end)
 
--- Track gamepass purchases
+--------------------------------------------------------------------------------
+-- GAMEPASS PURCHASES
+--------------------------------------------------------------------------------
 MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
     if wasPurchased then
+        print("[RoMonetize] Gamepass purchased:", gamePassId, "by", player.Name)
+        
         local info = MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
         sendEvent("gamepass_purchase", {
             player_id = tostring(player.UserId),
-            session_id = game.JobId .. "-" .. player.UserId,
+            session_id = sessionId .. "-" .. player.UserId,
             metadata = {
                 product_id = tostring(gamePassId),
                 product_name = info and info.Name or "Unknown",
@@ -130,14 +205,18 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
     end
 end)
 
--- Track developer product purchases
+--------------------------------------------------------------------------------
+-- DEVELOPER PRODUCT PURCHASES
+--------------------------------------------------------------------------------
 MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)
     if wasPurchased then
+        print("[RoMonetize] DevProduct purchased:", productId, "by userId", userId)
+        
         local player = Players:GetPlayerByUserId(userId)
         local info = MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
         sendEvent("devproduct_purchase", {
             player_id = tostring(userId),
-            session_id = game.JobId .. "-" .. userId,
+            session_id = sessionId .. "-" .. userId,
             metadata = {
                 product_id = tostring(productId),
                 product_name = info and info.Name or "Unknown",
@@ -149,7 +228,8 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
     end
 end)
 
-print("[RoMonetize] Tracking script loaded successfully")
+print("[RoMonetize] Tracking script loaded successfully!")
+print("[RoMonetize] Listening for player_join, session_end, and purchase events")
 `;
 }
 
