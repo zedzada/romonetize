@@ -107,13 +107,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get API key from header OR body (Roblox sends in body, dashboard sends in header)
+    // Get API key from header OR body (support multiple formats for compatibility)
+    // Priority: x-api-key header > apiKey (camelCase) > api_key (snake_case)
     const headerKey = request.headers.get("x-api-key")?.trim();
-    const bodyKey = (body && typeof body === "object" && "apiKey" in body) 
-      ? String((body as { apiKey?: unknown }).apiKey).trim() 
-      : undefined;
+    const bodyObj = body && typeof body === "object" ? body as Record<string, unknown> : {};
+    const bodyKeyCamel = bodyObj.apiKey ? String(bodyObj.apiKey).trim() : undefined;
+    const bodyKeySnake = bodyObj.api_key ? String(bodyObj.api_key).trim() : undefined;
     
-    const apiKey = headerKey || bodyKey;
+    const apiKey = headerKey || bodyKeyCamel || bodyKeySnake;
     
     if (!apiKey) {
       return NextResponse.json(
