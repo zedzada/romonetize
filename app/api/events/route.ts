@@ -178,25 +178,29 @@ export async function POST(request: NextRequest) {
       .single();
 
     const currentCount = usage?.events_count || 0;
-    const eventsLimit = usage?.events_limit || userPlan.limits.eventsPerMonth;
+    const eventsLimit = usage?.events_limit ?? userPlan.limits.eventsPerMonth;
 
     // Check if adding these events would exceed the limit
+    // -1, null, or undefined means unlimited events
     const incomingEventCount = Array.isArray(body) ? body.length : 1;
+    const isUnlimited = eventsLimit === -1 || eventsLimit === null || typeof eventsLimit === "undefined";
     
-    if (currentCount + incomingEventCount > eventsLimit) {
-      return NextResponse.json(
-        { 
-          success: false,
-          step: "rate_limit",
-          error: "Monthly event limit reached", 
-          details: {
-            currentUsage: currentCount,
-            limit: eventsLimit,
-            plan: userPlan.name,
+    if (!isUnlimited && typeof eventsLimit === "number" && eventsLimit > 0) {
+      if (currentCount + incomingEventCount > eventsLimit) {
+        return NextResponse.json(
+          { 
+            success: false,
+            step: "rate_limit",
+            error: "Monthly event limit reached", 
+            details: {
+              currentUsage: currentCount,
+              limit: eventsLimit,
+              plan: userPlan.name,
+            },
           },
-        },
-        { status: 429 }
-      );
+          { status: 429 }
+        );
+      }
     }
 
     // Support both single event and batch events
