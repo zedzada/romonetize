@@ -146,6 +146,28 @@ export default function PerformancePage() {
     range: toAnalyticsRange(chartRange),
   });
   
+  // Sync Roblox data and then refresh analytics
+  const [isSyncing, setIsSyncing] = useState(false);
+  
+  const handleSyncAndRefresh = useCallback(async () => {
+    setIsSyncing(true);
+    try {
+      // Call sync endpoint to insert new CCU snapshot
+      await fetch("/api/roblox/sync-selected-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeProducts: false }),
+      });
+      
+      // Refresh analytics data to pick up new snapshot
+      await refresh();
+    } catch (err) {
+      console.error("Failed to sync and refresh", err);
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [refresh]);
+  
   // Process CCU history data client-side based on selected range and interval
   // This allows instant range/interval switching without API refetch
   const processedCcuHistory = useMemo(() => {
@@ -390,11 +412,11 @@ export default function PerformancePage() {
         <Button 
           onClick={handleSyncAndRefresh} 
           variant="outline" 
-          disabled={isRefreshing}
+          disabled={isRefreshing || isSyncing}
           className="w-fit"
         >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing ? "animate-spin" : ""}`} />
-          Refresh Data
+          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing || isSyncing ? "animate-spin" : ""}`} />
+          {isSyncing ? "Syncing..." : "Refresh Data"}
         </Button>
       </div>
 
