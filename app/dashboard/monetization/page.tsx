@@ -32,6 +32,7 @@ import {
   ExternalLink,
   Coins,
   PieChartIcon,
+  Package,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -377,18 +378,21 @@ export default function MonetizationPage() {
             </Card>
 
             {/* Revenue by Product Type */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Revenue by Product Type</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                  <div>
+                    <CardTitle className="text-base font-semibold">Revenue by Product Type</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">Gamepasses vs Developer Products</p>
+                  </div>
+                  <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]">
                     RoMonetize Tracker
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 {monetizationCharts.revenueByProductType.length > 0 ? (
-                  <div className="h-[200px] flex items-center justify-center">
+                  <div className="h-[220px] flex items-center justify-center gap-6">
                     <ChartContainer
                       config={{
                         gamepass: { label: "Gamepasses", color: "hsl(var(--chart-1))" },
@@ -403,78 +407,96 @@ export default function MonetizationPage() {
                           nameKey="productType"
                           cx="50%"
                           cy="50%"
-                          innerRadius={40}
-                          outerRadius={70}
-                          paddingAngle={2}
+                          innerRadius={50}
+                          outerRadius={80}
+                          paddingAngle={3}
+                          strokeWidth={2}
+                          stroke="hsl(var(--background))"
                         >
                           {monetizationCharts.revenueByProductType.map((entry, index) => (
                             <Cell 
                               key={entry.productType} 
-                              fill={index === 0 ? "var(--color-gamepass)" : "var(--color-devproduct)"} 
+                              fill={index === 0 ? "hsl(var(--chart-1))" : "hsl(var(--chart-2))"} 
                             />
                           ))}
                         </Pie>
                         <ChartTooltip content={<ChartTooltipContent />} />
                       </PieChart>
                     </ChartContainer>
-                    <div className="ml-4 space-y-2">
-                      {monetizationCharts.revenueByProductType.map((item) => (
-                        <div key={item.productType} className="flex items-center gap-2 text-sm">
+                    <div className="space-y-3">
+                      {monetizationCharts.revenueByProductType.map((item, index) => (
+                        <div key={item.productType} className="flex items-center gap-3">
                           <div 
-                            className="w-3 h-3 rounded-sm" 
+                            className="w-4 h-4 rounded" 
                             style={{ 
-                              backgroundColor: item.productType === "gamepass" 
+                              backgroundColor: index === 0 
                                 ? "hsl(var(--chart-1))" 
                                 : "hsl(var(--chart-2))" 
                             }}
                           />
-                          <span className="capitalize">{item.productType}</span>
-                          <span className="text-muted-foreground">R${item.revenue.toLocaleString()}</span>
+                          <div>
+                            <p className="text-sm font-medium">{item.productType === "gamepass" ? "Game Passes" : "Dev Products"}</p>
+                            <p className="text-lg font-bold text-foreground">R${item.revenue.toLocaleString()}</p>
+                          </div>
                         </div>
                       ))}
                     </div>
                   </div>
                 ) : (
-                  <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground text-sm">
-                    <PieChartIcon className="w-8 h-8 mb-2 opacity-50" />
-                    No revenue breakdown available yet
+                  <div className="h-[220px] flex flex-col items-center justify-center text-center px-4">
+                    <PieChartIcon className="w-10 h-10 text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium text-foreground mb-1">No revenue breakdown yet</p>
+                    <p className="text-xs text-muted-foreground max-w-[200px]">
+                      Product type breakdown appears after purchases are tracked.
+                    </p>
                   </div>
                 )}
               </CardContent>
             </Card>
 
             {/* Top Products */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
+            <Card className="border-border/60 bg-card/50">
+              <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Top Products by Revenue</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                  <div>
+                    <CardTitle className="text-base font-semibold">Top Products by Revenue</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">Best performing products</p>
+                  </div>
+                  <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]">
                     RoMonetize Tracker
                   </Badge>
                 </div>
               </CardHeader>
-              <CardContent>
+              <CardContent className="pt-0">
                 {monetizationCharts.topProducts.length > 0 ? (
                   <div className="space-y-3">
                     {monetizationCharts.topProducts.slice(0, 5).map((product, index) => (
-                      <div key={product.productId} className="flex items-center justify-between">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs text-muted-foreground w-4">{index + 1}.</span>
+                      <div key={product.productId} className="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
+                        <div className="flex items-center gap-3">
+                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground">
+                            {index + 1}
+                          </div>
                           <div>
-                            <p className="text-sm font-medium">{product.productName}</p>
-                            <p className="text-xs text-muted-foreground capitalize">{product.productType}</p>
+                            <p className="text-sm font-medium text-foreground">{product.productName}</p>
+                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 mt-0.5">
+                              {product.productType === "gamepass" ? "Game Pass" : "Dev Product"}
+                            </Badge>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-sm font-medium">R${product.revenue.toLocaleString()}</p>
+                          <p className="text-sm font-bold text-foreground">R${product.revenue.toLocaleString()}</p>
                           <p className="text-xs text-muted-foreground">{product.purchases} sales</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No product data available yet
+                  <div className="h-[220px] flex flex-col items-center justify-center text-center px-4">
+                    <Package className="w-10 h-10 text-muted-foreground/40 mb-3" />
+                    <p className="text-sm font-medium text-foreground mb-1">No product data yet</p>
+                    <p className="text-xs text-muted-foreground max-w-[200px]">
+                      Top products will appear after purchases are tracked.
+                    </p>
                   </div>
                 )}
               </CardContent>
