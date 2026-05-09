@@ -49,6 +49,7 @@ export default function ProductsPage() {
     dataHealth,
     productStats,
     syncedProducts,
+    productAnalytics,
     refresh,
   } = useAnalytics({ enabled: true });
 
@@ -246,10 +247,88 @@ export default function ProductsPage() {
         </Card>
       </div>
 
-      {/* Products List */}
+      {/* Products from Tracker (purchase_success events) */}
+      {hasTrackerEvents && productAnalytics && productAnalytics.products.length > 0 && (
+        <Card className="border-border/50">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">Product Performance</CardTitle>
+              <p className="text-sm text-muted-foreground">Based on purchase_success events from your tracking script</p>
+            </div>
+            <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+              RoMonetize Tracker
+            </Badge>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Product</th>
+                    <th className="text-left py-3 px-2 font-medium text-muted-foreground">Type</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Revenue</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Purchases</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Buyers</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Views</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Clicks</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Conv.</th>
+                    <th className="text-right py-3 px-2 font-medium text-muted-foreground">Rev/Buyer</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {productAnalytics.products.map((product) => (
+                    <tr key={product.productId} className="border-b border-border/50 hover:bg-muted/30">
+                      <td className="py-3 px-2">
+                        <div className="font-medium text-foreground">{product.productName}</div>
+                        <div className="text-xs text-muted-foreground">ID: {product.productId}</div>
+                      </td>
+                      <td className="py-3 px-2">
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {product.productType === "gamepass" ? "Game Pass" : product.productType === "devproduct" ? "Dev Product" : product.productType}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono text-green-600">
+                        {formatRobux(product.revenue)}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        {formatNumber(product.purchases)}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        {formatNumber(product.buyers)}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        {product.views > 0 ? formatNumber(product.views) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        {product.clicks > 0 ? formatNumber(product.clicks) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-right">
+                        {product.conversionRate !== null ? (
+                          formatPercent(product.conversionRate)
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Needs view events</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-2 text-right font-mono">
+                        {formatRobux(product.revenuePerBuyer)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Synced Roblox Products List */}
       <Card className="border-border/50">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Products</CardTitle>
+          <CardTitle className="text-lg">Synced Roblox Products</CardTitle>
           <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
             Roblox API
           </Badge>

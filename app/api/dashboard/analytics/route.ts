@@ -820,13 +820,14 @@ export async function GET(request: NextRequest) {
       bucketKey = eventDate.toISOString().slice(0, 10);
     }
 
+    const eventRobux = getEventRobux(e);
     const existing = revenueBuckets.get(bucketKey) || { revenue: 0, purchases: 0, passes: 0, devProducts: 0 };
-    existing.revenue += e.robux || 0;
+    existing.revenue += eventRobux;
     existing.purchases += 1;
     if (e.product_type === "gamepass" || e.event_type === "gamepass_purchase") {
-      existing.passes += e.robux || 0;
+      existing.passes += eventRobux;
     } else {
-      existing.devProducts += e.robux || 0;
+      existing.devProducts += eventRobux;
     }
     revenueBuckets.set(bucketKey, existing);
   });
@@ -859,6 +860,79 @@ export async function GET(request: NextRequest) {
   const playersChart = Array.from(playerBuckets.entries())
     .map(([time, data]) => ({ time, players: data.total.size }))
     .sort((a, b) => a.time.localeCompare(b.time));
+
+  // === EVENTS OVER TIME CHART ===
+  const eventsBuckets = new Map<string, number>();
+  allEvents.forEach((e) => {
+    const eventDate = new Date(e.created_at);
+    let bucketKey: string;
+    if (range === "1h") {
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (range === "1d") {
+      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
+    } else {
+      bucketKey = eventDate.toISOString().slice(0, 10);
+    }
+    eventsBuckets.set(bucketKey, (eventsBuckets.get(bucketKey) || 0) + 1);
+  });
+  const eventsOverTime = Array.from(eventsBuckets.entries())
+    .map(([date, events]) => ({ date, events }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // === SESSIONS OVER TIME CHART ===
+  const sessionsBuckets = new Map<string, number>();
+  sessionEvents.forEach((e) => {
+    const eventDate = new Date(e.created_at);
+    let bucketKey: string;
+    if (range === "1h") {
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (range === "1d") {
+      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
+    } else {
+      bucketKey = eventDate.toISOString().slice(0, 10);
+    }
+    sessionsBuckets.set(bucketKey, (sessionsBuckets.get(bucketKey) || 0) + 1);
+  });
+  const sessionsOverTime = Array.from(sessionsBuckets.entries())
+    .map(([date, sessions]) => ({ date, sessions }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // === PURCHASES OVER TIME CHART ===
+  const purchasesBuckets = new Map<string, number>();
+  purchaseEvents.forEach((e) => {
+    const eventDate = new Date(e.created_at);
+    let bucketKey: string;
+    if (range === "1h") {
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (range === "1d") {
+      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
+    } else {
+      bucketKey = eventDate.toISOString().slice(0, 10);
+    }
+    purchasesBuckets.set(bucketKey, (purchasesBuckets.get(bucketKey) || 0) + 1);
+  });
+  const purchasesOverTime = Array.from(purchasesBuckets.entries())
+    .map(([date, purchases]) => ({ date, purchases }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  // === REVENUE BY PRODUCT TYPE ===
+  const revenueByProductType = [
+    { productType: "gamepass", revenue: gamepassRevenue },
+    { productType: "devproduct", revenue: devproductRevenue },
+  ].filter(r => r.revenue > 0);
+
+  // === TOP PRODUCTS ===
+  const topProducts = products.slice(0, 10).map(p => ({
+    productId: p.id,
+    productName: p.name,
+    productType: p.type,
+    revenue: p.revenue,
+    purchases: p.purchases,
+    buyers: p.uniqueBuyers,
+  }));
 
   return NextResponse.json({
     success: true,
@@ -929,11 +1003,42 @@ export async function GET(request: NextRequest) {
       retentionStats,
       // CCU stats
       ccuStats,
-      // Charts
+      // Charts (legacy format)
       charts: hasTrackerEvents ? {
         revenue: revenueChart,
         players: playersChart,
       } : null,
+      // Performance charts
+      performanceCharts: hasTrackerEvents ? {
+        eventsOverTime,
+        playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
+        sessionsOverTime,
+        purchasesOverTime,
+        ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
+      } : null,
+      // Monetization charts
+      monetizationCharts: hasTrackerEvents ? {
+        revenueOverTime: revenueChart.map(r => ({ date: r.time, revenue: r.revenue })),
+        purchasesOverTime,
+        revenueByProductType,
+        topProducts,
+      } : null,
+      // Product analytics
+      productAnalytics: {
+        products: products.map(p => ({
+          productId: p.id,
+          productName: p.name,
+          productType: p.type,
+          priceRobux: 0, // Would need to be fetched from Roblox API/synced products
+          revenue: p.revenue,
+          purchases: p.purchases,
+          buyers: p.uniqueBuyers,
+          views: 0, // Future: from product_view events
+          clicks: p.clicks,
+          conversionRate: p.conversionRate,
+          revenuePerBuyer: p.revPerBuyer,
+        })),
+      },
       sectionErrors,
       lastUpdated: new Date().toISOString(),
     },

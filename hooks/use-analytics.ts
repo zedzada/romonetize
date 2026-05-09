@@ -128,6 +128,39 @@ export interface ChartData {
   players: Array<{ time: string; players: number }>;
 }
 
+export interface PerformanceCharts {
+  eventsOverTime: Array<{ date: string; events: number }>;
+  playersOverTime: Array<{ date: string; players: number }>;
+  sessionsOverTime: Array<{ date: string; sessions: number }>;
+  purchasesOverTime: Array<{ date: string; purchases: number }>;
+  ccuOverTime: Array<{ time: string; ccu: number }>;
+}
+
+export interface MonetizationCharts {
+  revenueOverTime: Array<{ date: string; revenue: number }>;
+  purchasesOverTime: Array<{ date: string; purchases: number }>;
+  revenueByProductType: Array<{ productType: string; revenue: number }>;
+  topProducts: Array<{ productId: string; productName: string; productType: string; revenue: number; purchases: number; buyers: number }>;
+}
+
+export interface ProductAnalyticsItem {
+  productId: string;
+  productName: string;
+  productType: string;
+  priceRobux: number;
+  revenue: number;
+  purchases: number;
+  buyers: number;
+  views: number;
+  clicks: number;
+  conversionRate: number | null;
+  revenuePerBuyer: number;
+}
+
+export interface ProductAnalytics {
+  products: ProductAnalyticsItem[];
+}
+
 export interface AnalyticsData {
   game: {
     id: string;
@@ -146,6 +179,9 @@ export interface AnalyticsData {
   retentionStats: RetentionStats | null;
   ccuStats: CCUStats | null;
   charts: ChartData | null;
+  performanceCharts: PerformanceCharts | null;
+  monetizationCharts: MonetizationCharts | null;
+  productAnalytics: ProductAnalytics | null;
   sectionErrors: Record<string, string>;
   lastUpdated: string;
 }
@@ -266,6 +302,9 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     retentionStats: data?.retentionStats ?? null,
     ccuStats: data?.ccuStats ?? null,
     charts: data?.charts ?? null,
+    performanceCharts: data?.performanceCharts ?? null,
+    monetizationCharts: data?.monetizationCharts ?? null,
+    productAnalytics: data?.productAnalytics ?? null,
     sectionErrors: data?.sectionErrors ?? {},
     lastUpdated: data?.lastUpdated ?? null,
 
