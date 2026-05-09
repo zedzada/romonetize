@@ -131,8 +131,9 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
             return MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
         end)
         
-        local productName = success and gamePassInfo.Name or "Unknown Gamepass"
-        local robuxPrice = success and gamePassInfo.PriceInRobux or 0
+        -- Fallback to "Product {ID}" if GetProductInfo fails (never "Unknown")
+        local productName = success and gamePassInfo and gamePassInfo.Name or ("Product " .. tostring(gamePassId))
+        local robuxPrice = success and gamePassInfo and gamePassInfo.PriceInRobux or 0
         
         sendEvent({
             eventType = "purchase_success",
@@ -143,6 +144,7 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
             robux = robuxPrice,
             metadata = {
                 playerName = player.Name,
+                infoFetchSuccess = success,
             }
         })
         
@@ -161,8 +163,9 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
             return MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
         end)
         
-        local productName = success and productInfo.Name or "Unknown Product"
-        local robuxPrice = success and productInfo.PriceInRobux or 0
+        -- Fallback to "Product {ID}" if GetProductInfo fails (never "Unknown Product")
+        local productName = success and productInfo and productInfo.Name or ("Product " .. tostring(productId))
+        local robuxPrice = success and productInfo and productInfo.PriceInRobux or 0
         
         sendEvent({
             eventType = "purchase_success",
@@ -173,6 +176,7 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
             robux = robuxPrice,
             metadata = {
                 playerName = playerName,
+                infoFetchSuccess = success,
             }
         })
         
@@ -221,18 +225,19 @@ end
 --- @param gamePassName string? - Optional gamepass name
 --- @param robuxPrice number? - Optional price in Robux
 function RoMonetize:TrackGamepassClick(player, gamePassId, gamePassName, robuxPrice)
+    local resolvedName = gamePassName or ("Product " .. tostring(gamePassId))
     sendEvent({
         eventType = "gamepass_click",
         playerId = tostring(player.UserId),
         productId = tostring(gamePassId),
-        productName = gamePassName or "Unknown Gamepass",
+        productName = resolvedName,
         productType = "gamepass",
         robux = robuxPrice or 0,
         metadata = {
             playerName = player.Name,
         }
     })
-    debugLog("Gamepass clicked:", gamePassName, "by", player.Name)
+    debugLog("Gamepass clicked:", resolvedName, "by", player.Name)
 end
 
 --- Track when a player clicks on a developer product in your UI
@@ -241,18 +246,19 @@ end
 --- @param productName string? - Optional product name
 --- @param robuxPrice number? - Optional price in Robux
 function RoMonetize:TrackDevProductClick(player, productId, productName, robuxPrice)
+    local resolvedName = productName or ("Product " .. tostring(productId))
     sendEvent({
         eventType = "devproduct_click",
         playerId = tostring(player.UserId),
         productId = tostring(productId),
-        productName = productName or "Unknown Product",
+        productName = resolvedName,
         productType = "devproduct",
         robux = robuxPrice or 0,
         metadata = {
             playerName = player.Name,
         }
     })
-    debugLog("Dev product clicked:", productName, "by", player.Name)
+    debugLog("Dev product clicked:", resolvedName, "by", player.Name)
 end
 
 --- Track when a purchase prompt is shown to a player
@@ -262,18 +268,19 @@ end
 --- @param productType string - "gamepass" or "devproduct"
 --- @param robuxPrice number? - Optional price in Robux
 function RoMonetize:TrackPurchasePrompt(player, productId, productName, productType, robuxPrice)
+    local resolvedName = productName or ("Product " .. tostring(productId))
     sendEvent({
         eventType = "purchase_prompt",
         playerId = tostring(player.UserId),
         productId = tostring(productId),
-        productName = productName or "Unknown",
+        productName = resolvedName,
         productType = productType or "gamepass",
         robux = robuxPrice or 0,
         metadata = {
             playerName = player.Name,
         }
     })
-    debugLog("Purchase prompt shown for:", productName, "to", player.Name)
+    debugLog("Purchase prompt shown for:", resolvedName, "to", player.Name)
 end
 
 --- Track a custom event (for extending tracking)
