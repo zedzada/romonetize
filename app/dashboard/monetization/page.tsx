@@ -4,7 +4,24 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAnalytics } from "@/hooks/use-analytics";
+import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
+import { 
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/components/ui/chart";
+import {
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  BarChart,
+  Bar,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
 import { 
   RefreshCw, 
   DollarSign, 
@@ -14,6 +31,7 @@ import {
   AlertCircle,
   ExternalLink,
   Coins,
+  PieChartIcon,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -40,10 +58,11 @@ export default function MonetizationPage() {
     error,
     dataHealth,
     revenueStats,
+    monetizationCharts,
     hasTrackerData,
     needsTrackingScript,
     refresh,
-  } = useAnalytics({ enabled: true });
+  } = useAnalytics({ enabled: true, range: "7d" });
 
   // Safe defaults for revenue stats
   const safeRevenueStats = {
@@ -261,6 +280,208 @@ export default function MonetizationPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Monetization Charts */}
+      {hasTrackerData && monetizationCharts && (
+        <div className="space-y-6">
+          <h3 className="text-lg font-semibold text-foreground">Revenue Charts</h3>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Revenue Over Time */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Revenue Over Time</CardTitle>
+                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                    RoMonetize Tracker
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {monetizationCharts.revenueOverTime.length > 0 ? (
+                  <ChartContainer
+                    config={{
+                      revenue: { label: "Revenue (R$)", color: "hsl(var(--chart-1))" },
+                    }}
+                    className="h-[200px] w-full"
+                  >
+                    <AreaChart data={monetizationCharts.revenueOverTime}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis 
+                        dataKey="date" 
+                        tickFormatter={(v) => formatChartTime(v, "7d")}
+                        className="text-xs"
+                      />
+                      <YAxis 
+                        tickFormatter={(v) => `R$${v}`}
+                        className="text-xs" 
+                      />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Area 
+                        type="monotone" 
+                        dataKey="revenue" 
+                        stroke="var(--color-revenue)" 
+                        fill="var(--color-revenue)" 
+                        fillOpacity={0.2} 
+                      />
+                    </AreaChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+                    No revenue data available yet
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Purchases Over Time */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Purchases Over Time</CardTitle>
+                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                    RoMonetize Tracker
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {monetizationCharts.purchasesOverTime.length > 0 ? (
+                  <ChartContainer
+                    config={{
+                      purchases: { label: "Purchases", color: "hsl(var(--chart-2))" },
+                    }}
+                    className="h-[200px] w-full"
+                  >
+                    <BarChart data={monetizationCharts.purchasesOverTime}>
+                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                      <XAxis 
+                        dataKey="date" 
+                        tickFormatter={(v) => formatChartTime(v, "7d")}
+                        className="text-xs"
+                      />
+                      <YAxis className="text-xs" />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar 
+                        dataKey="purchases" 
+                        fill="var(--color-purchases)" 
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+                    No purchase data available yet
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Revenue by Product Type */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Revenue by Product Type</CardTitle>
+                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                    RoMonetize Tracker
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {monetizationCharts.revenueByProductType.length > 0 ? (
+                  <div className="h-[200px] flex items-center justify-center">
+                    <ChartContainer
+                      config={{
+                        gamepass: { label: "Gamepasses", color: "hsl(var(--chart-1))" },
+                        devproduct: { label: "Dev Products", color: "hsl(var(--chart-2))" },
+                      }}
+                      className="h-[180px] w-[180px]"
+                    >
+                      <PieChart>
+                        <Pie
+                          data={monetizationCharts.revenueByProductType}
+                          dataKey="revenue"
+                          nameKey="productType"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={40}
+                          outerRadius={70}
+                          paddingAngle={2}
+                        >
+                          {monetizationCharts.revenueByProductType.map((entry, index) => (
+                            <Cell 
+                              key={entry.productType} 
+                              fill={index === 0 ? "var(--color-gamepass)" : "var(--color-devproduct)"} 
+                            />
+                          ))}
+                        </Pie>
+                        <ChartTooltip content={<ChartTooltipContent />} />
+                      </PieChart>
+                    </ChartContainer>
+                    <div className="ml-4 space-y-2">
+                      {monetizationCharts.revenueByProductType.map((item) => (
+                        <div key={item.productType} className="flex items-center gap-2 text-sm">
+                          <div 
+                            className="w-3 h-3 rounded-sm" 
+                            style={{ 
+                              backgroundColor: item.productType === "gamepass" 
+                                ? "hsl(var(--chart-1))" 
+                                : "hsl(var(--chart-2))" 
+                            }}
+                          />
+                          <span className="capitalize">{item.productType}</span>
+                          <span className="text-muted-foreground">R${item.revenue.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="h-[200px] flex flex-col items-center justify-center text-muted-foreground text-sm">
+                    <PieChartIcon className="w-8 h-8 mb-2 opacity-50" />
+                    No revenue breakdown available yet
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Top Products */}
+            <Card className="border-border/50">
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-sm font-medium">Top Products by Revenue</CardTitle>
+                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+                    RoMonetize Tracker
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {monetizationCharts.topProducts.length > 0 ? (
+                  <div className="space-y-3">
+                    {monetizationCharts.topProducts.slice(0, 5).map((product, index) => (
+                      <div key={product.productId} className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-muted-foreground w-4">{index + 1}.</span>
+                          <div>
+                            <p className="text-sm font-medium">{product.productName}</p>
+                            <p className="text-xs text-muted-foreground capitalize">{product.productType}</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-medium">R${product.revenue.toLocaleString()}</p>
+                          <p className="text-xs text-muted-foreground">{product.purchases} sales</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+                    No product data available yet
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
 
       {/* Data explanation */}
       <Card className="border-border/50">
