@@ -115,6 +115,18 @@ export interface CCUStats {
   message: string | null;
 }
 
+export type CCUHistoryRange = "1h" | "24h" | "7d" | "28d" | "90d";
+export type CCUHistoryInterval = "1m" | "hourly" | "daily";
+
+export interface CCUHistory {
+  range: CCUHistoryRange;
+  interval: CCUHistoryInterval;
+  currentCcu: number | null;
+  peakCcu: number | null;
+  avgCcu: number | null;
+  data: Array<{ time: string; timeLabel: string; ccu: number | null }>;
+}
+
 export interface OverviewStats {
   totalRevenue: number;
   totalPurchases: number;
@@ -193,6 +205,7 @@ export interface AnalyticsData {
   syncedProducts: SyncedProductsData | null;
   retentionStats: RetentionStats | null;
   ccuStats: CCUStats | null;
+  ccuHistory: CCUHistory | null;
   charts: ChartData | null;
   performanceCharts: PerformanceCharts | null;
   monetizationCharts: MonetizationCharts | null;
@@ -205,6 +218,8 @@ interface UseAnalyticsOptions {
   gameId?: string;
   range?: DateRange;
   enabled?: boolean;
+  ccuRange?: CCUHistoryRange;
+  ccuInterval?: CCUHistoryInterval;
 }
 
 const fetcher = async (url: string) => {
@@ -223,12 +238,15 @@ const fetcher = async (url: string) => {
  * Centralized analytics hook that provides consistent data across all dashboard tabs
  * Uses SWR for caching, deduplication, and revalidation
  */
-export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
+export function useAnalytics({ gameId, range = "7d", enabled = true, ccuRange, ccuInterval }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
-
-  // Build API URL
+  
+  // Build API URL with optional CCU history params
+  const ccuParams = ccuRange || ccuInterval 
+    ? `${ccuRange ? `&ccuRange=${ccuRange}` : ""}${ccuInterval ? `&ccuInterval=${ccuInterval}` : ""}`
+    : "";
   const apiUrl = enabled
-    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}`
+    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${ccuParams}`
     : null;
 
   // Use SWR for data fetching with caching
@@ -314,9 +332,10 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     revenueStats: data?.revenueStats ?? null,
     productStats: data?.productStats ?? null,
     syncedProducts: data?.syncedProducts ?? null,
-    retentionStats: data?.retentionStats ?? null,
-    ccuStats: data?.ccuStats ?? null,
-    charts: data?.charts ?? null,
+  retentionStats: data?.retentionStats ?? null,
+  ccuStats: data?.ccuStats ?? null,
+  ccuHistory: data?.ccuHistory ?? null,
+  charts: data?.charts ?? null,
     performanceCharts: data?.performanceCharts ?? null,
     monetizationCharts: data?.monetizationCharts ?? null,
     productAnalytics: data?.productAnalytics ?? null,

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
+import { useAnalytics, formatChartTime, type CCUHistoryRange, type CCUHistoryInterval } from "@/hooks/use-analytics";
 import { ChartCard, RangeControls, chartAxisStyle, chartGridStyle, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { 
   ChartContainer,
@@ -88,8 +88,43 @@ function toChartTimeRange(range: PerformanceRange): "1d" | "7d" | "30d" {
   }
 }
 
+// CCU History interval/range compatibility rules
+const CCU_MINUTE_COMPATIBLE_RANGES: CCUHistoryRange[] = ["1h", "24h"];
+const CCU_DAILY_ONLY_RANGES: CCUHistoryRange[] = ["28d", "90d"];
+
+function getDefaultCcuInterval(range: CCUHistoryRange): CCUHistoryInterval {
+  if (range === "1h") return "1m";
+  if (range === "24h") return "1m";
+  if (range === "7d") return "hourly";
+  return "daily";
+}
+
 export default function PerformancePage() {
   const [chartRange, setChartRange] = useState<PerformanceRange>("7d");
+  
+  // CCU History chart controls (independent of other charts)
+  const [ccuRange, setCcuRange] = useState<CCUHistoryRange>("24h");
+  const [ccuInterval, setCcuInterval] = useState<CCUHistoryInterval>("hourly");
+  
+  // Handle CCU range change with auto-interval switching
+  const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
+    setCcuRange(newRange);
+    // Auto-switch interval based on range
+    if (CCU_DAILY_ONLY_RANGES.includes(newRange) && ccuInterval !== "daily") {
+      setCcuInterval("daily");
+    } else if (!CCU_MINUTE_COMPATIBLE_RANGES.includes(newRange) && ccuInterval === "1m") {
+      setCcuInterval("hourly");
+    }
+  }, [ccuInterval]);
+  
+  // Handle CCU interval change with auto-range switching
+  const handleCcuIntervalChange = useCallback((newInterval: CCUHistoryInterval) => {
+    setCcuInterval(newInterval);
+    // If selecting 1m on incompatible range, switch to 1h
+    if (newInterval === "1m" && !CCU_MINUTE_COMPATIBLE_RANGES.includes(ccuRange)) {
+      setCcuRange("1h");
+    }
+  }, [ccuRange]);
   
   const {
     isLoading,
@@ -101,11 +136,17 @@ export default function PerformancePage() {
     trackerStats,
     performanceCharts: rawPerformanceCharts,
     ccuStats: rawCcuStats,
+    ccuHistory,
     refresh,
     needsTrackingScript,
     hasTrackerData,
     hasRobloxData,
-  } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
+  } = useAnalytics({ 
+    enabled: true, 
+    range: toAnalyticsRange(chartRange),
+    ccuRange,
+    ccuInterval,
+  });
   
   // Filter chart data based on selected range
   const { performanceCharts, ccuStats } = useMemo(() => {
@@ -507,8 +548,163 @@ export default function PerformancePage() {
       </div>
 
       {/* Charts Section */}
-      {(hasTrackerData || ccuStats?.snapshots?.length) && (
+      {(hasTrackerData || ccuStats?.snapshots?.length || ccuHistory?.data?.length) && (
         <div className="space-y-6">
+          {/* Live CCU History - Large 2-column chart with its own controls */}
+          <Card className="border-neutral-700/60 bg-neutral-900/50 lg:col-span-2">
+            <CardHeader className="pb-4">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <CardTitle className="text-lg font-semibold">Live CCU History</CardTitle>
+                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
+                      Roblox API
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">Concurrent players tracked from Roblox API snapshots</p>
+                  
+                  {/* CCU Summary Stats */}
+                  {ccuHistory && (ccuHistory.currentCcu !== null || ccuHistory.peakCcu !== null || ccuHistory.avgCcu !== null) && (
+                    <div className="flex items-center gap-4 mt-3 text-sm">
+                      {ccuHistory.currentCcu !== null && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">Current:</span>
+                          <span className="font-semibold text-sky-400">{ccuHistory.currentCcu.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {ccuHistory.peakCcu !== null && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">Peak:</span>
+                          <span className="font-semibold text-emerald-400">{ccuHistory.peakCcu.toLocaleString()}</span>
+                        </div>
+                      )}
+                      {ccuHistory.avgCcu !== null && (
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-muted-foreground">Avg:</span>
+                          <span className="font-semibold text-amber-400">{ccuHistory.avgCcu.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                
+                {/* CCU Range and Interval Controls */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Range selector */}
+                  <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+                    {(["1h", "24h", "7d", "28d", "90d"] as CCUHistoryRange[]).map((r) => (
+                      <button
+                        key={r}
+                        onClick={() => handleCcuRangeChange(r)}
+                        className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                          ccuRange === r
+                            ? "bg-neutral-700 text-white"
+                            : "text-neutral-400 hover:text-neutral-200"
+                        }`}
+                      >
+                        {r.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                  
+                  {/* Interval selector */}
+                  <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+                    {(["1m", "hourly", "daily"] as CCUHistoryInterval[]).map((i) => {
+                      const is1mDisabled = i === "1m" && !CCU_MINUTE_COMPATIBLE_RANGES.includes(ccuRange);
+                      const isHourlyDisabled = i === "hourly" && CCU_DAILY_ONLY_RANGES.includes(ccuRange);
+                      const isDisabled = is1mDisabled || isHourlyDisabled;
+                      const label = i === "1m" ? "1m" : i === "hourly" ? "Hourly" : "Daily";
+                      const disabledTitle = is1mDisabled 
+                        ? "1m interval only available for 1H, 24H ranges" 
+                        : isHourlyDisabled 
+                          ? "28D/90D ranges only support daily interval"
+                          : undefined;
+                      return (
+                        <button
+                          key={i}
+                          onClick={() => !isDisabled && handleCcuIntervalChange(i)}
+                          disabled={isDisabled}
+                          className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                            ccuInterval === i
+                              ? i === "1m" ? "bg-emerald-600 text-white" : "bg-neutral-700 text-white"
+                              : isDisabled
+                                ? "text-neutral-600 cursor-not-allowed"
+                                : "text-neutral-400 hover:text-neutral-200"
+                          }`}
+                          title={disabledTitle}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[380px]">
+                {ccuHistory?.data && ccuHistory.data.length > 0 ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={ccuHistory.data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="liveCcuGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.4}/>
+                          <stop offset="100%" stopColor="#38BDF8" stopOpacity={0.05}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid {...chartGridStyle} />
+                      <XAxis 
+                        dataKey="timeLabel"
+                        {...chartAxisStyle}
+                        interval="preserveStartEnd"
+                        minTickGap={40}
+                      />
+                      <YAxis 
+                        domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2), 10)]}
+                        allowDecimals={false}
+                        {...chartAxisStyle}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: "#171717",
+                          border: "1px solid #404040",
+                          borderRadius: "8px",
+                          padding: "10px",
+                        }}
+                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                        formatter={(value: number | null) => [value !== null ? value.toLocaleString() : "—", "CCU"]}
+                        labelFormatter={(label) => `${label}`}
+                      />
+                      <Area 
+                        type="monotone" 
+                        dataKey="ccu" 
+                        stroke="#38BDF8"
+                        strokeWidth={3}
+                        fill="url(#liveCcuGradient)"
+                        dot={ccuHistory.data.length <= 48 ? { r: 3, fill: "#38BDF8", strokeWidth: 0 } : false}
+                        activeDot={{ r: 6, fill: "#38BDF8", strokeWidth: 2, stroke: "#0a0a0a" }}
+                        connectNulls
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-center">
+                    <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
+                    <h4 className="font-medium text-foreground mb-2">No CCU history yet</h4>
+                    <p className="text-sm text-muted-foreground max-w-md">
+                      Refresh Roblox data to start collecting CCU snapshots. History will build up over time as more snapshots are recorded.
+                    </p>
+                    <Button onClick={refresh} variant="outline" size="sm" className="mt-4">
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Refresh Data
+                    </Button>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+          
+          {/* Other Performance Charts Header */}
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <h3 className="text-lg font-semibold text-foreground">Performance Charts</h3>
             <RangeControls
@@ -519,59 +715,6 @@ export default function PerformancePage() {
           </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* CCU Over Time */}
-            <ChartCard
-              title="CCU Over Time"
-              subtitle="Concurrent users playing your game"
-              source="roblox"
-              summary={ccuStats?.snapshots?.length ? `Current: ${ccuStats.snapshots[ccuStats.snapshots.length - 1]?.ccu ?? 0} · Peak: ${Math.max(...ccuStats.snapshots.map(s => s.ccu ?? 0))}` : undefined}
-              isEmpty={!ccuStats?.snapshots?.length}
-              emptyTitle="No CCU history yet"
-              emptyMessage="CCU snapshots will appear after Roblox data is synced."
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={ccuStats?.snapshots ?? []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="ccuGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART_COLORS.blue} stopOpacity={0.4}/>
-                      <stop offset="100%" stopColor={CHART_COLORS.blue} stopOpacity={0.05}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid {...chartGridStyle} />
-                  <XAxis 
-                    dataKey="time" 
-                    tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
-                    {...chartAxisStyle}
-                  />
-                  <YAxis 
-                    domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2), 10)]}
-                    allowDecimals={false}
-                    {...chartAxisStyle}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#171717",
-                      border: "1px solid #404040",
-                      borderRadius: "8px",
-                      padding: "10px",
-                    }}
-                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
-                    formatter={(value: number) => [value, "CCU"]}
-                    labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
-                  />
-                  <Area 
-                    type="monotone" 
-                    dataKey="ccu" 
-                    stroke={CHART_COLORS.blue}
-                    strokeWidth={3}
-                    fill="url(#ccuGradient)"
-                    dot={{ r: 3, fill: CHART_COLORS.blue, strokeWidth: 0 }}
-                    activeDot={{ r: 6, fill: CHART_COLORS.blue, strokeWidth: 2, stroke: "#0a0a0a" }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </ChartCard>
-
             {/* Events Over Time */}
             <ChartCard
               title="Events Over Time"
@@ -735,7 +878,7 @@ export default function PerformancePage() {
       )}
 
       {/* Empty state for charts when no tracker data and no CCU data */}
-      {!hasTrackerData && !ccuStats?.snapshots?.length && (
+      {!hasTrackerData && !ccuStats?.snapshots?.length && !ccuHistory?.data?.length && (
         <Card className="border-neutral-700/60 bg-neutral-900/50">
           <CardContent className="pt-6 pb-6">
             <div className="text-center">
