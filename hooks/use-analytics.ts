@@ -181,6 +181,7 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     : null;
 
   // Use SWR for data fetching with caching
+  // Auto-refresh every 60 seconds for Roblox public stats (per spec)
   const { data, error, isLoading, mutate } = useSWR<AnalyticsData>(
     apiUrl,
     fetcher,
@@ -188,7 +189,7 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
       dedupingInterval: 5000, // Dedupe requests within 5 seconds
-      refreshInterval: 0, // Don't auto-refresh, we use realtime
+      refreshInterval: 60000, // Auto-refresh every 60 seconds for Roblox stats
     }
   );
 

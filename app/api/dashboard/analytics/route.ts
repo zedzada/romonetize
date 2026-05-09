@@ -377,18 +377,26 @@ export async function GET(request: NextRequest) {
     };
   }
 
-  // If no synced data exists, try live API fetch (but don't block on it)
-  if (!robloxStats && universeId) {
+  // Auto-sync: If no synced data OR last sync > 5 minutes, fetch fresh from Roblox API
+  const SYNC_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
+  const lastSyncTime = latestSync?.synced_at ? new Date(latestSync.synced_at).getTime() : 0;
+  const needsAutoSync = !robloxStats || (Date.now() - lastSyncTime > SYNC_THRESHOLD_MS);
+
+  if (needsAutoSync && universeId) {
     try {
       const stats = await getRobloxGameStats(universeId);
       if (stats.source === "roblox_api") {
+        // Calculate like ratio
+        const totalVotes = (stats.likes || 0) + (stats.dislikes || 0);
+        const likeRatio = totalVotes > 0 ? (stats.likes || 0) / totalVotes : null;
+
         robloxStats = {
           ccu: stats.currentPlayers,
           visits: stats.totalVisits,
           favorites: stats.favorites,
           likes: stats.likes,
           dislikes: stats.dislikes,
-          likeRatio: stats.likeRatio,
+          likeRatio,
           updatedAt: stats.lastFetched,
           source: "live_api",
         };
@@ -405,6 +413,20 @@ export async function GET(request: NextRequest) {
             last_roblox_sync: new Date().toISOString(),
           })
           .eq("id", gameId);
+
+        // Store snapshot in roblox_game_syncs for historical tracking
+        await supabase.from("roblox_game_syncs").insert({
+          game_id: gameId,
+          roblox_game_id: universeId,
+          ccu: stats.currentPlayers ?? 0,
+          visits: stats.totalVisits ?? 0,
+          favorites: stats.favorites ?? 0,
+          likes: stats.likes ?? 0,
+          dislikes: stats.dislikes ?? 0,
+          like_ratio: likeRatio,
+          raw: stats,
+          synced_at: new Date().toISOString(),
+        });
 
         // Store CCU snapshot for chart history
         if (stats.currentPlayers !== null) {

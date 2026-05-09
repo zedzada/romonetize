@@ -203,7 +203,12 @@ export default function PerformancePage() {
 
       {/* Roblox Game Stats */}
       <div>
-        <h3 className="text-lg font-semibold text-foreground mb-4">Roblox Game Stats</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-foreground">Roblox Game Stats</h3>
+          <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
+            Roblox API
+          </Badge>
+        </div>
         {robloxStats ? (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Card className="border-border/50">
@@ -281,7 +286,12 @@ export default function PerformancePage() {
 
       {/* Tracker Stats */}
       <div>
-        <h3 className="text-lg font-semibold text-foreground mb-4">Tracker Stats</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-foreground">Tracker Stats</h3>
+          <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
+            RoMonetize Tracker
+          </Badge>
+        </div>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
           <Card className="border-border/50">
             <CardContent className="pt-5 pb-4">
