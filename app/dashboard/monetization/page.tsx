@@ -21,6 +21,8 @@ import {
   ResponsiveContainer,
   Tooltip,
   Legend,
+  LineChart,
+  Line,
 } from "recharts";
 import { 
   RefreshCw, 
@@ -246,6 +248,15 @@ export default function MonetizationPage() {
     const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
     let filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
 
+    // Helper to normalize all values to numbers
+    const normalizePoint = (point: { time: string; totalRevenue: number; devproductRevenue: number; gamepassRevenue: number; purchases: number }) => ({
+      time: point.time,
+      totalRevenue: Number(point.totalRevenue ?? 0),
+      devproductRevenue: Number(point.devproductRevenue ?? 0),
+      gamepassRevenue: Number(point.gamepassRevenue ?? 0),
+      purchases: Number(point.purchases ?? 0),
+    });
+
     // If daily interval, aggregate by day
     if (chartInterval === "daily") {
       const dailyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
@@ -253,10 +264,10 @@ export default function MonetizationPage() {
       filteredData.forEach((d) => {
         const dayKey = d.time.slice(0, 10);
         const existing = dailyBuckets.get(dayKey) || { total: 0, devproduct: 0, gamepass: 0, purchases: 0 };
-        existing.total += d.totalRevenue;
-        existing.devproduct += d.devproductRevenue;
-        existing.gamepass += d.gamepassRevenue;
-        existing.purchases += d.purchases;
+        existing.total += Number(d.totalRevenue ?? 0);
+        existing.devproduct += Number(d.devproductRevenue ?? 0);
+        existing.gamepass += Number(d.gamepassRevenue ?? 0);
+        existing.purchases += Number(d.purchases ?? 0);
         dailyBuckets.set(dayKey, existing);
       });
 
@@ -271,7 +282,8 @@ export default function MonetizationPage() {
         }));
     }
 
-    return filteredData;
+    // Normalize all data points to ensure numeric values
+    return filteredData.map(normalizePoint);
   }, [monetizationCharts?.hourlyMonetization, chartRange, chartInterval]);
 
   // Calculate totals for current view
@@ -311,27 +323,34 @@ export default function MonetizationPage() {
   const yAxisMax = useMemo(() => {
     if (!processedChartData.length) return 10;
     
-    let rawMax = 0;
+    // For Total mode, find max across all 3 series
+    const visibleKeys = chartMode === "total" 
+      ? ["totalRevenue", "gamepassRevenue", "devproductRevenue"] as const
+      : chartMode === "gamepasses" 
+        ? ["gamepassRevenue"] as const
+        : ["devproductRevenue"] as const;
     
-    if (chartMode === "total") {
-      // In total mode, find max across all 3 series
-      rawMax = Math.max(
-        ...processedChartData.map(d => Math.max(d.totalRevenue, d.gamepassRevenue, d.devproductRevenue))
-      );
-    } else if (chartMode === "gamepasses") {
-      // Only use gamepassRevenue max
-      rawMax = Math.max(...processedChartData.map(d => d.gamepassRevenue));
-    } else {
-      // Only use devproductRevenue max
-      rawMax = Math.max(...processedChartData.map(d => d.devproductRevenue));
-    }
+    const rawMax = Math.max(
+      ...processedChartData.flatMap((p) => 
+        visibleKeys.map((key) => Number(p[key] ?? 0))
+      ),
+      0
+    );
     
     // Minimum Y max of 10 for visibility, with 25% padding
     const yMax = rawMax <= 0 ? 10 : Math.max(10, Math.ceil(rawMax * 1.25));
     
     // Debug logging (development only)
     if (process.env.NODE_ENV === "development") {
-      console.log("[v0] Chart scaling:", { chartMode, rawMax, yMax });
+      console.log("[v0] Revenue chart total mode", {
+        chartMode,
+        chartDataLength: processedChartData.length,
+        firstNonZero: processedChartData.find(
+          (p) => p.totalRevenue || p.gamepassRevenue || p.devproductRevenue
+        ),
+        rawMax,
+        yMax,
+      });
     }
     
     return yMax;
@@ -733,60 +752,107 @@ export default function MonetizationPage() {
                 )}
                 
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={processedChartData} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
-                    <defs>
-                      <linearGradient id="gradientTotal" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={0.3}/>
-                        <stop offset="100%" stopColor={COLORS.totalRevenue} stopOpacity={0.05}/>
-                      </linearGradient>
-                      <linearGradient id="gradientGamepass" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.gamepass} stopOpacity={0.3}/>
-                        <stop offset="100%" stopColor={COLORS.gamepass} stopOpacity={0.05}/>
-                      </linearGradient>
-                      <linearGradient id="gradientDevProduct" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.3}/>
-                        <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={0.05}/>
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
-                    <XAxis 
-                      dataKey="time" 
-                      tickFormatter={(v) => {
-                        const date = new Date(v);
-                        if (chartInterval === "hourly") {
-                          return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
-                        }
-                        return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-                      }}
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: COLORS.axis, fontSize: 11 }}
-                      tickMargin={10}
-                    />
-                    <YAxis 
-                      domain={[0, yAxisMax]}
-                      tickFormatter={(v) => v === 0 ? "0" : `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
-                      axisLine={false}
-                      tickLine={false}
-                      tick={{ fill: COLORS.axis, fontSize: 11 }}
-                      tickMargin={8}
-                      width={60}
-                    />
-                    <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
-                    
-                    {/* Total mode: show all 3 curves */}
-                    {chartMode === "total" && (
-                      <>
-                        <Area
-                          type="monotone"
-                          dataKey="totalRevenue"
-                          name="Total Revenue"
-                          stroke={COLORS.totalRevenue}
-                          strokeWidth={3}
-                          fill="url(#gradientTotal)"
-                          dot={{ r: 4, fill: COLORS.totalRevenue, strokeWidth: 0 }}
-                          activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
-                        />
+                  {/* Use LineChart for Total mode (more reliable), AreaChart for single-series modes */}
+                  {chartMode === "total" ? (
+                    <LineChart data={processedChartData} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
+                      <XAxis 
+                        dataKey="time" 
+                        tickFormatter={(v) => {
+                          const date = new Date(v);
+                          if (chartInterval === "hourly") {
+                            return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
+                          }
+                          return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: COLORS.axis, fontSize: 11 }}
+                        tickMargin={10}
+                      />
+                      <YAxis 
+                        domain={[0, yAxisMax]}
+                        tickFormatter={(v) => v === 0 ? "0" : `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: COLORS.axis, fontSize: 11 }}
+                        tickMargin={8}
+                        width={60}
+                      />
+                      <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
+                      
+                      {/* Total mode: show all 3 lines unconditionally */}
+                      <Line
+                        type="monotone"
+                        dataKey="totalRevenue"
+                        name="Total Revenue"
+                        stroke={COLORS.totalRevenue}
+                        strokeWidth={3}
+                        dot={{ r: 3, fill: COLORS.totalRevenue }}
+                        activeDot={{ r: 6 }}
+                        connectNulls
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="gamepassRevenue"
+                        name="Gamepasses"
+                        stroke={COLORS.gamepass}
+                        strokeWidth={3}
+                        dot={{ r: 3, fill: COLORS.gamepass }}
+                        activeDot={{ r: 6 }}
+                        connectNulls
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="devproductRevenue"
+                        name="Dev Products"
+                        stroke={COLORS.devProduct}
+                        strokeWidth={3}
+                        dot={{ r: 3, fill: COLORS.devProduct }}
+                        activeDot={{ r: 6 }}
+                        connectNulls
+                      />
+                    </LineChart>
+                  ) : (
+                    <AreaChart data={processedChartData} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                      <defs>
+                        <linearGradient id="gradientGamepass" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={COLORS.gamepass} stopOpacity={0.3}/>
+                          <stop offset="100%" stopColor={COLORS.gamepass} stopOpacity={0.05}/>
+                        </linearGradient>
+                        <linearGradient id="gradientDevProduct" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.3}/>
+                          <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={0.05}/>
+                        </linearGradient>
+                      </defs>
+                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
+                      <XAxis 
+                        dataKey="time" 
+                        tickFormatter={(v) => {
+                          const date = new Date(v);
+                          if (chartInterval === "hourly") {
+                            return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
+                          }
+                          return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: COLORS.axis, fontSize: 11 }}
+                        tickMargin={10}
+                      />
+                      <YAxis 
+                        domain={[0, yAxisMax]}
+                        tickFormatter={(v) => v === 0 ? "0" : `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: COLORS.axis, fontSize: 11 }}
+                        tickMargin={8}
+                        width={60}
+                      />
+                      <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
+                      
+                      {/* Gamepasses mode: only pink curve */}
+                      {chartMode === "gamepasses" && (
                         <Area
                           type="monotone"
                           dataKey="gamepassRevenue"
@@ -796,7 +862,12 @@ export default function MonetizationPage() {
                           fill="url(#gradientGamepass)"
                           dot={{ r: 4, fill: COLORS.gamepass, strokeWidth: 0 }}
                           activeDot={{ r: 6, fill: COLORS.gamepass, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          connectNulls
                         />
+                      )}
+                      
+                      {/* Dev Products mode: only green curve */}
+                      {chartMode === "devproducts" && (
                         <Area
                           type="monotone"
                           dataKey="devproductRevenue"
@@ -806,38 +877,11 @@ export default function MonetizationPage() {
                           fill="url(#gradientDevProduct)"
                           dot={{ r: 4, fill: COLORS.devProduct, strokeWidth: 0 }}
                           activeDot={{ r: 6, fill: COLORS.devProduct, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          connectNulls
                         />
-                      </>
-                    )}
-                    
-                    {/* Gamepasses mode: only pink curve */}
-                    {chartMode === "gamepasses" && (
-                      <Area
-                        type="monotone"
-                        dataKey="gamepassRevenue"
-                        name="Gamepasses"
-                        stroke={COLORS.gamepass}
-                        strokeWidth={3}
-                        fill="url(#gradientGamepass)"
-                        dot={{ r: 4, fill: COLORS.gamepass, strokeWidth: 0 }}
-                        activeDot={{ r: 6, fill: COLORS.gamepass, strokeWidth: 2, stroke: "#0a0a0a" }}
-                      />
-                    )}
-                    
-                    {/* Dev Products mode: only green curve */}
-                    {chartMode === "devproducts" && (
-                      <Area
-                        type="monotone"
-                        dataKey="devproductRevenue"
-                        name="Dev Products"
-                        stroke={COLORS.devProduct}
-                        strokeWidth={3}
-                        fill="url(#gradientDevProduct)"
-                        dot={{ r: 4, fill: COLORS.devProduct, strokeWidth: 0 }}
-                        activeDot={{ r: 6, fill: COLORS.devProduct, strokeWidth: 2, stroke: "#0a0a0a" }}
-                      />
-                    )}
-                  </AreaChart>
+                      )}
+                    </AreaChart>
+                  )}
                 </ResponsiveContainer>
               </div>
               
