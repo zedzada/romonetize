@@ -3,9 +3,6 @@
 import { useState, useEffect, useCallback } from "react";
 import {
   Package,
-  TrendingUp,
-  TrendingDown,
-  ArrowUpDown,
   Search,
   AlertCircle,
   RefreshCw,
@@ -14,6 +11,7 @@ import {
   AlertTriangle,
   Users,
   DollarSign,
+  Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,18 +21,22 @@ import { getProductStats, type ProductStats } from "@/lib/actions/products";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
-import { useRobloxProducts } from "@/hooks/use-roblox-monetization";
 import { getUserGameIds } from "@/lib/actions/analytics";
-import { Radio, Gamepad2, ExternalLink } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Alert, AlertDescription } from "@/components/ui/alert";
 import { PlanLock } from "@/components/dashboard/plan-lock";
 import { createClient } from "@/lib/supabase/client";
 import { DataStatusBanner } from "@/components/dashboard/data-status-banner";
 import { useAnalytics } from "@/hooks/use-analytics";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 
-type SortField = "name" | "revenue" | "purchases" | "clicks" | "conversion" | "revenue_per_player";
+type SortField = "name" | "revenue" | "purchases";
 type SortOrder = "asc" | "desc";
+
+// Safe number formatter
+function safeNumber(value: unknown): number {
+  if (typeof value === "number" && !isNaN(value)) return value;
+  return 0;
+}
 
 // Badge rendering helper
 function ProductBadge({ badge }: { badge: "best_seller" | "high_conversion" | "low_performer" }) {
@@ -75,16 +77,7 @@ export default function ProductsPage() {
   const [userPlan, setUserPlan] = useState<string>("free");
   const [planLoading, setPlanLoading] = useState(true);
 
-  // Fetch real Roblox products data
-  const {
-    products: robloxProducts,
-    summary: robloxSummary,
-    isLoading: robloxLoading,
-    needsConnection: robloxNeedsConnection,
-    refresh: refreshRobloxProducts
-  } = useRobloxProducts();
-
-  // Get dataHealth for banner
+  // Get dataHealth for banner - safe access
   const { dataHealth, refresh: refreshAnalytics } = useAnalytics({ enabled: gameIds.length > 0 });
 
   const fetchProducts = useCallback(async () => {
@@ -92,31 +85,41 @@ export default function ProductsPage() {
     setError(null);
     setPlanLoading(true);
     
-    // Check user plan
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("plan")
-        .eq("id", user.id)
-        .single();
-      setUserPlan(profile?.plan || "free");
+    try {
+      // Check user plan
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("plan")
+          .eq("id", user.id)
+          .single();
+        setUserPlan(profile?.plan || "free");
+      }
+      setPlanLoading(false);
+      
+      const [productsResult, gameIdsResult] = await Promise.all([
+        getProductStats(),
+        getUserGameIds(),
+      ]);
+      
+      if (productsResult.error) {
+        setError(productsResult.error);
+      } else {
+        // Safe array access
+        const safeProducts = Array.isArray(productsResult.products) ? productsResult.products : [];
+        setProducts(safeProducts);
+      }
+      
+      if (!gameIdsResult.error && Array.isArray(gameIdsResult.gameIds)) {
+        setGameIds(gameIdsResult.gameIds);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load products");
+      setPlanLoading(false);
     }
-    setPlanLoading(false);
     
-    const [productsResult, gameIdsResult] = await Promise.all([
-      getProductStats(),
-      getUserGameIds(),
-    ]);
-    if (productsResult.error) {
-      setError(productsResult.error);
-    } else {
-      setProducts(productsResult.products || []);
-    }
-    if (!gameIdsResult.error) {
-      setGameIds(gameIdsResult.gameIds);
-    }
     setLoading(false);
   }, []);
 
@@ -124,7 +127,7 @@ export default function ProductsPage() {
     fetchProducts();
   }, [fetchProducts]);
 
-  // Listen for global stats refresh (e.g., after test event)
+  // Listen for global stats refresh
   useStatsRefresh(fetchProducts);
 
   // Setup Supabase Realtime subscription
@@ -134,50 +137,48 @@ export default function ProductsPage() {
     enabled: gameIds.length > 0,
   });
 
-  // Filter by tab and search
-  const filteredProducts = products
+  const handleRefresh = async () => {
+    await Promise.all([fetchProducts(), refreshAnalytics()]);
+  };
+
+  // Safe filter and sort
+  const safeProducts = Array.isArray(products) ? products : [];
+  
+  const filteredProducts = safeProducts
     .filter((p) => {
+      if (!p) return false;
       if (activeTab === "gamepass") return p.product_type === "gamepass";
       if (activeTab === "devproduct") return p.product_type === "devproduct";
       return true;
     })
-    .filter((p) =>
-      p.name.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    .filter((p) => {
+      if (!p || !p.name) return false;
+      return p.name.toLowerCase().includes(searchQuery.toLowerCase());
+    });
 
   // Sort products
   const sortedProducts = [...filteredProducts].sort((a, b) => {
-    let aVal: number | string;
-    let bVal: number | string;
+    if (!a || !b) return 0;
+    
+    let aVal: number | string = 0;
+    let bVal: number | string = 0;
 
     switch (sortField) {
       case "name":
-        aVal = a.name.toLowerCase();
-        bVal = b.name.toLowerCase();
+        aVal = (a.name || "").toLowerCase();
+        bVal = (b.name || "").toLowerCase();
         break;
       case "revenue":
-        aVal = a.revenue;
-        bVal = b.revenue;
+        aVal = safeNumber(a.revenue);
+        bVal = safeNumber(b.revenue);
         break;
       case "purchases":
-        aVal = a.purchases;
-        bVal = b.purchases;
-        break;
-      case "clicks":
-        aVal = a.clicks;
-        bVal = b.clicks;
-        break;
-      case "conversion":
-        aVal = a.conversion_rate;
-        bVal = b.conversion_rate;
-        break;
-      case "revenue_per_player":
-        aVal = a.revenue_per_player;
-        bVal = b.revenue_per_player;
+        aVal = safeNumber(a.purchases);
+        bVal = safeNumber(b.purchases);
         break;
       default:
-        aVal = a.revenue;
-        bVal = b.revenue;
+        aVal = safeNumber(a.revenue);
+        bVal = safeNumber(b.revenue);
     }
 
     if (typeof aVal === "string" && typeof bVal === "string") {
@@ -195,17 +196,10 @@ export default function ProductsPage() {
     }
   };
 
-  // Calculate summary stats
-  const totalRevenue = products.reduce((sum, p) => sum + p.revenue, 0);
-  const totalPurchases = products.reduce((sum, p) => sum + p.purchases, 0);
-  const totalUniqueBuyers = products.reduce((sum, p) => sum + p.unique_buyers, 0);
-  const avgConversion = products.filter(p => p.clicks > 0).reduce((sum, p) => sum + p.conversion_rate, 0) / 
-    (products.filter(p => p.clicks > 0).length || 1);
-  
-  // Products with badges
-  const bestSellers = products.filter((p) => p.badges.includes("best_seller"));
-  const highConverters = products.filter((p) => p.badges.includes("high_conversion"));
-  const lowPerformers = products.filter((p) => p.badges.includes("low_performer"));
+  // Calculate summary stats safely
+  const totalRevenue = safeProducts.reduce((sum, p) => sum + safeNumber(p?.revenue), 0);
+  const totalPurchases = safeProducts.reduce((sum, p) => sum + safeNumber(p?.purchases), 0);
+  const totalUniqueBuyers = safeProducts.reduce((sum, p) => sum + safeNumber(p?.unique_buyers), 0);
 
   if (loading || planLoading) {
     return (
@@ -238,6 +232,7 @@ export default function ProductsPage() {
     );
   }
 
+  // Error state
   if (error) {
     return (
       <div className="space-y-6">
@@ -245,22 +240,25 @@ export default function ProductsPage() {
           <h1 className="text-2xl font-bold text-foreground">Products</h1>
           <p className="text-muted-foreground">Analyze performance of all your gamepasses and developer products</p>
         </div>
-        <Card className="border-destructive/50 bg-destructive/5">
+        <Card className="border-destructive/30 bg-destructive/5">
           <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-destructive">
-              <AlertCircle className="w-5 h-5" />
-              <span>{error}</span>
+            <div className="flex flex-col items-center justify-center py-8">
+              <AlertCircle className="w-12 h-12 text-destructive mb-4" />
+              <h3 className="text-lg font-semibold text-foreground mb-2">Unable to load products</h3>
+              <p className="text-sm text-muted-foreground mb-4">{error}</p>
+              <Button variant="outline" onClick={handleRefresh}>
+                <RefreshCw className="w-4 h-4 mr-2" />
+                Retry
+              </Button>
             </div>
-            <Button variant="outline" className="mt-4" onClick={fetchProducts}>
-              Try Again
-            </Button>
           </CardContent>
         </Card>
       </div>
     );
   }
 
-  if (products.length === 0) {
+  // Empty state
+  if (safeProducts.length === 0) {
     return (
       <div className="space-y-6">
         <div>
@@ -282,349 +280,190 @@ export default function ProductsPage() {
     );
   }
 
-  // Check if we have Roblox products data
-  const hasRobloxProducts = robloxProducts && robloxProducts.length > 0;
-
   return (
-    <div className="space-y-6">
-      {/* Roblox Connection Banner */}
-      {robloxNeedsConnection && (
-        <Alert className="border-blue-500/30 bg-blue-500/5">
-          <Gamepad2 className="h-4 w-4 text-blue-500" />
-          <AlertDescription className="flex items-center justify-between">
-            <span className="text-blue-700 dark:text-blue-300">
-              Connect your Roblox account to see your gamepasses and developer products directly from Roblox.
-            </span>
-            <Button variant="outline" size="sm" className="ml-4 gap-2" asChild>
-              <a href="/dashboard/settings">
-                Connect Roblox
-                <ExternalLink className="w-3 h-3" />
-              </a>
-            </Button>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Roblox Products Available Banner */}
-      {hasRobloxProducts && (
-        <Alert className="border-green-500/30 bg-green-500/5">
-          <Gamepad2 className="h-4 w-4 text-green-500" />
-          <AlertDescription className="text-green-700 dark:text-green-300">
-            Found <strong>{robloxSummary?.totalGamepasses || 0} gamepasses</strong> and <strong>{robloxSummary?.totalDevProducts || 0} developer products</strong> from Roblox API.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {/* Data Status Banner */}
-      <DataStatusBanner 
-        dataHealth={dataHealth} 
-        onSync={() => { 
-          fetchProducts(); 
-          refreshRobloxProducts();
-          refreshAnalytics();
-        }} 
-      />
-
-      {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-foreground">Products</h1>
-            {isLive ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/10 border border-green-500/20">
-                    <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                    <span className="text-[10px] font-semibold text-green-500 uppercase tracking-wider">Live</span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Connected to realtime updates</p>
-                </TooltipContent>
-              </Tooltip>
-            ) : realtimeStatus === "connecting" ? (
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">
-                <Radio className="w-3 h-3 text-amber-500 animate-pulse" />
-                <span className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Connecting</span>
-              </div>
-            ) : null}
-          </div>
-          <p className="text-muted-foreground">Analyze performance of all your gamepasses and developer products</p>
-        </div>
-        <Button variant="outline" onClick={() => { fetchProducts(); refreshRobloxProducts(); }} className="gap-2">
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </Button>
-      </div>
-
-      {/* Summary Stats */}
-      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
-        <Card className="border-border bg-card">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <DollarSign className="w-4 h-4 text-green-500" />
-              </div>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              <RobuxValue amount={totalRevenue} size="sm" />
-            </div>
-            <div className="text-xs text-muted-foreground">Total Product Revenue</div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <Package className="w-4 h-4 text-blue-500" />
-              </div>
-            </div>
-            <div className="text-2xl font-bold text-foreground">{totalPurchases.toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground">Total Purchases</div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
-                <Users className="w-4 h-4 text-purple-500" />
-              </div>
-            </div>
-            <div className="text-2xl font-bold text-foreground">{totalUniqueBuyers.toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground">Unique Buyers</div>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card">
-          <CardContent className="pt-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
-                <TrendingUp className="w-4 h-4 text-amber-500" />
-              </div>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {products.some(p => p.clicks > 0) ? `${avgConversion.toFixed(1)}%` : "Needs tracking"}
-            </div>
-            <div className="text-xs text-muted-foreground">Avg Conversion Rate</div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Badge Summary */}
-      {(bestSellers.length > 0 || highConverters.length > 0 || lowPerformers.length > 0) && (
-        <div className="grid gap-4 md:grid-cols-3">
-          {bestSellers.length > 0 && (
-            <Card className="border-amber-500/20 bg-amber-500/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2 text-amber-500">
-                  <Trophy className="w-4 h-4" />
-                  Best Sellers ({bestSellers.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {bestSellers.slice(0, 3).map((p) => (
-                  <div key={p.product_id} className="flex items-center justify-between">
-                    <span className="text-sm text-foreground truncate max-w-[150px]">{p.name}</span>
-                    <RobuxValue amount={p.revenue} size="sm" />
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {highConverters.length > 0 && (
-            <Card className="border-green-500/20 bg-green-500/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2 text-green-500">
-                  <Flame className="w-4 h-4" />
-                  High Conversion ({highConverters.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {highConverters.slice(0, 3).map((p) => (
-                  <div key={p.product_id} className="flex items-center justify-between">
-                    <span className="text-sm text-foreground truncate max-w-[150px]">{p.name}</span>
-                    <span className="text-sm font-medium text-green-500">{p.conversion_rate.toFixed(1)}%</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-
-          {lowPerformers.length > 0 && (
-            <Card className="border-red-500/20 bg-red-500/5">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-sm font-medium flex items-center gap-2 text-red-500">
-                  <AlertTriangle className="w-4 h-4" />
-                  Low Performers ({lowPerformers.length})
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {lowPerformers.slice(0, 3).map((p) => (
-                  <div key={p.product_id} className="flex items-center justify-between">
-                    <span className="text-sm text-foreground truncate max-w-[150px]">{p.name}</span>
-                    <span className="text-sm font-medium text-red-500">{p.conversion_rate.toFixed(1)}%</span>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </div>
-      )}
-
-      {/* Tabs and search */}
-      <div className="flex flex-col sm:flex-row gap-4 justify-between">
-        <div className="flex gap-2">
-          <Button
-            variant={activeTab === "all" ? "default" : "outline"}
-            onClick={() => setActiveTab("all")}
-          >
-            All Products
-          </Button>
-          <Button
-            variant={activeTab === "gamepass" ? "default" : "outline"}
-            onClick={() => setActiveTab("gamepass")}
-          >
-            Gamepasses
-          </Button>
-          <Button
-            variant={activeTab === "devproduct" ? "default" : "outline"}
-            onClick={() => setActiveTab("devproduct")}
-          >
-            Dev Products
-          </Button>
-        </div>
-        <div className="relative w-full sm:w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search products..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9 bg-secondary/30"
+    <ErrorBoundary fallbackTitle="Unable to load Products">
+      <div className="space-y-6">
+        {/* Data Status Banner - safe with null check */}
+        {dataHealth && (
+          <DataStatusBanner 
+            dataHealth={dataHealth} 
+            onSync={handleRefresh} 
           />
-        </div>
-      </div>
+        )}
 
-      {/* Products Table */}
-      <Card className="border-border bg-card">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Package className="w-5 h-5 text-primary" />
-            Product Performance
-          </CardTitle>
-          <CardDescription>
-            {sortedProducts.length} product{sortedProducts.length !== 1 ? "s" : ""} found
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">
-                    <button
-                      className="flex items-center gap-1 hover:text-foreground"
+        {/* Page header */}
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold text-foreground">Products</h1>
+              {isLive ? (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-green-500/10 border border-green-500/20">
+                      <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                      <span className="text-[10px] font-semibold text-green-500 uppercase tracking-wider">Live</span>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    <p>Connected to realtime updates</p>
+                  </TooltipContent>
+                </Tooltip>
+              ) : realtimeStatus === "connecting" ? (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/20">
+                  <Radio className="w-3 h-3 text-amber-500 animate-pulse" />
+                  <span className="text-[10px] font-semibold text-amber-500 uppercase tracking-wider">Connecting</span>
+                </div>
+              ) : null}
+            </div>
+            <p className="text-muted-foreground">Analyze performance of all your gamepasses and developer products</p>
+          </div>
+          <Button variant="outline" onClick={handleRefresh} className="gap-2">
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </Button>
+        </div>
+
+        {/* Summary Stats */}
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-3">
+          <Card className="border-border bg-card">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-green-500/10 flex items-center justify-center">
+                  <DollarSign className="w-4 h-4 text-green-500" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-foreground">
+                <RobuxValue amount={totalRevenue} size="sm" />
+              </div>
+              <div className="text-xs text-muted-foreground">Total Product Revenue</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                  <Package className="w-4 h-4 text-blue-500" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-foreground">{totalPurchases.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground">Total Purchases</div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-border bg-card">
+            <CardContent className="pt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <div className="w-8 h-8 rounded-lg bg-purple-500/10 flex items-center justify-center">
+                  <Users className="w-4 h-4 text-purple-500" />
+                </div>
+              </div>
+              <div className="text-2xl font-bold text-foreground">{totalUniqueBuyers.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground">Unique Buyers</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Tabs and search */}
+        <div className="flex flex-col sm:flex-row gap-4 justify-between">
+          <div className="flex gap-2">
+            <Button
+              variant={activeTab === "all" ? "default" : "outline"}
+              onClick={() => setActiveTab("all")}
+            >
+              All Products
+            </Button>
+            <Button
+              variant={activeTab === "gamepass" ? "default" : "outline"}
+              onClick={() => setActiveTab("gamepass")}
+            >
+              Gamepasses
+            </Button>
+            <Button
+              variant={activeTab === "devproduct" ? "default" : "outline"}
+              onClick={() => setActiveTab("devproduct")}
+            >
+              Dev Products
+            </Button>
+          </div>
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search products..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9 bg-secondary/30"
+            />
+          </div>
+        </div>
+
+        {/* Products Table */}
+        <Card className="border-border bg-card">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Package className="w-5 h-5 text-primary" />
+              Product Performance
+            </CardTitle>
+            <CardDescription>
+              {sortedProducts.length} product{sortedProducts.length !== 1 ? "s" : ""} tracked
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th 
+                      className="text-left py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground"
                       onClick={() => handleSort("name")}
                     >
-                      Product <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">
-                    <button
-                      className="flex items-center gap-1 ml-auto hover:text-foreground"
+                      Product {sortField === "name" && (sortOrder === "asc" ? "↑" : "↓")}
+                    </th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Type</th>
+                    <th 
+                      className="text-right py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground"
                       onClick={() => handleSort("revenue")}
                     >
-                      Revenue <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground hidden sm:table-cell">
-                    <button
-                      className="flex items-center gap-1 ml-auto hover:text-foreground"
+                      Revenue {sortField === "revenue" && (sortOrder === "asc" ? "↑" : "↓")}
+                    </th>
+                    <th 
+                      className="text-right py-3 px-4 text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground"
                       onClick={() => handleSort("purchases")}
                     >
-                      Purchases <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground hidden lg:table-cell">
-                    Unique Buyers
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground hidden md:table-cell">
-                    <button
-                      className="flex items-center gap-1 ml-auto hover:text-foreground"
-                      onClick={() => handleSort("conversion")}
-                    >
-                      Conv. Rate <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground hidden xl:table-cell">
-                    <button
-                      className="flex items-center gap-1 ml-auto hover:text-foreground"
-                      onClick={() => handleSort("revenue_per_player")}
-                    >
-                      Rev/Buyer <ArrowUpDown className="w-3 h-3" />
-                    </button>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedProducts.map((product) => (
-                  <tr
-                    key={product.product_id}
-                    className="border-b border-border/50 hover:bg-secondary/30 transition-colors"
-                  >
-                    <td className="py-3 px-4">
-                      <div className="flex flex-col gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium text-foreground">{product.name}</span>
-                          <span className={`text-xs px-2 py-0.5 rounded-full hidden sm:inline-block ${
-                            product.product_type === "gamepass" 
-                              ? "bg-primary/10 text-primary" 
-                              : "bg-teal-500/10 text-teal-500"
-                          }`}>
-                            {product.product_type}
-                          </span>
-                        </div>
-                        {product.badges.length > 0 && (
-                          <div className="flex gap-1 flex-wrap">
-                            {product.badges.map((badge) => (
-                              <ProductBadge key={badge} badge={badge} />
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <RobuxValue amount={product.revenue} size="sm" />
-                    </td>
-                    <td className="py-3 px-4 text-right text-muted-foreground hidden sm:table-cell">
-                      {product.purchases.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4 text-right text-muted-foreground hidden lg:table-cell">
-                      {product.unique_buyers.toLocaleString()}
-                    </td>
-                    <td className="py-3 px-4 text-right hidden md:table-cell">
-                      <span className={`font-medium ${
-                        product.conversion_rate >= 15 
-                          ? "text-green-500" 
-                          : product.conversion_rate >= 5 
-                            ? "text-yellow-500" 
-                            : product.clicks > 0 ? "text-red-500" : "text-muted-foreground"
-                      }`}>
-                        {product.clicks > 0 ? `${product.conversion_rate.toFixed(1)}%` : "Needs tracking"}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4 text-right hidden xl:table-cell">
-                      <RobuxValue amount={product.unique_buyers > 0 ? Math.round(product.revenue / product.unique_buyers) : 0} size="sm" />
-                    </td>
+                      Purchases {sortField === "purchases" && (sortOrder === "asc" ? "↑" : "↓")}
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+                </thead>
+                <tbody>
+                  {sortedProducts.map((product) => (
+                    <tr key={product.product_id} className="border-b border-border/50 hover:bg-secondary/20">
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium text-foreground">{product.name || "Unknown"}</span>
+                          {Array.isArray(product.badges) && product.badges.map((badge) => (
+                            <ProductBadge key={badge} badge={badge} />
+                          ))}
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <Badge variant="outline" className="capitalize">
+                          {product.product_type || "unknown"}
+                        </Badge>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <RobuxValue amount={safeNumber(product.revenue)} size="sm" />
+                      </td>
+                      <td className="py-3 px-4 text-right text-foreground">
+                        {safeNumber(product.purchases).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+    </ErrorBoundary>
   );
 }
