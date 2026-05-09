@@ -263,13 +263,13 @@ export default function ProductsPage() {
 
       {/* Products from Tracker (purchase_success events) */}
       {hasTrackerEvents && hasTrackerProducts && (
-        <Card className="border-border/60 bg-card/50">
+        <Card className="border-neutral-700/60 bg-neutral-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
-              <CardTitle className="text-lg font-semibold">Product Performance</CardTitle>
+              <CardTitle className="text-lg font-semibold text-foreground">Product Performance</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">Based on purchase_success events from your tracking script</p>
             </div>
-            <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]">
+            <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-[10px]">
               RoMonetize Tracker
             </Badge>
           </CardHeader>
@@ -277,16 +277,16 @@ export default function ProductsPage() {
             <div className="overflow-x-auto -mx-6">
               <table className="w-full text-sm min-w-[900px]">
                 <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Product</th>
-                    <th className="text-left py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Revenue</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Purchases</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Views</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Clicks</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Rev/Buyer</th>
+                  <tr className="border-b border-neutral-700 bg-neutral-800/50">
+                    <th className="text-left py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Product</th>
+                    <th className="text-left py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Type</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Views</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Clicks</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -304,49 +304,49 @@ export default function ProductsPage() {
                     const revenuePerBuyer = product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? revenue / buyers : 0);
                     
                     return (
-                      <tr key={productId} className="border-b border-border/30 hover:bg-muted/40 transition-colors">
+                      <tr key={productId} className="border-b border-neutral-800 hover:bg-neutral-800/50 transition-colors">
                         <td className="py-4 px-6">
                           <div className="font-medium text-foreground">{productName}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5 font-mono">ID: {productId}</div>
+                          <div className="text-xs text-neutral-500 mt-0.5 font-mono">ID: {productId}</div>
                         </td>
                         <td className="py-4 px-3">
                           <Badge 
                             variant="secondary" 
                             className={productType === "gamepass" 
-                              ? "bg-blue-500/15 text-blue-500 border-blue-500/30" 
-                              : "bg-purple-500/15 text-purple-500 border-purple-500/30"
+                              ? "bg-sky-500/20 text-sky-400 border-sky-500/40" 
+                              : "bg-violet-500/20 text-violet-400 border-violet-500/40"
                             }
                           >
                             {productType === "gamepass" ? "Game Pass" : productType === "devproduct" ? "Dev Product" : productType}
                           </Badge>
                         </td>
-                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-500">
+                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-400">
                           {formatRobux(revenue)}
                         </td>
-                        <td className="py-4 px-3 text-right font-medium">
+                        <td className="py-4 px-3 text-right font-medium text-foreground">
                           {formatNumber(purchases)}
                         </td>
-                        <td className="py-4 px-3 text-right font-medium">
+                        <td className="py-4 px-3 text-right font-medium text-foreground">
                           {formatNumber(buyers)}
                         </td>
-                        <td className="py-4 px-3 text-right">
+                        <td className="py-4 px-3 text-right text-neutral-400">
                           {views > 0 ? formatNumber(views) : (
-                            <span className="text-muted-foreground">—</span>
+                            <span className="text-neutral-600">—</span>
                           )}
                         </td>
-                        <td className="py-4 px-3 text-right">
+                        <td className="py-4 px-3 text-right text-neutral-400">
                           {clicks > 0 ? formatNumber(clicks) : (
-                            <span className="text-muted-foreground">—</span>
+                            <span className="text-neutral-600">—</span>
                           )}
                         </td>
                         <td className="py-4 px-3 text-right">
                           {conversionRate !== null ? (
-                            <span className="font-medium">{formatPercent(conversionRate)}</span>
+                            <span className="font-medium text-foreground">{formatPercent(conversionRate)}</span>
                           ) : (
-                            <span className="text-xs text-muted-foreground">Needs views</span>
+                            <span className="text-xs text-neutral-600">Needs views</span>
                           )}
                         </td>
-                        <td className="py-4 px-6 text-right font-mono">
+                        <td className="py-4 px-6 text-right font-mono text-neutral-300">
                           {formatRobux(revenuePerBuyer)}
                         </td>
                       </tr>
@@ -380,13 +380,13 @@ export default function ProductsPage() {
 
       {/* Synced Roblox Products List - only show if synced products exist AND no tracker products */}
       {hasSyncedProducts && !hasTrackerProducts && (
-        <Card className="border-border/60 bg-card/50">
+        <Card className="border-neutral-700/60 bg-neutral-900/50">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
-              <CardTitle className="text-lg font-semibold">Synced Roblox Products</CardTitle>
+              <CardTitle className="text-lg font-semibold text-foreground">Synced Roblox Products</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">Products fetched from the Roblox API</p>
             </div>
-            <Badge variant="secondary" className="bg-blue-500/15 text-blue-500 border-blue-500/30 text-[10px]">
+            <Badge variant="secondary" className="bg-sky-500/20 text-sky-400 border-sky-500/40 text-[10px]">
               Roblox API
             </Badge>
           </CardHeader>
@@ -394,15 +394,15 @@ export default function ProductsPage() {
             <div className="overflow-x-auto -mx-6">
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Product</th>
-                    <th className="text-left py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Price</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Revenue</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Purchases</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-foreground/80 text-xs uppercase tracking-wide">Rev/Buyer</th>
+                  <tr className="border-b border-neutral-700 bg-neutral-800/50">
+                    <th className="text-left py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Product</th>
+                    <th className="text-left py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Type</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Price</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>

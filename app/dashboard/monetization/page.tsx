@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
+import { ChartCard, chartAxisStyle, chartGridStyle } from "@/components/dashboard/chart-card";
 import { 
   ChartContainer,
   ChartTooltip,
@@ -21,6 +22,9 @@ import {
   PieChart,
   Pie,
   Cell,
+  ResponsiveContainer,
+  Tooltip,
+  LabelList,
 } from "recharts";
 import { 
   RefreshCw, 
@@ -289,218 +293,217 @@ export default function MonetizationPage() {
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Revenue Over Time */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Revenue Over Time</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {monetizationCharts.revenueOverTime.length > 0 ? (
-                  <ChartContainer
-                    config={{
-                      revenue: { label: "Revenue (R$)", color: "hsl(var(--chart-1))" },
+            <ChartCard
+              title="Revenue Over Time"
+              subtitle="Total Robux earned from purchases"
+              source="tracker"
+              summary={monetizationCharts.revenueOverTime?.length ? `Total: R$${monetizationCharts.revenueOverTime.reduce((sum, d) => sum + (d.revenue ?? 0), 0).toLocaleString()}` : undefined}
+              isEmpty={!monetizationCharts.revenueOverTime?.length}
+              emptyTitle="No revenue yet"
+              emptyMessage="Revenue appears after tracked purchase_success events with a Robux amount."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={monetizationCharts.revenueOverTime ?? []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.05}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid {...chartGridStyle} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    {...chartAxisStyle}
+                  />
+                  <YAxis 
+                    tickFormatter={(v) => `R$${Number(v).toLocaleString()}`}
+                    allowDecimals={false}
+                    {...chartAxisStyle}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
                     }}
-                    className="h-[200px] w-full"
-                  >
-                    <AreaChart data={monetizationCharts.revenueOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
-                        className="text-xs"
-                      />
-                      <YAxis 
-                        tickFormatter={(v) => `R$${v}`}
-                        className="text-xs" 
-                      />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Area 
-                        type="monotone" 
-                        dataKey="revenue" 
-                        stroke="var(--color-revenue)" 
-                        fill="var(--color-revenue)" 
-                        fillOpacity={0.2} 
-                      />
-                    </AreaChart>
-                  </ChartContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No revenue data available yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    formatter={(value: number) => [`R$${value.toLocaleString()}`, "Revenue"]}
+                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                  />
+                  <Area 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    stroke="hsl(var(--chart-1))"
+                    strokeWidth={3}
+                    fill="url(#revenueGradient)"
+                    dot={{ r: 4, fill: "hsl(var(--chart-1))", strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: "hsl(var(--chart-1))", strokeWidth: 2, stroke: "hsl(var(--background))" }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </ChartCard>
 
             {/* Purchases Over Time */}
-            <Card className="border-border/50">
-              <CardHeader className="pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-sm font-medium">Purchases Over Time</CardTitle>
-                  <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {monetizationCharts.purchasesOverTime.length > 0 ? (
-                  <ChartContainer
-                    config={{
-                      purchases: { label: "Purchases", color: "hsl(var(--chart-2))" },
+            <ChartCard
+              title="Purchases Over Time"
+              subtitle="Number of successful transactions"
+              source="tracker"
+              summary={monetizationCharts.purchasesOverTime?.length ? `Total: ${monetizationCharts.purchasesOverTime.reduce((sum, d) => sum + (d.purchases ?? 0), 0).toLocaleString()}` : undefined}
+              isEmpty={!monetizationCharts.purchasesOverTime?.length}
+              emptyTitle="No purchases yet"
+              emptyMessage="Purchases will appear after purchase_success events are tracked."
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={monetizationCharts.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <CartesianGrid {...chartGridStyle} />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={(v) => formatChartTime(v, "7d")}
+                    {...chartAxisStyle}
+                  />
+                  <YAxis 
+                    allowDecimals={false}
+                    {...chartAxisStyle}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "hsl(var(--popover))",
+                      border: "1px solid hsl(var(--border))",
+                      borderRadius: "8px",
                     }}
-                    className="h-[200px] w-full"
+                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
+                    labelFormatter={(label) => formatChartTime(label, "7d")}
+                  />
+                  <Bar 
+                    dataKey="purchases" 
+                    fill="hsl(var(--chart-2))"
+                    radius={[6, 6, 0, 0]}
+                    maxBarSize={50}
                   >
-                    <BarChart data={monetizationCharts.purchasesOverTime}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                      <XAxis 
-                        dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
-                        className="text-xs"
-                      />
-                      <YAxis className="text-xs" />
-                      <ChartTooltip content={<ChartTooltipContent />} />
-                      <Bar 
-                        dataKey="purchases" 
-                        fill="var(--color-purchases)" 
-                        radius={[4, 4, 0, 0]}
-                      />
-                    </BarChart>
-                  </ChartContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No purchase data available yet
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    {(monetizationCharts.purchasesOverTime?.length ?? 0) <= 3 && (
+                      <LabelList dataKey="purchases" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                    )}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </ChartCard>
 
             {/* Revenue by Product Type */}
-            <Card className="border-border/60 bg-card/50">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base font-semibold">Revenue by Product Type</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">Gamepasses vs Developer Products</p>
-                  </div>
-                  <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {monetizationCharts.revenueByProductType.length > 0 ? (
-                  <div className="h-[220px] flex items-center justify-center gap-6">
-                    <ChartContainer
-                      config={{
-                        gamepass: { label: "Gamepasses", color: "hsl(var(--chart-1))" },
-                        devproduct: { label: "Dev Products", color: "hsl(var(--chart-2))" },
-                      }}
-                      className="h-[180px] w-[180px]"
+            <ChartCard
+              title="Revenue by Product Type"
+              subtitle="Gamepasses vs Developer Products"
+              source="tracker"
+              summary={monetizationCharts.revenueByProductType?.length ? `R$${monetizationCharts.revenueByProductType.reduce((sum, d) => sum + (d.revenue ?? 0), 0).toLocaleString()}` : undefined}
+              isEmpty={!monetizationCharts.revenueByProductType?.length}
+              emptyIcon={<PieChartIcon className="w-12 h-12" />}
+              emptyTitle="No revenue breakdown yet"
+              emptyMessage="Product type breakdown appears after purchases are tracked."
+            >
+              <div className="h-full flex items-center justify-center gap-8">
+                <ResponsiveContainer width={200} height={200}>
+                  <PieChart>
+                    <Pie
+                      data={monetizationCharts.revenueByProductType}
+                      dataKey="revenue"
+                      nameKey="productType"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={85}
+                      paddingAngle={4}
+                      strokeWidth={3}
+                      stroke="hsl(var(--background))"
                     >
-                      <PieChart>
-                        <Pie
-                          data={monetizationCharts.revenueByProductType}
-                          dataKey="revenue"
-                          nameKey="productType"
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={50}
-                          outerRadius={80}
-                          paddingAngle={3}
-                          strokeWidth={2}
-                          stroke="hsl(var(--background))"
-                        >
-                          {monetizationCharts.revenueByProductType.map((entry, index) => (
-                            <Cell 
-                              key={entry.productType} 
-                              fill={index === 0 ? "hsl(var(--chart-1))" : "hsl(var(--chart-2))"} 
-                            />
-                          ))}
-                        </Pie>
-                        <ChartTooltip content={<ChartTooltipContent />} />
-                      </PieChart>
-                    </ChartContainer>
-                    <div className="space-y-3">
-                      {monetizationCharts.revenueByProductType.map((item, index) => (
-                        <div key={item.productType} className="flex items-center gap-3">
-                          <div 
-                            className="w-4 h-4 rounded" 
-                            style={{ 
-                              backgroundColor: index === 0 
-                                ? "hsl(var(--chart-1))" 
-                                : "hsl(var(--chart-2))" 
-                            }}
-                          />
-                          <div>
-                            <p className="text-sm font-medium">{item.productType === "gamepass" ? "Game Passes" : "Dev Products"}</p>
-                            <p className="text-lg font-bold text-foreground">R${item.revenue.toLocaleString()}</p>
-                          </div>
-                        </div>
+                      {monetizationCharts.revenueByProductType.map((entry, index) => (
+                        <Cell 
+                          key={entry.productType} 
+                          fill={index === 0 ? "hsl(var(--chart-1))" : "hsl(var(--chart-2))"} 
+                        />
                       ))}
+                    </Pie>
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "hsl(var(--popover))",
+                        border: "1px solid hsl(var(--border))",
+                        borderRadius: "8px",
+                      }}
+                      formatter={(value: number) => [`R$${value.toLocaleString()}`, ""]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="space-y-4">
+                  {monetizationCharts.revenueByProductType.map((item, index) => (
+                    <div key={item.productType} className="flex items-center gap-3">
+                      <div 
+                        className="w-5 h-5 rounded-md shadow-sm" 
+                        style={{ 
+                          backgroundColor: index === 0 
+                            ? "hsl(var(--chart-1))" 
+                            : "hsl(var(--chart-2))" 
+                        }}
+                      />
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">{item.productType === "gamepass" ? "Game Passes" : "Dev Products"}</p>
+                        <p className="text-xl font-bold text-foreground">R${item.revenue.toLocaleString()}</p>
+                      </div>
                     </div>
-                  </div>
-                ) : (
-                  <div className="h-[220px] flex flex-col items-center justify-center text-center px-4">
-                    <PieChartIcon className="w-10 h-10 text-muted-foreground/40 mb-3" />
-                    <p className="text-sm font-medium text-foreground mb-1">No revenue breakdown yet</p>
-                    <p className="text-xs text-muted-foreground max-w-[200px]">
-                      Product type breakdown appears after purchases are tracked.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                  ))}
+                </div>
+              </div>
+            </ChartCard>
 
             {/* Top Products */}
-            <Card className="border-border/60 bg-card/50">
-              <CardHeader className="pb-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-base font-semibold">Top Products by Revenue</CardTitle>
-                    <p className="text-xs text-muted-foreground mt-0.5">Best performing products</p>
-                  </div>
-                  <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-500 border-emerald-500/30 text-[10px]">
-                    RoMonetize Tracker
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="pt-0">
-                {monetizationCharts.topProducts.length > 0 ? (
-                  <div className="space-y-3">
-                    {monetizationCharts.topProducts.slice(0, 5).map((product, index) => (
-                      <div key={product.productId} className="flex items-center justify-between py-2 border-b border-border/30 last:border-0">
-                        <div className="flex items-center gap-3">
-                          <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center text-sm font-bold text-muted-foreground">
-                            {index + 1}
+            <ChartCard
+              title="Top Products by Revenue"
+              subtitle="Best performing products"
+              source="tracker"
+              summary={monetizationCharts.topProducts?.length ? `${monetizationCharts.topProducts.length} products` : undefined}
+              isEmpty={!monetizationCharts.topProducts?.length}
+              emptyIcon={<Package className="w-12 h-12" />}
+              emptyTitle="No product data yet"
+              emptyMessage="Top products will appear after purchases are tracked."
+            >
+              <div className="h-full overflow-auto py-2 px-1">
+                <div className="space-y-2">
+                  {monetizationCharts.topProducts.slice(0, 6).map((product, index) => {
+                    const maxRevenue = Math.max(...monetizationCharts.topProducts.map(p => p.revenue));
+                    const barWidth = maxRevenue > 0 ? (product.revenue / maxRevenue) * 100 : 0;
+                    
+                    return (
+                      <div key={product.productId} className="relative group">
+                        {/* Progress bar background */}
+                        <div 
+                          className="absolute inset-0 rounded-lg opacity-20 transition-opacity group-hover:opacity-30"
+                          style={{ 
+                            width: `${barWidth}%`,
+                            backgroundColor: "hsl(var(--chart-1))"
+                          }}
+                        />
+                        <div className="relative flex items-center justify-between py-3 px-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 rounded-lg bg-neutral-800 flex items-center justify-center text-sm font-bold text-neutral-300 shrink-0">
+                              {index + 1}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-medium text-foreground truncate">{product.productName}</p>
+                              <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 mt-0.5 border-neutral-700 text-neutral-400">
+                                {product.productType === "gamepass" ? "Game Pass" : "Dev Product"}
+                              </Badge>
+                            </div>
                           </div>
-                          <div>
-                            <p className="text-sm font-medium text-foreground">{product.productName}</p>
-                            <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4 mt-0.5">
-                              {product.productType === "gamepass" ? "Game Pass" : "Dev Product"}
-                            </Badge>
+                          <div className="text-right shrink-0 ml-4">
+                            <p className="text-sm font-bold text-foreground">R${product.revenue.toLocaleString()}</p>
+                            <p className="text-xs text-muted-foreground">{product.purchases} sales</p>
                           </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-foreground">R${product.revenue.toLocaleString()}</p>
-                          <p className="text-xs text-muted-foreground">{product.purchases} sales</p>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="h-[220px] flex flex-col items-center justify-center text-center px-4">
-                    <Package className="w-10 h-10 text-muted-foreground/40 mb-3" />
-                    <p className="text-sm font-medium text-foreground mb-1">No product data yet</p>
-                    <p className="text-xs text-muted-foreground max-w-[200px]">
-                      Top products will appear after purchases are tracked.
-                    </p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                    );
+                  })}
+                </div>
+              </div>
+            </ChartCard>
           </div>
         </div>
       )}
