@@ -90,7 +90,8 @@ local function sendEvent(eventType, data)
     print("[RoMonetize] Sending event:", eventType)
     
     local body = {
-        api_key = API_KEY,
+        apiKey = API_KEY,      -- camelCase for compatibility
+        api_key = API_KEY,     -- snake_case for compatibility
         event_type = eventType,
         player_id = data.player_id or "server",
         session_id = data.session_id or sessionId,
@@ -104,7 +105,8 @@ local function sendEvent(eventType, data)
             Url = API_URL,
             Method = "POST",
             Headers = {
-                ["Content-Type"] = "application/json"
+                ["Content-Type"] = "application/json",
+                ["x-api-key"] = API_KEY
             },
             Body = jsonBody
         })
