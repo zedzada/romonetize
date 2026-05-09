@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
-import { ChartCard, chartAxisStyle, chartGridStyle } from "@/components/dashboard/chart-card";
+import { ChartCard, chartAxisStyle, chartGridStyle, CHART_COLORS } from "@/components/dashboard/chart-card";
 import { 
   ChartContainer,
   ChartTooltip,
@@ -306,8 +306,8 @@ export default function MonetizationPage() {
                 <AreaChart data={monetizationCharts.revenueOverTime ?? []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="revenueGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--chart-1))" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="hsl(var(--chart-1))" stopOpacity={0.05}/>
+                      <stop offset="5%" stopColor={CHART_COLORS.emerald} stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor={CHART_COLORS.emerald} stopOpacity={0.05}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid {...chartGridStyle} />
@@ -334,11 +334,11 @@ export default function MonetizationPage() {
                   <Area 
                     type="monotone" 
                     dataKey="revenue" 
-                    stroke="hsl(var(--chart-1))"
+                    stroke={CHART_COLORS.emerald}
                     strokeWidth={3}
                     fill="url(#revenueGradient)"
-                    dot={{ r: 4, fill: "hsl(var(--chart-1))", strokeWidth: 0 }}
-                    activeDot={{ r: 6, fill: "hsl(var(--chart-1))", strokeWidth: 2, stroke: "hsl(var(--background))" }}
+                    dot={{ r: 4, fill: CHART_COLORS.emerald, strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: CHART_COLORS.emerald, strokeWidth: 2, stroke: "hsl(var(--background))" }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -378,12 +378,12 @@ export default function MonetizationPage() {
                   />
                   <Bar 
                     dataKey="purchases" 
-                    fill="hsl(var(--chart-2))"
+                    fill={CHART_COLORS.emerald}
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(monetizationCharts.purchasesOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="purchases" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="purchases" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -416,10 +416,10 @@ export default function MonetizationPage() {
                       strokeWidth={3}
                       stroke="hsl(var(--background))"
                     >
-                      {monetizationCharts.revenueByProductType.map((entry, index) => (
+                      {monetizationCharts.revenueByProductType.map((entry) => (
                         <Cell 
                           key={entry.productType} 
-                          fill={index === 0 ? "hsl(var(--chart-1))" : "hsl(var(--chart-2))"} 
+                          fill={entry.productType === "gamepass" ? CHART_COLORS.gamepass : entry.productType === "devproduct" ? CHART_COLORS.devproduct : CHART_COLORS.unknown} 
                         />
                       ))}
                     </Pie>
@@ -434,14 +434,16 @@ export default function MonetizationPage() {
                   </PieChart>
                 </ResponsiveContainer>
                 <div className="space-y-4">
-                  {monetizationCharts.revenueByProductType.map((item, index) => (
+                  {monetizationCharts.revenueByProductType.map((item) => (
                     <div key={item.productType} className="flex items-center gap-3">
                       <div 
                         className="w-5 h-5 rounded-md shadow-sm" 
                         style={{ 
-                          backgroundColor: index === 0 
-                            ? "hsl(var(--chart-1))" 
-                            : "hsl(var(--chart-2))" 
+                          backgroundColor: item.productType === "gamepass" 
+                            ? CHART_COLORS.gamepass 
+                            : item.productType === "devproduct" 
+                            ? CHART_COLORS.devproduct 
+                            : CHART_COLORS.unknown
                         }}
                       />
                       <div>
@@ -475,10 +477,10 @@ export default function MonetizationPage() {
                       <div key={product.productId} className="relative group">
                         {/* Progress bar background */}
                         <div 
-                          className="absolute inset-0 rounded-lg opacity-20 transition-opacity group-hover:opacity-30"
+                          className="absolute inset-0 rounded-lg opacity-30 transition-opacity group-hover:opacity-40"
                           style={{ 
                             width: `${barWidth}%`,
-                            backgroundColor: "hsl(var(--chart-1))"
+                            backgroundColor: CHART_COLORS.emerald
                           }}
                         />
                         <div className="relative flex items-center justify-between py-3 px-3">

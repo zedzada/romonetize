@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime } from "@/hooks/use-analytics";
-import { ChartCard, chartAxisStyle, chartGridStyle } from "@/components/dashboard/chart-card";
+import { ChartCard, chartAxisStyle, chartGridStyle, CHART_COLORS } from "@/components/dashboard/chart-card";
 import { 
   ChartContainer,
   ChartTooltip,
@@ -454,8 +454,8 @@ export default function PerformancePage() {
                 <AreaChart data={ccuStats?.snapshots ?? []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="ccuGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--chart-4))" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="hsl(var(--chart-4))" stopOpacity={0.05}/>
+                      <stop offset="5%" stopColor={CHART_COLORS.sky} stopOpacity={0.4}/>
+                      <stop offset="95%" stopColor={CHART_COLORS.sky} stopOpacity={0.05}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid {...chartGridStyle} />
@@ -482,11 +482,11 @@ export default function PerformancePage() {
                   <Area 
                     type="monotone" 
                     dataKey="ccu" 
-                    stroke="hsl(var(--chart-4))"
+                    stroke={CHART_COLORS.sky}
                     strokeWidth={3}
                     fill="url(#ccuGradient)"
-                    dot={{ r: 4, fill: "hsl(var(--chart-4))", strokeWidth: 0 }}
-                    activeDot={{ r: 6, fill: "hsl(var(--chart-4))", strokeWidth: 2, stroke: "hsl(var(--background))" }}
+                    dot={{ r: 4, fill: CHART_COLORS.sky, strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: CHART_COLORS.sky, strokeWidth: 2, stroke: "hsl(var(--background))" }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -526,12 +526,12 @@ export default function PerformancePage() {
                   />
                   <Bar 
                     dataKey="events" 
-                    fill="hsl(var(--chart-3))"
+                    fill={CHART_COLORS.violet}
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(performanceCharts?.eventsOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="events" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="events" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -572,12 +572,12 @@ export default function PerformancePage() {
                   />
                   <Bar 
                     dataKey="players" 
-                    fill="hsl(var(--chart-3))"
+                    fill={CHART_COLORS.cyan}
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(performanceCharts?.playersOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="players" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="players" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -618,12 +618,12 @@ export default function PerformancePage() {
                   />
                   <Bar 
                     dataKey="purchases" 
-                    fill="hsl(var(--chart-2))"
+                    fill={CHART_COLORS.emerald}
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="purchases" position="top" fill="hsl(var(--foreground))" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="purchases" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>

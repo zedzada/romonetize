@@ -86,17 +86,32 @@ export function ChartCard({
   );
 }
 
+// Explicit chart colors - use these directly for visibility
+export const CHART_COLORS = {
+  // Primary colors by metric
+  emerald: "#34d399",   // Revenue, Purchases (green)
+  sky: "#38bdf8",       // CCU, Roblox API data (blue)
+  violet: "#a78bfa",    // Events (purple)
+  cyan: "#22d3ee",      // Player joins (teal)
+  amber: "#fbbf24",     // Accent/warnings
+  rose: "#fb7185",      // Errors/negative
+  // Product types
+  gamepass: "#38bdf8",  // Blue for gamepasses
+  devproduct: "#a78bfa", // Purple for dev products
+  unknown: "#6b7280",   // Gray for unknown
+} as const;
+
 // Consistent chart styling props
 export const chartAxisStyle = {
   axisLine: false,
   tickLine: false,
   tickMargin: 8,
-  tick: { fill: "hsl(var(--muted-foreground))", fontSize: 11 },
+  tick: { fill: "#9ca3af", fontSize: 11 },
 };
 
 export const chartGridStyle = {
   strokeDasharray: "3 3",
-  stroke: "hsl(var(--chart-grid))",
+  stroke: "#374151",
   strokeOpacity: 0.8,
   vertical: false,
 };
