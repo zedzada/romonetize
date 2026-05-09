@@ -34,9 +34,11 @@ export function DataStatusBanner({
 
   if (!dataHealth || dismissed) return null;
 
-  const needsTracker = dataHealth.missing.includes("tracking_script_not_installed");
-  const hasRobloxData = dataHealth.hasRobloxApiData;
-  const robloxUnavailable = dataHealth.missing.includes("roblox_api_unavailable") || dataHealth.missing.includes("roblox_stats_not_synced");
+  // Defensive: ensure missing is an array before calling .includes()
+  const missing = Array.isArray(dataHealth.missing) ? dataHealth.missing : [];
+  const needsTracker = missing.includes("tracking_script_not_installed");
+  const hasRobloxData = dataHealth.hasRobloxApiData ?? false;
+  const robloxUnavailable = missing.includes("roblox_api_unavailable") || missing.includes("roblox_stats_not_synced");
 
   // If everything is working, don't show anything
   if (dataHealth.hasTrackerEvents && hasRobloxData) {
@@ -185,9 +187,9 @@ export function DataStatusBanner({
                 Some analytics data is missing
               </h3>
               <p className="text-sm text-muted-foreground mb-3">
-                {dataHealth.missing.includes("no_purchase_events") && "No purchase events tracked yet. "}
-                {dataHealth.missing.includes("no_session_duration_events") && "No session events tracked yet. "}
-                {dataHealth.missing.includes("no_product_view_events") && "No product click events tracked yet. "}
+                {missing.includes("no_purchase_events") && "No purchase events tracked yet. "}
+                {missing.includes("no_session_duration_events") && "No session events tracked yet. "}
+                {missing.includes("no_product_view_events") && "No product click events tracked yet. "}
                 Make sure your tracking script is sending the appropriate events.
               </p>
               <div className="flex flex-wrap items-center gap-2">
