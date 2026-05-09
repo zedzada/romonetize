@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { getSelectedGameForUser } from "@/lib/server/selected-game";
 
 // GET /api/tracker/debug - Debug tracker status for authenticated user's selected game
+// Uses the same selected game logic as dashboard header/layout
 export async function GET() {
   try {
     const supabase = await createClient();
@@ -16,15 +18,8 @@ export async function GET() {
       );
     }
 
-    // Get user's selected game (or most recently created)
-    const { data: selectedGame, error: gameError } = await supabase
-      .from("games")
-      .select("id, name, roblox_game_id, universe_id, api_key, last_event_at, status")
-      .eq("user_id", user.id)
-      .neq("status", "deleted")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
+    // Use shared utility - same logic as dashboard header and getSelectedGame action
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
 
     if (gameError || !selectedGame) {
       return NextResponse.json({
@@ -35,7 +30,7 @@ export async function GET() {
         lastEvent: null,
         recentEvents: [],
         trackingActive: false,
-        reason: "No game connected",
+        reason: gameError || "No game connected",
       });
     }
 
@@ -93,6 +88,7 @@ export async function GET() {
         name: selectedGame.name,
         roblox_game_id: selectedGame.roblox_game_id,
         universe_id: selectedGame.universe_id,
+        api_key: selectedGame.api_key, // Full key for script generation
         api_key_prefix: selectedGame.api_key ? selectedGame.api_key.slice(0, 8) + "..." : null,
         last_event_at: selectedGame.last_event_at,
         status: selectedGame.status,

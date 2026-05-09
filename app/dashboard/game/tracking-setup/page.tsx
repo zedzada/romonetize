@@ -15,7 +15,8 @@ interface TrackerDebugData {
     name: string;
     roblox_game_id: string | null;
     universe_id: string | null;
-    api_key_prefix: string | null;
+    api_key: string | null;        // Full API key for script generation
+    api_key_prefix: string | null; // Prefix for display
     last_event_at: string | null;
     status: string;
   } | null;
@@ -268,22 +269,15 @@ export default function TrackingSetupPage() {
   const [sendingTestEvent, setSendingTestEvent] = useState(false);
   const [testEventResult, setTestEventResult] = useState<{ success: boolean; message: string } | null>(null);
 
-  // Fetch tracker debug data
+  // Fetch tracker debug data - uses same selected game logic as dashboard header
   const { data: debugData, isLoading: loading, mutate } = useSWR<TrackerDebugData>(
     "/api/tracker/debug",
     fetcher,
     { revalidateOnFocus: false, refreshInterval: 0 }
   );
 
-  // Also fetch the full API key from analytics endpoint
-  const { data: analyticsData } = useSWR(
-    "/api/dashboard/analytics",
-    fetcher,
-    { revalidateOnFocus: false }
-  );
-
   const game = debugData?.selectedGame;
-  const fullApiKey = analyticsData?.dataHealth?.apiKey || "";
+  const fullApiKey = game?.api_key || "";
 
   const handleCopy = async () => {
     if (!fullApiKey) return;
