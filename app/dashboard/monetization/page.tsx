@@ -21,10 +21,6 @@ import {
   ResponsiveContainer,
   Tooltip,
   Legend,
-  LineChart,
-  Line,
-  ComposedChart,
-  LabelList,
 } from "recharts";
 import { 
   RefreshCw, 
@@ -252,22 +248,13 @@ export default function MonetizationPage() {
     return { ...totals, activeBuckets, gamepassPurchases, devproductPurchases };
   }, [processedChartData, chartMode]);
 
-  // Get current mode's revenue value for Y-axis calculation
-  const currentModeRevenue = useMemo(() => {
-    return processedChartData.map(d => {
-      if (chartMode === "total") return d.totalRevenue;
-      if (chartMode === "gamepasses") return d.gamepassRevenue;
-      return d.devproductRevenue;
-    });
-  }, [processedChartData, chartMode]);
-
-  // Calculate Y-axis max with padding based on current mode
+  // Calculate Y-axis max - always use totalRevenue as the max since it encompasses all
   const yAxisMax = useMemo(() => {
-    if (!currentModeRevenue.length) return 100;
-    const maxValue = Math.max(...currentModeRevenue);
+    if (!processedChartData.length) return 100;
+    const maxValue = Math.max(...processedChartData.map(d => d.totalRevenue));
     if (maxValue === 0) return 10;
     return Math.ceil(maxValue * 1.2);
-  }, [currentModeRevenue]);
+  }, [processedChartData]);
 
   // Get current mode display info
   const modeConfig = useMemo(() => {
@@ -630,10 +617,29 @@ export default function MonetizationPage() {
                 </div>
               </div>
 
-              {/* Single legend item for current mode */}
-              <div className="flex items-center justify-center gap-2 mb-4">
-                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: modeConfig.color }} />
-                <span className="text-xs text-neutral-300">{modeConfig.label}</span>
+              {/* Legend - all 3 in Total mode, single item otherwise */}
+              <div className="flex items-center justify-center gap-4 mb-4">
+                {chartMode === "total" ? (
+                  <>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.totalRevenue }} />
+                      <span className="text-xs text-neutral-300">Total Revenue</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.gamepass }} />
+                      <span className="text-xs text-neutral-300">Gamepasses</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.devProduct }} />
+                      <span className="text-xs text-neutral-300">Dev Products</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: modeConfig.color }} />
+                    <span className="text-xs text-neutral-300">{modeConfig.label}</span>
+                  </div>
+                )}
               </div>
               
               <div className="h-[360px] relative">
@@ -646,7 +652,21 @@ export default function MonetizationPage() {
                 )}
                 
                 <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={processedChartData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }}>
+                  <AreaChart data={processedChartData} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
+                    <defs>
+                      <linearGradient id="gradientTotal" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={0.3}/>
+                        <stop offset="100%" stopColor={COLORS.totalRevenue} stopOpacity={0.05}/>
+                      </linearGradient>
+                      <linearGradient id="gradientGamepass" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={COLORS.gamepass} stopOpacity={0.3}/>
+                        <stop offset="100%" stopColor={COLORS.gamepass} stopOpacity={0.05}/>
+                      </linearGradient>
+                      <linearGradient id="gradientDevProduct" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.3}/>
+                        <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={0.05}/>
+                      </linearGradient>
+                    </defs>
                     <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
                     <XAxis 
                       dataKey="time" 
@@ -673,44 +693,83 @@ export default function MonetizationPage() {
                     />
                     <Tooltip content={<HeroChartTooltip />} />
                     
-                    {/* Single bar series for selected mode */}
-                    <Bar
-                      dataKey={modeConfig.dataKey}
-                      name={modeConfig.label}
-                      fill={modeConfig.color}
-                      radius={[6, 6, 0, 0]}
-                      maxBarSize={60}
-                      minPointSize={6}
-                    >
-                      <LabelList 
-                        dataKey={modeConfig.dataKey}
-                        position="top" 
-                        formatter={(v: number) => v > 0 ? `R$${v}` : ""}
-                        fill="#FFFFFF"
-                        fontSize={11}
-                        fontWeight={600}
-                      />
-                    </Bar>
+                    {/* Total mode: show all 3 curves */}
+                    {chartMode === "total" && (
+                      <>
+                        <Area
+                          type="monotone"
+                          dataKey="totalRevenue"
+                          name="Total Revenue"
+                          stroke={COLORS.totalRevenue}
+                          strokeWidth={3}
+                          fill="url(#gradientTotal)"
+                          dot={{ r: 4, fill: COLORS.totalRevenue, strokeWidth: 0 }}
+                          activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="gamepassRevenue"
+                          name="Gamepasses"
+                          stroke={COLORS.gamepass}
+                          strokeWidth={3}
+                          fill="url(#gradientGamepass)"
+                          dot={{ r: 4, fill: COLORS.gamepass, strokeWidth: 0 }}
+                          activeDot={{ r: 6, fill: COLORS.gamepass, strokeWidth: 2, stroke: "#0a0a0a" }}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="devproductRevenue"
+                          name="Dev Products"
+                          stroke={COLORS.devProduct}
+                          strokeWidth={3}
+                          fill="url(#gradientDevProduct)"
+                          dot={{ r: 4, fill: COLORS.devProduct, strokeWidth: 0 }}
+                          activeDot={{ r: 6, fill: COLORS.devProduct, strokeWidth: 2, stroke: "#0a0a0a" }}
+                        />
+                      </>
+                    )}
                     
-                    {/* Optional trend line for visual continuity */}
-                    <Line
-                      type="monotone"
-                      dataKey={modeConfig.dataKey}
-                      name="Trend"
-                      stroke={modeConfig.color}
-                      strokeWidth={2}
-                      strokeOpacity={0.6}
-                      dot={false}
-                      activeDot={{ r: 5, fill: modeConfig.color, strokeWidth: 2, stroke: "#0a0a0a" }}
-                      legendType="none"
-                    />
-                  </ComposedChart>
+                    {/* Gamepasses mode: only pink curve */}
+                    {chartMode === "gamepasses" && (
+                      <Area
+                        type="monotone"
+                        dataKey="gamepassRevenue"
+                        name="Gamepasses"
+                        stroke={COLORS.gamepass}
+                        strokeWidth={3}
+                        fill="url(#gradientGamepass)"
+                        dot={{ r: 4, fill: COLORS.gamepass, strokeWidth: 0 }}
+                        activeDot={{ r: 6, fill: COLORS.gamepass, strokeWidth: 2, stroke: "#0a0a0a" }}
+                      />
+                    )}
+                    
+                    {/* Dev Products mode: only green curve */}
+                    {chartMode === "devproducts" && (
+                      <Area
+                        type="monotone"
+                        dataKey="devproductRevenue"
+                        name="Dev Products"
+                        stroke={COLORS.devProduct}
+                        strokeWidth={3}
+                        fill="url(#gradientDevProduct)"
+                        dot={{ r: 4, fill: COLORS.devProduct, strokeWidth: 0 }}
+                        activeDot={{ r: 6, fill: COLORS.devProduct, strokeWidth: 2, stroke: "#0a0a0a" }}
+                      />
+                    )}
+                  </AreaChart>
                 </ResponsiveContainer>
               </div>
               
-              {/* Legend - single item for selected mode */}
+              {/* Legend - all 3 in Total mode, single item otherwise */}
               <ChartLegend 
-                items={[{ name: modeConfig.label, color: modeConfig.color, value: modeConfig.revenue }]}
+                items={chartMode === "total" 
+                  ? [
+                      { name: "Total Revenue", color: COLORS.totalRevenue, value: chartTotals.total },
+                      { name: "Gamepasses", color: COLORS.gamepass, value: chartTotals.gamepass },
+                      { name: "Dev Products", color: COLORS.devProduct, value: chartTotals.devproduct },
+                    ]
+                  : [{ name: modeConfig.label, color: modeConfig.color, value: modeConfig.revenue }]
+                }
               />
             </>
           )}
