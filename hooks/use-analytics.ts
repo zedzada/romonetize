@@ -65,6 +65,7 @@ export interface TrackerStats {
 
 export interface RevenueStats {
   totalRevenue: number;
+  revenue72h: number;
   gamepassRevenue: number;
   devproductRevenue: number;
   totalPurchases: number;

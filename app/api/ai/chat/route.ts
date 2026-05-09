@@ -244,6 +244,17 @@ async function getAnalyticsContext(
     0
   );
   const totalPurchases = purchaseEvents.length;
+
+  // 72h Revenue calculation (like Roblox Dashboard)
+  const now72h = new Date();
+  const start72h = new Date(now72h.getTime() - 72 * 60 * 60 * 1000);
+  const purchases72h = purchaseEvents.filter(
+    (e) => new Date(e.created_at) >= start72h
+  );
+  const revenue72h = purchases72h.reduce(
+    (sum, e) => sum + (e.robux || 0),
+    0
+  );
   const uniquePlayers = new Set(
     allEvents.map((e) => e.player_id).filter(Boolean)
   ).size;
@@ -348,6 +359,7 @@ async function getAnalyticsContext(
     // Tracker stats
     totalEvents: allEvents.length,
     totalRevenue,
+    revenue72h,
     totalPurchases,
     uniquePlayers,
     uniqueBuyers,
@@ -467,6 +479,7 @@ ${robloxSection}
 TRACKER ANALYTICS (from RoMonetize tracking script):
 - Total Events Tracked: ${analyticsContext.totalEvents?.toLocaleString()}
 - Total Revenue: ${analyticsContext.totalRevenue?.toLocaleString()} Robux
+- 72h Revenue: ${analyticsContext.revenue72h?.toLocaleString() || 0} Robux (last 72 hours)
 - Total Purchases: ${analyticsContext.totalPurchases?.toLocaleString()}
 - Unique Players: ${analyticsContext.uniquePlayers?.toLocaleString()}
 - Unique Buyers: ${analyticsContext.uniqueBuyers?.toLocaleString()}
