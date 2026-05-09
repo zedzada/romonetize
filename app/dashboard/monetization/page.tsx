@@ -23,6 +23,8 @@ import {
   Legend,
   LineChart,
   Line,
+  ComposedChart,
+  LabelList,
 } from "recharts";
 import { 
   RefreshCw, 
@@ -58,8 +60,22 @@ function formatRobux(value: number | null | undefined): string {
   return `R$${value.toLocaleString()}`;
 }
 
-// Custom tooltip for the hero chart
-function HeroChartTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number; name: string; color: string }>; label?: string }) {
+// Custom tooltip for the hero chart - shows all data for the hour/day
+function HeroChartTooltip({ active, payload, label }: { 
+  active?: boolean; 
+  payload?: Array<{ 
+    value: number; 
+    name: string; 
+    color: string;
+    payload?: { 
+      totalRevenue?: number;
+      devproductRevenue?: number;
+      gamepassRevenue?: number;
+      purchases?: number;
+    };
+  }>; 
+  label?: string 
+}) {
   if (!active || !payload?.length) return null;
   
   const date = new Date(label || "");
@@ -71,21 +87,41 @@ function HeroChartTooltip({ active, payload, label }: { active?: boolean; payloa
     minute: "2-digit",
   });
 
+  // Get the underlying data point
+  const dataPoint = payload[0]?.payload;
+  
   return (
-    <div className="bg-neutral-900/95 border border-neutral-700 rounded-lg shadow-xl p-3 min-w-[180px]">
-      <p className="text-xs text-neutral-400 mb-2 font-medium">{formattedTime}</p>
-      <div className="space-y-1.5">
-        {payload.map((entry, index) => (
-          <div key={index} className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-2">
-              <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
-              <span className="text-xs text-neutral-300">{entry.name}</span>
-            </div>
-            <span className="text-xs font-semibold text-white">
-              {entry.name === "Purchases" ? entry.value : `R$${entry.value.toLocaleString()}`}
-            </span>
+    <div className="bg-neutral-900 border border-neutral-700 rounded-lg shadow-xl p-3 min-w-[200px]">
+      <p className="text-xs text-neutral-400 mb-3 font-medium border-b border-neutral-700 pb-2">{formattedTime}</p>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
+            <span className="text-xs text-neutral-300">Total Revenue</span>
           </div>
-        ))}
+          <span className="text-xs font-semibold text-white">R${(dataPoint?.totalRevenue ?? 0).toLocaleString()}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
+            <span className="text-xs text-neutral-300">Dev Products</span>
+          </div>
+          <span className="text-xs font-semibold text-white">R${(dataPoint?.devproductRevenue ?? 0).toLocaleString()}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
+            <span className="text-xs text-neutral-300">Game Passes</span>
+          </div>
+          <span className="text-xs font-semibold text-white">R${(dataPoint?.gamepassRevenue ?? 0).toLocaleString()}</span>
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+          <div className="flex items-center gap-2">
+            <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+            <span className="text-xs text-neutral-300">Purchases</span>
+          </div>
+          <span className="text-xs font-semibold text-white">{(dataPoint?.purchases ?? 0).toLocaleString()}</span>
+        </div>
       </div>
     </div>
   );
@@ -185,15 +221,28 @@ export default function MonetizationPage() {
 
   // Calculate totals for current view
   const chartTotals = useMemo(() => {
-    return processedChartData.reduce(
-      (acc, d) => ({
-        total: acc.total + d.totalRevenue,
-        devproduct: acc.devproduct + d.devproductRevenue,
-        gamepass: acc.gamepass + d.gamepassRevenue,
-        purchases: acc.purchases + d.purchases,
-      }),
+    let activeHours = 0;
+    const totals = processedChartData.reduce(
+      (acc, d) => {
+        if (d.totalRevenue > 0) activeHours++;
+        return {
+          total: acc.total + d.totalRevenue,
+          devproduct: acc.devproduct + d.devproductRevenue,
+          gamepass: acc.gamepass + d.gamepassRevenue,
+          purchases: acc.purchases + d.purchases,
+        };
+      },
       { total: 0, devproduct: 0, gamepass: 0, purchases: 0 }
     );
+    return { ...totals, activeHours };
+  }, [processedChartData]);
+
+  // Calculate Y-axis max with padding
+  const yAxisMax = useMemo(() => {
+    if (!processedChartData.length) return 100;
+    const maxValue = Math.max(...processedChartData.map(d => d.totalRevenue));
+    if (maxValue === 0) return 10;
+    return Math.ceil(maxValue * 1.2);
   }, [processedChartData]);
 
   const handleRefresh = async () => {
@@ -497,7 +546,7 @@ export default function MonetizationPage() {
           ) : (
             <>
               {/* Summary stats above chart */}
-              <div className="flex items-center justify-center gap-8 mb-4 text-center">
+              <div className="flex items-center justify-center gap-6 mb-4 text-center">
                 <div>
                   <p className="text-2xl font-bold text-white">R${chartTotals.total.toLocaleString()}</p>
                   <p className="text-xs text-neutral-400">Total Revenue</p>
@@ -507,25 +556,16 @@ export default function MonetizationPage() {
                   <p className="text-2xl font-bold text-white">{chartTotals.purchases.toLocaleString()}</p>
                   <p className="text-xs text-neutral-400">Purchases</p>
                 </div>
+                <div className="w-px h-10 bg-neutral-700" />
+                <div>
+                  <p className="text-2xl font-bold text-white">{chartTotals.activeHours}</p>
+                  <p className="text-xs text-neutral-400">Active {chartInterval === "hourly" ? "Hours" : "Days"}</p>
+                </div>
               </div>
               
-              <div className="h-[300px]">
+              <div className="h-[360px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={processedChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="totalRevenueGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={0.35}/>
-                        <stop offset="100%" stopColor={COLORS.totalRevenue} stopOpacity={0.05}/>
-                      </linearGradient>
-                      <linearGradient id="devProductGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.35}/>
-                        <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={0.05}/>
-                      </linearGradient>
-                      <linearGradient id="gamepassGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={COLORS.gamepass} stopOpacity={0.35}/>
-                        <stop offset="100%" stopColor={COLORS.gamepass} stopOpacity={0.05}/>
-                      </linearGradient>
-                    </defs>
+                  <ComposedChart data={processedChartData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
                     <XAxis 
                       dataKey="time" 
@@ -539,9 +579,10 @@ export default function MonetizationPage() {
                       axisLine={false}
                       tickLine={false}
                       tick={{ fill: COLORS.axis, fontSize: 11 }}
-                      tickMargin={8}
+                      tickMargin={10}
                     />
                     <YAxis 
+                      domain={[0, yAxisMax]}
                       tickFormatter={(v) => v === 0 ? "0" : `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
                       axisLine={false}
                       tickLine={false}
@@ -552,41 +593,80 @@ export default function MonetizationPage() {
                     <Tooltip content={<HeroChartTooltip />} />
                     
                     {chartBreakdown === "total" ? (
-                      <Area
-                        type="monotone"
-                        dataKey="totalRevenue"
-                        name="Total Revenue"
-                        stroke={COLORS.totalRevenue}
-                        strokeWidth={3.5}
-                        fill="url(#totalRevenueGradient)"
-                        dot={{ r: 2, fill: COLORS.totalRevenue, strokeWidth: 0 }}
-                        activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 3, stroke: "#0a0a0a" }}
-                      />
+                      <>
+                        {/* Total revenue as bars - visible even with sparse data */}
+                        <Bar
+                          dataKey="totalRevenue"
+                          name="Total Revenue"
+                          fill={COLORS.totalRevenue}
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={60}
+                          minPointSize={4}
+                        >
+                          <LabelList 
+                            dataKey="totalRevenue" 
+                            position="top" 
+                            formatter={(v: number) => v > 0 ? `R$${v}` : ""}
+                            fill="#FFFFFF"
+                            fontSize={11}
+                            fontWeight={600}
+                          />
+                        </Bar>
+                        {/* Optional trend line */}
+                        <Line
+                          type="monotone"
+                          dataKey="totalRevenue"
+                          name="Trend"
+                          stroke={COLORS.totalRevenue}
+                          strokeWidth={3}
+                          dot={{ r: 4, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          legendType="none"
+                        />
+                      </>
                     ) : (
                       <>
-                        <Area
-                          type="monotone"
+                        {/* Stacked bars for dev products and gamepasses */}
+                        <Bar
                           dataKey="devproductRevenue"
                           name="Dev Products"
-                          stroke={COLORS.devProduct}
-                          strokeWidth={3}
-                          fill="url(#devProductGradient)"
-                          dot={{ r: 2, fill: COLORS.devProduct, strokeWidth: 0 }}
-                          activeDot={{ r: 5, fill: COLORS.devProduct, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          fill={COLORS.devProduct}
+                          stackId="revenue"
+                          radius={[0, 0, 0, 0]}
+                          maxBarSize={60}
+                          minPointSize={4}
                         />
-                        <Area
-                          type="monotone"
+                        <Bar
                           dataKey="gamepassRevenue"
                           name="Game Passes"
-                          stroke={COLORS.gamepass}
+                          fill={COLORS.gamepass}
+                          stackId="revenue"
+                          radius={[6, 6, 0, 0]}
+                          maxBarSize={60}
+                          minPointSize={4}
+                        >
+                          <LabelList 
+                            dataKey="totalRevenue" 
+                            position="top" 
+                            formatter={(v: number) => v > 0 ? `R$${v}` : ""}
+                            fill="#FFFFFF"
+                            fontSize={11}
+                            fontWeight={600}
+                          />
+                        </Bar>
+                        {/* Total line overlay */}
+                        <Line
+                          type="monotone"
+                          dataKey="totalRevenue"
+                          name="Total"
+                          stroke={COLORS.totalRevenue}
                           strokeWidth={3}
-                          fill="url(#gamepassGradient)"
-                          dot={{ r: 2, fill: COLORS.gamepass, strokeWidth: 0 }}
-                          activeDot={{ r: 5, fill: COLORS.gamepass, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          dot={{ r: 4, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
+                          activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
                         />
                       </>
                     )}
-                  </AreaChart>
+                  </ComposedChart>
                 </ResponsiveContainer>
               </div>
               
