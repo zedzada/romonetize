@@ -454,8 +454,8 @@ export default function PerformancePage() {
                 <AreaChart data={ccuStats?.snapshots ?? []} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="ccuGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={CHART_COLORS.sky} stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor={CHART_COLORS.sky} stopOpacity={0.05}/>
+                      <stop offset="0%" stopColor={CHART_COLORS.blue} stopOpacity={0.4}/>
+                      <stop offset="100%" stopColor={CHART_COLORS.blue} stopOpacity={0.05}/>
                     </linearGradient>
                   </defs>
                   <CartesianGrid {...chartGridStyle} />
@@ -471,22 +471,23 @@ export default function PerformancePage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "#171717",
+                      border: "1px solid #404040",
                       borderRadius: "8px",
+                      padding: "10px",
                     }}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value, "CCU"]}
                     labelFormatter={(label) => formatChartTime(label, "7d")}
                   />
                   <Area 
                     type="monotone" 
                     dataKey="ccu" 
-                    stroke={CHART_COLORS.sky}
+                    stroke={CHART_COLORS.blue}
                     strokeWidth={3}
                     fill="url(#ccuGradient)"
-                    dot={{ r: 4, fill: CHART_COLORS.sky, strokeWidth: 0 }}
-                    activeDot={{ r: 6, fill: CHART_COLORS.sky, strokeWidth: 2, stroke: "hsl(var(--background))" }}
+                    dot={{ r: 3, fill: CHART_COLORS.blue, strokeWidth: 0 }}
+                    activeDot={{ r: 6, fill: CHART_COLORS.blue, strokeWidth: 2, stroke: "#0a0a0a" }}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -504,6 +505,12 @@ export default function PerformancePage() {
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={performanceCharts?.eventsOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="eventsGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS.violet} stopOpacity={1}/>
+                      <stop offset="100%" stopColor={CHART_COLORS.violet} stopOpacity={0.7}/>
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="date" 
@@ -516,22 +523,23 @@ export default function PerformancePage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "#171717",
+                      border: "1px solid #404040",
                       borderRadius: "8px",
+                      padding: "10px",
                     }}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value.toLocaleString(), "Events"]}
                     labelFormatter={(label) => formatChartTime(label, "7d")}
                   />
                   <Bar 
                     dataKey="events" 
-                    fill={CHART_COLORS.violet}
+                    fill="url(#eventsGradient)"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(performanceCharts?.eventsOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="events" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="events" position="top" fill="#F5F5F5" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -550,6 +558,12 @@ export default function PerformancePage() {
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={performanceCharts?.playersOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="playersGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS.cyan} stopOpacity={1}/>
+                      <stop offset="100%" stopColor={CHART_COLORS.cyan} stopOpacity={0.7}/>
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="date" 
@@ -562,22 +576,23 @@ export default function PerformancePage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "#171717",
+                      border: "1px solid #404040",
                       borderRadius: "8px",
+                      padding: "10px",
                     }}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value.toLocaleString(), "Players"]}
                     labelFormatter={(label) => formatChartTime(label, "7d")}
                   />
                   <Bar 
                     dataKey="players" 
-                    fill={CHART_COLORS.cyan}
+                    fill="url(#playersGradient)"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(performanceCharts?.playersOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="players" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="players" position="top" fill="#F5F5F5" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -596,6 +611,12 @@ export default function PerformancePage() {
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={performanceCharts?.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="purchasesBarGradient" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={CHART_COLORS.green} stopOpacity={1}/>
+                      <stop offset="100%" stopColor={CHART_COLORS.green} stopOpacity={0.7}/>
+                    </linearGradient>
+                  </defs>
                   <CartesianGrid {...chartGridStyle} />
                   <XAxis 
                     dataKey="date" 
@@ -608,22 +629,23 @@ export default function PerformancePage() {
                   />
                   <Tooltip
                     contentStyle={{
-                      backgroundColor: "hsl(var(--popover))",
-                      border: "1px solid hsl(var(--border))",
+                      backgroundColor: "#171717",
+                      border: "1px solid #404040",
                       borderRadius: "8px",
+                      padding: "10px",
                     }}
-                    labelStyle={{ color: "hsl(var(--foreground))", fontWeight: 600 }}
+                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
                     formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
                     labelFormatter={(label) => formatChartTime(label, "7d")}
                   />
                   <Bar 
                     dataKey="purchases" 
-                    fill={CHART_COLORS.emerald}
+                    fill="url(#purchasesBarGradient)"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
                     {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="purchases" position="top" fill="#e5e7eb" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="purchases" position="top" fill="#F5F5F5" fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>

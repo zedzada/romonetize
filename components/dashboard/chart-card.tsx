@@ -86,43 +86,54 @@ export function ChartCard({
   );
 }
 
-// Explicit chart colors - use these directly for visibility
+// Bright, high-contrast chart colors for dark mode visibility
 export const CHART_COLORS = {
-  // Primary colors by metric
-  emerald: "#34d399",   // Revenue, Purchases (green)
-  sky: "#38bdf8",       // CCU, Roblox API data (blue)
-  violet: "#a78bfa",    // Events (purple)
-  cyan: "#22d3ee",      // Player joins (teal)
-  amber: "#fbbf24",     // Accent/warnings
-  rose: "#fb7185",      // Errors/negative
+  // Primary metrics - vivid and visible
+  blue: "#3B82F6",        // Total revenue, CCU
+  green: "#22C55E",       // Dev products, purchases success
+  pink: "#EC4899",        // Game passes
+  amber: "#F59E0B",       // Purchases, warnings
+  violet: "#8B5CF6",      // Events, sessions
+  cyan: "#06B6D4",        // Player joins
+  rose: "#F43F5E",        // Errors/negative
+  
+  // Legacy aliases for compatibility
+  emerald: "#22C55E",
+  sky: "#3B82F6",
+  
   // Product types
-  gamepass: "#38bdf8",  // Blue for gamepasses
-  devproduct: "#a78bfa", // Purple for dev products
-  unknown: "#6b7280",   // Gray for unknown
+  gamepass: "#EC4899",    // Pink for gamepasses
+  devproduct: "#22C55E",  // Green for dev products
+  unknown: "#6B7280",     // Gray for unknown
+  
+  // Chart frame
+  grid: "#374151",
+  axis: "#9CA3AF",
 } as const;
 
-// Consistent chart styling props
+// Consistent chart styling props - improved visibility
 export const chartAxisStyle = {
   axisLine: false,
   tickLine: false,
-  tickMargin: 8,
-  tick: { fill: "#9ca3af", fontSize: 11 },
+  tickMargin: 10,
+  tick: { fill: "#D1D5DB", fontSize: 11 },  // Brighter axis labels
 };
 
 export const chartGridStyle = {
   strokeDasharray: "3 3",
-  stroke: "#374151",
-  strokeOpacity: 0.8,
+  stroke: "#4B5563",      // Slightly brighter grid
+  strokeOpacity: 0.6,
   vertical: false,
 };
 
 export const chartTooltipStyle = {
   contentStyle: {
-    backgroundColor: "hsl(var(--popover))",
-    border: "1px solid hsl(var(--border))",
+    backgroundColor: "#171717",
+    border: "1px solid #404040",
     borderRadius: "8px",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)",
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+    padding: "12px",
   },
-  labelStyle: { color: "hsl(var(--foreground))", fontWeight: 600 },
-  itemStyle: { color: "hsl(var(--foreground))" },
+  labelStyle: { color: "#F5F5F5", fontWeight: 600, marginBottom: "4px" },
+  itemStyle: { color: "#E5E5E5" },
 };
