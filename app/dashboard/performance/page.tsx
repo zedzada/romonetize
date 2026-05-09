@@ -26,6 +26,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Empty, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty";
+import { ErrorBoundary } from "@/components/ui/error-boundary";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { DataStatusBanner } from "@/components/dashboard/data-status-banner";
 import { useAnalytics } from "@/hooks/use-analytics";
@@ -106,12 +107,28 @@ export default function PerformancePage() {
 
   // Use central analytics hook for Roblox stats - single source of truth
   const { 
-    dataHealth, 
+    dataHealth: rawDataHealth, 
     robloxStats,
     refresh: refreshAnalytics,
     isLoading: analyticsLoading,
     error: analyticsError,
   } = useAnalytics({ enabled: !!game });
+
+  // Safe defaults for all analytics data to prevent crashes
+  const dataHealth = rawDataHealth ?? {
+    selectedGameId: null,
+    robloxGameId: null,
+    rootPlaceId: null,
+    gameName: null,
+    hasTrackerEvents: false,
+    trackerEventsCount: 0,
+    lastTrackerEventAt: null,
+    hasRobloxApiData: false,
+    robloxApiLastSyncedAt: null,
+    hasSyncedProducts: false,
+    syncedProductsCount: 0,
+    missing: [],
+  };
 
   const fetchPerformanceData = async (gameId: string) => {
     const { data } = await getPerformanceStats(gameId, 30); // Always fetch 30 days for comprehensive data
@@ -306,6 +323,7 @@ export default function PerformancePage() {
   }));
 
   return (
+    <ErrorBoundary fallbackTitle="Unable to load Game Performance">
     <div className="space-y-6">
       {/* Page header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -989,5 +1007,6 @@ export default function PerformancePage() {
         </CardContent>
       </Card>
     </div>
+    </ErrorBoundary>
   );
 }
