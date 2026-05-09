@@ -5,7 +5,7 @@ import useSWR from "swr";
 import { useRealtimeStats } from "./use-realtime-stats";
 import { useStatsRefresh } from "./use-stats-refresh";
 
-export type DateRange = "1h" | "1d" | "7d" | "30d";
+export type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
 
 export interface DataHealth {
   selectedGameId: string | null;

@@ -58,16 +58,24 @@ function formatRobux(value: number | null | undefined): string {
   return `R$${value.toLocaleString()}`;
 }
 
-type ChartRange = "1h" | "6h" | "24h" | "72h" | "7d" | "28d";
+type ChartRange = "1h" | "6h" | "24h" | "72h" | "7d" | "28d" | "90d";
 type ChartInterval = "1m" | "hourly" | "daily";
 type ChartMode = "total" | "gamepasses" | "devproducts";
 
 // Ranges that support 1m interval (max 24h of minute data)
 const MINUTE_COMPATIBLE_RANGES: ChartRange[] = ["1h", "6h", "24h"];
 
+// Ranges that require daily interval (>28d)
+const DAILY_ONLY_RANGES: ChartRange[] = ["90d"];
+
 // Helper to check if range supports 1m interval
 function supportsMinuteInterval(range: ChartRange): boolean {
   return MINUTE_COMPATIBLE_RANGES.includes(range);
+}
+
+// Helper to check if range requires daily interval
+function requiresDailyInterval(range: ChartRange): boolean {
+  return DAILY_ONLY_RANGES.includes(range);
 }
 
 // Custom tooltip for the hero chart - shows mode-specific data
@@ -223,8 +231,12 @@ export default function MonetizationPage() {
   // Handle range change with auto-switch interval if incompatible
   const handleRangeChange = (newRange: ChartRange) => {
     setChartRange(newRange);
+    // If switching to 90d, auto-switch to daily
+    if (requiresDailyInterval(newRange)) {
+      setChartInterval("daily");
+    }
     // If switching to a range that doesn't support 1m, auto-switch to hourly
-    if (!supportsMinuteInterval(newRange) && chartInterval === "1m") {
+    else if (!supportsMinuteInterval(newRange) && chartInterval === "1m") {
       setChartInterval("hourly");
     }
   };
@@ -291,6 +303,7 @@ export default function MonetizationPage() {
         case "72h": return 72;
         case "7d": return 168;
         case "28d": return 672;
+        case "90d": return 2160; // 90 days * 24 hours
         default: return 72;
       }
     };
@@ -652,7 +665,7 @@ export default function MonetizationPage() {
                 Revenue & Sales
               </CardTitle>
               <p className="text-sm text-neutral-400 mt-0.5">
-                {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : "Last 28 days"}
+                {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : chartRange === "28d" ? "Last 28 days" : "Last 90 days"}
                 {chartInterval === "1m" ? " (per minute)" : chartInterval === "hourly" ? " (hourly)" : " (daily)"}
               </p>
             </div>
@@ -660,7 +673,7 @@ export default function MonetizationPage() {
             <div className="flex flex-wrap items-center gap-2">
               {/* Range selector */}
               <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
-                {(["1h", "6h", "24h", "72h", "7d", "28d"] as ChartRange[]).map((r) => (
+                {(["1h", "6h", "24h", "72h", "7d", "28d", "90d"] as ChartRange[]).map((r) => (
                   <button
                     key={r}
                     onClick={() => handleRangeChange(r)}
@@ -677,9 +690,16 @@ export default function MonetizationPage() {
               {/* Interval selector */}
               <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
                 {(["1m", "hourly", "daily"] as ChartInterval[]).map((i) => {
-                  // Disable 1m for ranges > 24h
-                  const isDisabled = i === "1m" && !supportsMinuteInterval(chartRange);
+                  // Disable 1m for ranges > 24h, disable hourly for 90d
+                  const is1mDisabled = i === "1m" && !supportsMinuteInterval(chartRange);
+                  const isHourlyDisabled = i === "hourly" && requiresDailyInterval(chartRange);
+                  const isDisabled = is1mDisabled || isHourlyDisabled;
                   const label = i === "1m" ? "1m" : i === "hourly" ? "Hourly" : "Daily";
+                  const disabledTitle = is1mDisabled 
+                    ? "1m interval only available for 1H, 6H, 24H ranges" 
+                    : isHourlyDisabled 
+                      ? "90D range only supports daily interval"
+                      : undefined;
                   return (
                     <button
                       key={i}
@@ -692,7 +712,7 @@ export default function MonetizationPage() {
                             ? "text-neutral-600 cursor-not-allowed"
                             : "text-neutral-400 hover:text-neutral-200"
                       }`}
-                      title={isDisabled ? "1m interval only available for 1H, 6H, 24H ranges" : undefined}
+                      title={disabledTitle}
                     >
                       {label}
                     </button>
@@ -749,7 +769,7 @@ export default function MonetizationPage() {
               <Activity className="w-12 h-12 text-neutral-600 mb-4" />
               <p className="text-base font-medium text-neutral-300 mb-1">No revenue in selected period</p>
               <p className="text-sm text-neutral-500 max-w-md">
-                No purchases have been tracked in the {chartRange === "24h" ? "last 24 hours" : chartRange === "72h" ? "last 72 hours" : chartRange === "7d" ? "last 7 days" : "last 28 days"}. Try selecting a different time range.
+                No purchases have been tracked in the {chartRange === "24h" ? "last 24 hours" : chartRange === "72h" ? "last 72 hours" : chartRange === "7d" ? "last 7 days" : chartRange === "28d" ? "last 28 days" : "last 90 days"}. Try selecting a different time range.
               </p>
             </div>
           ) : (
