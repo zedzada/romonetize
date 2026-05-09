@@ -149,7 +149,7 @@ export default function ProductsPage() {
         </div>
       )}
 
-      {!hasTrackerEvents && (
+      {!hasTrackerEvents ? (
         <div className="flex items-center justify-between p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
           <div className="flex items-center gap-2">
             <AlertCircle className="w-4 h-4 text-amber-600" />
@@ -163,6 +163,13 @@ export default function ProductsPage() {
               <ExternalLink className="w-3 h-3 ml-1" />
             </Link>
           </Button>
+        </div>
+      ) : (safeProductStats.totalPurchases ?? 0) === 0 && (
+        <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
+          <AlertCircle className="w-4 h-4 text-blue-600" />
+          <span className="text-sm text-blue-700">
+            Tracking is active. No purchases tracked yet - revenue will appear when players make purchases.
+          </span>
         </div>
       )}
 
@@ -290,33 +297,35 @@ export default function ProductsPage() {
                           {formatRobux(price)}
                         </td>
                         <td className="py-3 px-2 text-right">
-                          {hasTrackerEvents 
-                            ? formatRobux(trackerProduct?.revenue) 
-                            : <span className="text-xs text-muted-foreground">Requires tracking</span>
+                          {!hasTrackerEvents 
+                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
+                            : formatRobux(trackerProduct?.revenue ?? 0)
                           }
                         </td>
                         <td className="py-3 px-2 text-right">
-                          {hasTrackerEvents 
-                            ? formatNumber(trackerProduct?.purchases) 
-                            : <span className="text-xs text-muted-foreground">Requires tracking</span>
+                          {!hasTrackerEvents 
+                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
+                            : formatNumber(trackerProduct?.purchases ?? 0)
                           }
                         </td>
                         <td className="py-3 px-2 text-right">
-                          {hasTrackerEvents 
-                            ? formatNumber(trackerProduct?.uniqueBuyers) 
-                            : <span className="text-xs text-muted-foreground">Requires tracking</span>
+                          {!hasTrackerEvents 
+                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
+                            : formatNumber(trackerProduct?.uniqueBuyers ?? 0)
                           }
                         </td>
                         <td className="py-3 px-2 text-right">
-                          {hasTrackerEvents && trackerProduct && !trackerProduct.conversionNeedsTracking
-                            ? formatPercent(trackerProduct?.conversionRate)
-                            : <span className="text-xs text-muted-foreground">Needs tracking</span>
+                          {!hasTrackerEvents 
+                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
+                            : trackerProduct && !trackerProduct.conversionNeedsTracking
+                              ? formatPercent(trackerProduct?.conversionRate)
+                              : <span className="text-xs text-muted-foreground">Needs events</span>
                           }
                         </td>
                         <td className="py-3 px-2 text-right">
-                          {hasTrackerEvents 
-                            ? formatRobux(trackerProduct?.revPerBuyer) 
-                            : <span className="text-xs text-muted-foreground">Requires tracking</span>
+                          {!hasTrackerEvents 
+                            ? <span className="text-xs text-muted-foreground">Requires tracking</span>
+                            : formatRobux(trackerProduct?.revPerBuyer ?? 0)
                           }
                         </td>
                       </tr>

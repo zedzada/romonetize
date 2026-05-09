@@ -170,10 +170,17 @@ export default function MonetizationPage() {
               <span className="text-xs text-muted-foreground">Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerData ? formatRobux(safeRevenueStats.totalRevenue) : (
+              {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : safeRevenueStats.totalRevenue === 0 ? (
+                <span className="text-lg font-medium text-muted-foreground">R$ 0</span>
+              ) : (
+                formatRobux(safeRevenueStats.totalRevenue)
               )}
             </div>
+            {hasTrackerData && safeRevenueStats.totalRevenue === 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">No purchases tracked yet</p>
+            )}
           </CardContent>
         </Card>
 
@@ -185,10 +192,15 @@ export default function MonetizationPage() {
               <span className="text-xs text-muted-foreground">Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerData ? formatNumber(safeRevenueStats.totalPurchases) : (
+              {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                formatNumber(safeRevenueStats.totalPurchases ?? 0)
               )}
             </div>
+            {hasTrackerData && (safeRevenueStats.totalPurchases ?? 0) === 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">No purchases tracked yet</p>
+            )}
           </CardContent>
         </Card>
 
@@ -200,8 +212,10 @@ export default function MonetizationPage() {
               <span className="text-xs text-muted-foreground">Paying Users</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerData ? formatNumber(safeRevenueStats.payingUsers) : (
+              {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                formatNumber(safeRevenueStats.payingUsers ?? 0)
               )}
             </div>
           </CardContent>
@@ -215,8 +229,12 @@ export default function MonetizationPage() {
               <span className="text-xs text-muted-foreground">ARPPU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerData ? formatRobux(safeRevenueStats.arppu) : (
+              {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : safeRevenueStats.arppu === null || safeRevenueStats.arppu === 0 ? (
+                <span className="text-lg font-medium text-muted-foreground">—</span>
+              ) : (
+                formatRobux(safeRevenueStats.arppu)
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">Avg Revenue Per Paying User</p>
@@ -231,8 +249,12 @@ export default function MonetizationPage() {
               <span className="text-xs text-muted-foreground">ARPDAU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerData ? formatRobux(safeRevenueStats.arpdau) : (
+              {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : safeRevenueStats.arpdau === null || safeRevenueStats.arpdau === 0 ? (
+                <span className="text-lg font-medium text-muted-foreground">—</span>
+              ) : (
+                formatRobux(safeRevenueStats.arpdau)
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">Avg Revenue Per Daily Active User</p>
