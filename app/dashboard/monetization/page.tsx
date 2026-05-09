@@ -146,12 +146,12 @@ function ChartLegend({ items }: { items: Array<{ name: string; color: string; va
 
 type ChartRange = "24h" | "72h" | "7d" | "28d";
 type ChartInterval = "hourly" | "daily";
-type ChartBreakdown = "total" | "split";
+type ChartMode = "total" | "gamepasses" | "devproducts";
 
 export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
-  const [chartBreakdown, setChartBreakdown] = useState<ChartBreakdown>("split");
+  const [chartMode, setChartMode] = useState<ChartMode>("total");
 
   const {
     isLoading,
@@ -221,10 +221,25 @@ export default function MonetizationPage() {
 
   // Calculate totals for current view
   const chartTotals = useMemo(() => {
-    let activeHours = 0;
+    let activeBuckets = 0;
+    let gamepassPurchases = 0;
+    let devproductPurchases = 0;
+    
     const totals = processedChartData.reduce(
       (acc, d) => {
-        if (d.totalRevenue > 0) activeHours++;
+        // Count active buckets based on current mode
+        if (chartMode === "total" && d.totalRevenue > 0) activeBuckets++;
+        else if (chartMode === "gamepasses" && d.gamepassRevenue > 0) activeBuckets++;
+        else if (chartMode === "devproducts" && d.devproductRevenue > 0) activeBuckets++;
+        
+        // Track purchases by type (approximation based on revenue ratio)
+        if (d.totalRevenue > 0 && d.purchases > 0) {
+          const gamepassRatio = d.gamepassRevenue / d.totalRevenue;
+          const devproductRatio = d.devproductRevenue / d.totalRevenue;
+          gamepassPurchases += Math.round(d.purchases * gamepassRatio);
+          devproductPurchases += Math.round(d.purchases * devproductRatio);
+        }
+        
         return {
           total: acc.total + d.totalRevenue,
           devproduct: acc.devproduct + d.devproductRevenue,
@@ -234,16 +249,57 @@ export default function MonetizationPage() {
       },
       { total: 0, devproduct: 0, gamepass: 0, purchases: 0 }
     );
-    return { ...totals, activeHours };
-  }, [processedChartData]);
+    return { ...totals, activeBuckets, gamepassPurchases, devproductPurchases };
+  }, [processedChartData, chartMode]);
 
-  // Calculate Y-axis max with padding
+  // Get current mode's revenue value for Y-axis calculation
+  const currentModeRevenue = useMemo(() => {
+    return processedChartData.map(d => {
+      if (chartMode === "total") return d.totalRevenue;
+      if (chartMode === "gamepasses") return d.gamepassRevenue;
+      return d.devproductRevenue;
+    });
+  }, [processedChartData, chartMode]);
+
+  // Calculate Y-axis max with padding based on current mode
   const yAxisMax = useMemo(() => {
-    if (!processedChartData.length) return 100;
-    const maxValue = Math.max(...processedChartData.map(d => d.totalRevenue));
+    if (!currentModeRevenue.length) return 100;
+    const maxValue = Math.max(...currentModeRevenue);
     if (maxValue === 0) return 10;
     return Math.ceil(maxValue * 1.2);
-  }, [processedChartData]);
+  }, [currentModeRevenue]);
+
+  // Get current mode display info
+  const modeConfig = useMemo(() => {
+    if (chartMode === "total") {
+      return {
+        label: "Total Revenue",
+        color: COLORS.totalRevenue,
+        dataKey: "totalRevenue" as const,
+        revenue: chartTotals.total,
+        purchases: chartTotals.purchases,
+        purchaseLabel: "Purchases",
+      };
+    } else if (chartMode === "gamepasses") {
+      return {
+        label: "Gamepasses",
+        color: COLORS.gamepass,
+        dataKey: "gamepassRevenue" as const,
+        revenue: chartTotals.gamepass,
+        purchases: chartTotals.gamepassPurchases,
+        purchaseLabel: "Gamepass Purchases",
+      };
+    } else {
+      return {
+        label: "Dev Products",
+        color: COLORS.devProduct,
+        dataKey: "devproductRevenue" as const,
+        revenue: chartTotals.devproduct,
+        purchases: chartTotals.devproductPurchases,
+        purchaseLabel: "Dev Product Purchases",
+      };
+    }
+  }, [chartMode, chartTotals]);
 
   const handleRefresh = async () => {
     if (refresh) await refresh();
@@ -294,7 +350,8 @@ export default function MonetizationPage() {
     );
   }
 
-  const hasChartData = processedChartData.length > 0 && chartTotals.total > 0;
+  const hasChartData = processedChartData.length > 0;
+  const hasCurrentModeData = modeConfig.revenue > 0;
 
   return (
     <div className="space-y-6">
@@ -500,27 +557,37 @@ export default function MonetizationPage() {
                   </button>
                 ))}
               </div>
-              {/* Breakdown toggle */}
+              {/* Mode selector: Total / Gamepasses / Dev Products */}
               <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
                 <button
-                  onClick={() => setChartBreakdown("total")}
+                  onClick={() => setChartMode("total")}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    chartBreakdown === "total"
-                      ? "bg-neutral-700 text-white"
+                    chartMode === "total"
+                      ? "bg-blue-600 text-white"
                       : "text-neutral-400 hover:text-neutral-200"
                   }`}
                 >
                   Total
                 </button>
                 <button
-                  onClick={() => setChartBreakdown("split")}
+                  onClick={() => setChartMode("gamepasses")}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    chartBreakdown === "split"
-                      ? "bg-neutral-700 text-white"
+                    chartMode === "gamepasses"
+                      ? "bg-pink-600 text-white"
                       : "text-neutral-400 hover:text-neutral-200"
                   }`}
                 >
-                  By Type
+                  Gamepasses
+                </button>
+                <button
+                  onClick={() => setChartMode("devproducts")}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                    chartMode === "devproducts"
+                      ? "bg-green-600 text-white"
+                      : "text-neutral-400 hover:text-neutral-200"
+                  }`}
+                >
+                  Dev Products
                 </button>
               </div>
             </div>
@@ -545,25 +612,39 @@ export default function MonetizationPage() {
             </div>
           ) : (
             <>
-              {/* Summary stats above chart */}
+              {/* Summary stats for selected mode */}
               <div className="flex items-center justify-center gap-6 mb-4 text-center">
                 <div>
-                  <p className="text-2xl font-bold text-white">R${chartTotals.total.toLocaleString()}</p>
-                  <p className="text-xs text-neutral-400">Total Revenue</p>
+                  <p className="text-2xl font-bold text-white">R${modeConfig.revenue.toLocaleString()}</p>
+                  <p className="text-xs text-neutral-400">{modeConfig.label}</p>
                 </div>
                 <div className="w-px h-10 bg-neutral-700" />
                 <div>
-                  <p className="text-2xl font-bold text-white">{chartTotals.purchases.toLocaleString()}</p>
-                  <p className="text-xs text-neutral-400">Purchases</p>
+                  <p className="text-2xl font-bold text-white">{modeConfig.purchases.toLocaleString()}</p>
+                  <p className="text-xs text-neutral-400">{modeConfig.purchaseLabel}</p>
                 </div>
                 <div className="w-px h-10 bg-neutral-700" />
                 <div>
-                  <p className="text-2xl font-bold text-white">{chartTotals.activeHours}</p>
+                  <p className="text-2xl font-bold text-white">{chartTotals.activeBuckets}</p>
                   <p className="text-xs text-neutral-400">Active {chartInterval === "hourly" ? "Hours" : "Days"}</p>
                 </div>
               </div>
+
+              {/* Single legend item for current mode */}
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <div className="w-3 h-3 rounded-full" style={{ backgroundColor: modeConfig.color }} />
+                <span className="text-xs text-neutral-300">{modeConfig.label}</span>
+              </div>
               
-              <div className="h-[360px]">
+              <div className="h-[360px] relative">
+                {/* Empty state when no data for selected mode */}
+                {!hasCurrentModeData && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-neutral-900/80 rounded-lg">
+                    <p className="text-neutral-400 text-sm font-medium">No revenue for this view</p>
+                    <p className="text-neutral-500 text-xs mt-1">Try another product type or range.</p>
+                  </div>
+                )}
+                
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={processedChartData} margin={{ top: 30, right: 20, left: 10, bottom: 10 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
@@ -592,80 +673,37 @@ export default function MonetizationPage() {
                     />
                     <Tooltip content={<HeroChartTooltip />} />
                     
-                    {chartBreakdown === "total" ? (
-                      <>
-                        {/* Total revenue as bars - visible even with sparse data */}
-                        <Bar
-                          dataKey="totalRevenue"
-                          name="Total Revenue"
-                          fill={COLORS.totalRevenue}
-                          radius={[6, 6, 0, 0]}
-                          maxBarSize={60}
-                          minPointSize={4}
-                        >
-                          <LabelList 
-                            dataKey="totalRevenue" 
-                            position="top" 
-                            formatter={(v: number) => v > 0 ? `R$${v}` : ""}
-                            fill="#FFFFFF"
-                            fontSize={11}
-                            fontWeight={600}
-                          />
-                        </Bar>
-                        {/* Optional trend line */}
-                        <Line
-                          type="monotone"
-                          dataKey="totalRevenue"
-                          name="Trend"
-                          stroke={COLORS.totalRevenue}
-                          strokeWidth={3}
-                          dot={{ r: 4, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
-                          activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
-                          legendType="none"
-                        />
-                      </>
-                    ) : (
-                      <>
-                        {/* Stacked bars for dev products and gamepasses */}
-                        <Bar
-                          dataKey="devproductRevenue"
-                          name="Dev Products"
-                          fill={COLORS.devProduct}
-                          stackId="revenue"
-                          radius={[0, 0, 0, 0]}
-                          maxBarSize={60}
-                          minPointSize={4}
-                        />
-                        <Bar
-                          dataKey="gamepassRevenue"
-                          name="Game Passes"
-                          fill={COLORS.gamepass}
-                          stackId="revenue"
-                          radius={[6, 6, 0, 0]}
-                          maxBarSize={60}
-                          minPointSize={4}
-                        >
-                          <LabelList 
-                            dataKey="totalRevenue" 
-                            position="top" 
-                            formatter={(v: number) => v > 0 ? `R$${v}` : ""}
-                            fill="#FFFFFF"
-                            fontSize={11}
-                            fontWeight={600}
-                          />
-                        </Bar>
-                        {/* Total line overlay */}
-                        <Line
-                          type="monotone"
-                          dataKey="totalRevenue"
-                          name="Total"
-                          stroke={COLORS.totalRevenue}
-                          strokeWidth={3}
-                          dot={{ r: 4, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
-                          activeDot={{ r: 6, fill: COLORS.totalRevenue, strokeWidth: 2, stroke: "#0a0a0a" }}
-                        />
-                      </>
-                    )}
+                    {/* Single bar series for selected mode */}
+                    <Bar
+                      dataKey={modeConfig.dataKey}
+                      name={modeConfig.label}
+                      fill={modeConfig.color}
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={60}
+                      minPointSize={6}
+                    >
+                      <LabelList 
+                        dataKey={modeConfig.dataKey}
+                        position="top" 
+                        formatter={(v: number) => v > 0 ? `R$${v}` : ""}
+                        fill="#FFFFFF"
+                        fontSize={11}
+                        fontWeight={600}
+                      />
+                    </Bar>
+                    
+                    {/* Optional trend line for visual continuity */}
+                    <Line
+                      type="monotone"
+                      dataKey={modeConfig.dataKey}
+                      name="Trend"
+                      stroke={modeConfig.color}
+                      strokeWidth={2}
+                      strokeOpacity={0.6}
+                      dot={false}
+                      activeDot={{ r: 5, fill: modeConfig.color, strokeWidth: 2, stroke: "#0a0a0a" }}
+                      legendType="none"
+                    />
                   </ComposedChart>
                 </ResponsiveContainer>
               </div>
