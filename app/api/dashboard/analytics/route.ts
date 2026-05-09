@@ -522,6 +522,57 @@ export async function GET(request: NextRequest) {
   
   const revenue72h = purchases72h.reduce((sum, e) => sum + getEventRobux(e), 0);
 
+  // === HOURLY MONETIZATION CHART DATA (Last 72 hours) ===
+  // This is independent of the range filter - always shows last 72 hours grouped hourly
+  const hourlyMonetization: Array<{
+    time: string;
+    totalRevenue: number;
+    devproductRevenue: number;
+    gamepassRevenue: number;
+    purchases: number;
+  }> = [];
+
+  // Create buckets for each hour in the last 72 hours
+  const hourlyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
+  
+  // Initialize all 72 hour buckets with zero values
+  for (let i = 0; i < 72; i++) {
+    const bucketTime = new Date(now72h.getTime() - i * 60 * 60 * 1000);
+    const bucketKey = bucketTime.toISOString().slice(0, 13) + ":00:00.000Z";
+    hourlyBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0 });
+  }
+
+  // Fill in actual purchase data
+  purchases72h.forEach((e) => {
+    const eventDate = new Date(e.created_at);
+    const bucketKey = eventDate.toISOString().slice(0, 13) + ":00:00.000Z";
+    const eventRobux = getEventRobux(e);
+    
+    const existing = hourlyBuckets.get(bucketKey);
+    if (existing) {
+      existing.total += eventRobux;
+      existing.purchases += 1;
+      if (e.product_type === "gamepass" || e.event_type === "gamepass_purchase") {
+        existing.gamepass += eventRobux;
+      } else {
+        existing.devproduct += eventRobux;
+      }
+    }
+  });
+
+  // Convert to sorted array (oldest first)
+  Array.from(hourlyBuckets.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .forEach(([time, data]) => {
+      hourlyMonetization.push({
+        time,
+        totalRevenue: data.total,
+        devproductRevenue: data.devproduct,
+        gamepassRevenue: data.gamepass,
+        purchases: data.purchases,
+      });
+    });
+
   // Calculate avg session duration from paired events
   const sessionDurations: number[] = [];
   const activeSessions = new Map<string, Date>();
@@ -1045,6 +1096,10 @@ export async function GET(request: NextRequest) {
         purchasesOverTime,
         revenueByProductType,
         topProducts,
+        // New: 72h hourly monetization data (always from last 72 hours, grouped hourly)
+        hourlyMonetization,
+        revenue72h,
+        purchaseCount72h: purchases72h.length,
       } : null,
       // Product analytics
       productAnalytics: {
