@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { roblox_game_id, source, groupId, groupName, roleName, roleRank, rootPlaceId } = body;
+    const { roblox_game_id, source, groupId, groupName, roleName, roleRank, rootPlaceId, iconUrl } = body;
 
     if (!roblox_game_id) {
       return NextResponse.json(
@@ -45,6 +45,9 @@ export async function POST(request: NextRequest) {
     }
     if (roleRank !== undefined) {
       updateData.role_rank = roleRank !== null ? Number(roleRank) : null;
+    }
+    if (iconUrl) {
+      updateData.thumbnail_url = iconUrl;
     }
 
     // Update the game matching user_id and roblox_game_id
