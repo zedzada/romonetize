@@ -126,24 +126,24 @@ export function Pricing() {
                 plan.variant === "pro" && "lg:-mt-4 lg:mb-4 lg:scale-[1.02]"
               )}
             >
-              {/* Border effect - enhanced gradient for Pro */}
+              {/* Border effect - clean premium borders */}
               <div className={cn(
                 "absolute -inset-px rounded-2xl transition-all duration-300",
                 plan.variant === "pro" 
-                  ? "bg-gradient-to-b from-primary via-blue-400/70 to-primary/30 shadow-lg shadow-primary/20"
+                  ? "bg-primary/60 dark:bg-primary/70 shadow-[0_0_30px_-5px] shadow-primary/25 dark:shadow-primary/30"
                   : plan.variant === "studio"
-                    ? "bg-gradient-to-b from-border via-border to-border/50 group-hover:from-primary/50 group-hover:via-primary/30 group-hover:to-primary/10"
-                    : "bg-border group-hover:bg-primary/30"
+                    ? "bg-border group-hover:bg-amber-500/50 dark:group-hover:bg-amber-500/60 group-hover:shadow-[0_0_25px_-5px] group-hover:shadow-amber-500/20"
+                    : "bg-border group-hover:bg-border/80"
               )} />
               
               {/* Card */}
               <div className={cn(
                 "relative rounded-2xl p-8 h-full flex flex-col transition-all duration-300",
                 plan.variant === "pro" 
-                  ? "bg-gradient-to-b from-primary/10 via-card to-card"
+                  ? "bg-card"
                   : plan.variant === "studio"
-                    ? "bg-gradient-to-b from-card via-card to-card/95 group-hover:from-primary/5"
-                    : "bg-card group-hover:bg-card/95"
+                    ? "bg-card group-hover:bg-amber-50/30 dark:group-hover:bg-amber-950/10"
+                    : "bg-card"
               )}>
                 {/* Badge - enhanced styling */}
                 {plan.badge && (
@@ -224,9 +224,9 @@ export function Pricing() {
                   className={cn(
                     "w-full h-12 font-semibold rounded-xl transition-all duration-300",
                     plan.variant === "pro" 
-                      ? "bg-gradient-to-r from-primary to-blue-500 hover:from-primary/90 hover:to-blue-500/90 text-primary-foreground shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 hover:scale-[1.02]" 
+                      ? "bg-primary hover:bg-primary/90 text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:scale-[1.02]" 
                       : plan.variant === "studio"
-                        ? "bg-secondary hover:bg-secondary/80 text-foreground border border-border hover:border-primary/30 hover:shadow-lg"
+                        ? "bg-secondary hover:bg-amber-100 dark:hover:bg-amber-950/30 text-foreground border border-border hover:border-amber-400/50 hover:shadow-md"
                         : "bg-secondary hover:bg-secondary/80 text-foreground border border-border"
                   )}
                 >
