@@ -34,17 +34,28 @@ export function Hero({ onOpenAuthModal }: HeroProps) {
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden pt-16">
-      {/* Premium dark gradient background */}
-      <div className="absolute inset-0 bg-gradient-to-b from-background via-background to-primary/5" />
+      {/* Base dark background */}
+      <div className="absolute inset-0 bg-background" />
       
-      {/* Dotted grid pattern with mask */}
+      {/* Premium gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary/[0.02] to-primary/5" />
+      
+      {/* Primary dotted grid - clearly visible */}
       <div className="absolute inset-0 bg-dot-grid-masked" />
       
-      {/* Hero glow effect */}
+      {/* Hero glow effect behind text */}
       <div className="absolute inset-0 bg-hero-glow" />
       
-      {/* Secondary subtle glow */}
-      <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[800px] h-[500px] bg-primary/5 rounded-full blur-[150px]" />
+      {/* Secondary cyan glow */}
+      <div className="absolute inset-0 bg-hero-glow-secondary" />
+      
+      {/* Large blurred glow orb */}
+      <div className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-sky-500/[0.08] rounded-full blur-[120px] pointer-events-none" />
+      
+      {/* Decorative floating elements - subtle accents */}
+      <div className="absolute top-[15%] left-[8%] w-16 h-16 border border-sky-500/20 rounded-lg rotate-12 blur-[1px] opacity-60" />
+      <div className="absolute top-[25%] right-[10%] w-12 h-12 border border-primary/25 rounded-md -rotate-6 blur-[0.5px] opacity-50" />
+      <div className="absolute bottom-[20%] left-[12%] w-10 h-10 border border-cyan-400/15 rounded-lg rotate-45 blur-[1px] opacity-40" />
 
       <div className="relative z-10 max-w-5xl mx-auto px-6 text-center">
         {/* Trust badge */}
