@@ -24,12 +24,23 @@
   --border: oklch(0.88 0.01 260);
   --input: oklch(0.92 0.005 260);
   --ring: oklch(0.55 0.2 250);
-  --chart-1: oklch(0.55 0.19 160);  /* Emerald - revenue */
-  --chart-2: oklch(0.55 0.18 230);  /* Blue - purchases */
-  --chart-3: oklch(0.55 0.20 290);  /* Purple - players/events */
-  --chart-4: oklch(0.55 0.16 200);  /* Cyan - CCU */
-  --chart-5: oklch(0.55 0.18 30);   /* Orange - accent */
-  --chart-grid: oklch(0.85 0.01 260);
+  /* Light mode chart colors - vibrant and visible */
+  --chart-1: #16A34A;  /* Green - revenue */
+  --chart-2: #2563EB;  /* Blue - purchases */
+  --chart-3: #7C3AED;  /* Purple - players/events */
+  --chart-4: #0891B2;  /* Cyan - CCU */
+  --chart-5: #D97706;  /* Amber - accent */
+  --chart-emerald: #16A34A;
+  --chart-sky: #2563EB;
+  --chart-violet: #7C3AED;
+  --chart-cyan: #0891B2;
+  --chart-amber: #D97706;
+  --chart-rose: #E11D48;
+  --chart-grid: #E5E7EB;
+  --chart-axis: #4B5563;
+  --chart-tooltip-bg: #FFFFFF;
+  --chart-tooltip-border: #E5E7EB;
+  --chart-tooltip-text: #111827;
   --radius: 0.625rem;
   --sidebar: oklch(0.98 0.002 260);
   --sidebar-foreground: oklch(0.15 0.02 260);
@@ -70,6 +81,10 @@
   --chart-amber: #fbbf24;     /* Accent/warnings */
   --chart-rose: #fb7185;      /* Errors/negative */
   --chart-grid: #374151;      /* Subtle grid lines */
+  --chart-axis: #9CA3AF;      /* Axis labels */
+  --chart-tooltip-bg: #171717;
+  --chart-tooltip-border: #404040;
+  --chart-tooltip-text: #F5F5F5;
   /* Legacy chart-N vars for compatibility */
   --chart-1: #34d399;
   --chart-2: #38bdf8;
@@ -120,6 +135,11 @@
   --color-chart-cyan: var(--chart-cyan);
   --color-chart-amber: var(--chart-amber);
   --color-chart-rose: var(--chart-rose);
+  --color-chart-grid: var(--chart-grid);
+  --color-chart-axis: var(--chart-axis);
+  --color-chart-tooltip-bg: var(--chart-tooltip-bg);
+  --color-chart-tooltip-border: var(--chart-tooltip-border);
+  --color-chart-tooltip-text: var(--chart-tooltip-text);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -169,8 +189,12 @@
 
   /* Dashboard grid - extremely subtle for authenticated pages */
   .bg-dashboard-grid {
-    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+    background-image: radial-gradient(circle, rgba(0, 0, 0, 0.04) 1px, transparent 1px);
     background-size: 24px 24px;
+  }
+  
+  .dark .bg-dashboard-grid {
+    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
   }
 
   /* Hero glow effect - more visible */

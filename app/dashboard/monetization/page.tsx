@@ -133,8 +133,8 @@ function HeroChartTooltip({
   const devproductPurchases = grossTotal > 0 ? Math.round(purchases * (grossDevproduct / grossTotal)) : 0;
   
   return (
-    <div className="bg-neutral-900 border border-neutral-700 rounded-lg shadow-xl p-3 min-w-[180px]">
-      <p className="text-xs text-neutral-400 mb-3 font-medium border-b border-neutral-700 pb-2">{formattedTime}</p>
+    <div className="bg-popover border border-border rounded-lg shadow-xl p-3 min-w-[180px]">
+      <p className="text-xs text-muted-foreground mb-3 font-medium border-b border-border pb-2">{formattedTime}</p>
       <div className="space-y-2">
         {/* Total mode: show all 3 revenue types with estimated values */}
         {chartMode === "total" && (
@@ -142,30 +142,30 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                <span className="text-xs text-neutral-300">Est. Revenue</span>
+                <span className="text-xs text-muted-foreground">Est. Revenue</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${estTotal.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${estTotal.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
-                <span className="text-xs text-neutral-300">Gamepasses</span>
+                <span className="text-xs text-muted-foreground">Gamepasses</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${estGamepass.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${estGamepass.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <span className="text-xs text-neutral-300">Dev Products</span>
+                <span className="text-xs text-muted-foreground">Dev Products</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${estDevproduct.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${estDevproduct.toLocaleString()}</span>
             </div>
-            <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+            <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-neutral-300">Purchases</span>
+                <span className="text-xs text-muted-foreground">Purchases</span>
               </div>
-              <span className="text-xs font-semibold text-white">{purchases.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">{purchases.toLocaleString()}</span>
             </div>
           </>
         )}
@@ -176,16 +176,16 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
-                <span className="text-xs text-neutral-300">Est. Gamepasses</span>
+                <span className="text-xs text-muted-foreground">Est. Gamepasses</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${estGamepass.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${estGamepass.toLocaleString()}</span>
             </div>
-            <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+            <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-neutral-300">Gamepass Purchases</span>
+                <span className="text-xs text-muted-foreground">Gamepass Purchases</span>
               </div>
-              <span className="text-xs font-semibold text-white">{gamepassPurchases.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">{gamepassPurchases.toLocaleString()}</span>
             </div>
           </>
         )}
@@ -196,16 +196,16 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <span className="text-xs text-neutral-300">Est. Dev Products</span>
+                <span className="text-xs text-muted-foreground">Est. Dev Products</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${estDevproduct.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${estDevproduct.toLocaleString()}</span>
             </div>
-            <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
+            <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-neutral-300">Dev Product Purchases</span>
+                <span className="text-xs text-muted-foreground">Dev Product Purchases</span>
               </div>
-              <span className="text-xs font-semibold text-white">{devproductPurchases.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">{devproductPurchases.toLocaleString()}</span>
             </div>
           </>
         )}
@@ -221,9 +221,9 @@ function ChartLegend({ items }: { items: Array<{ name: string; color: string; va
       {items.map((item) => (
         <div key={item.name} className="flex items-center gap-2">
           <div className="w-3 h-3 rounded-full" style={{ backgroundColor: item.color }} />
-          <span className="text-xs text-neutral-400">{item.name}</span>
+          <span className="text-xs text-muted-foreground">{item.name}</span>
           {item.value !== undefined && (
-            <span className="text-xs font-medium text-neutral-200">R${item.value.toLocaleString()}</span>
+            <span className="text-xs font-medium text-foreground">R${item.value.toLocaleString()}</span>
           )}
         </div>
       ))}
@@ -566,53 +566,53 @@ export default function MonetizationPage() {
 
       {/* Revenue Stats Cards - 6 column grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <Card className="border-neutral-700/60 bg-neutral-900/40">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs text-neutral-400">Est. Revenue</span>
+              <span className="text-xs text-muted-foreground">Est. Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
-                <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
                 formatRobux(safeRevenueStats.estimatedRevenue ?? 0)
               )}
             </div>
             {hasTrackerData && safeRevenueStats.grossRevenue > 0 && (
-              <p className="text-[10px] text-neutral-500 mt-1" title={`Gross: R$${safeRevenueStats.grossRevenue?.toLocaleString()}`}>
+              <p className="text-[10px] text-muted-foreground mt-1" title={`Gross: R$${safeRevenueStats.grossRevenue?.toLocaleString()}`}>
                 After 30% Roblox fee
               </p>
             )}
           </CardContent>
         </Card>
 
-        <Card className="border-neutral-700/60 bg-neutral-900/40">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-xs text-neutral-400">Est. 72h Revenue</span>
+              <span className="text-xs text-muted-foreground">Est. 72h Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
-                <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
                 formatRobux(safeRevenueStats.estimatedRevenue72h ?? 0)
               )}
             </div>
-            <p className="text-[10px] text-neutral-500 mt-1">Last 72 hours</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Last 72 hours</p>
           </CardContent>
         </Card>
 
-        <Card className="border-neutral-700/60 bg-neutral-900/40">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-neutral-400">Purchases</span>
+              <span className="text-xs text-muted-foreground">Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
-                <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
                 formatNumber(safeRevenueStats.totalPurchases)
               )}
@@ -620,15 +620,15 @@ export default function MonetizationPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-neutral-700/60 bg-neutral-900/40">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <Users className="w-4 h-4 text-violet-400" />
-              <span className="text-xs text-neutral-400">Paying Users</span>
+              <span className="text-xs text-muted-foreground">Paying Users</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
-                <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
                 formatNumber(safeRevenueStats.payingUsers)
               )}
@@ -636,50 +636,50 @@ export default function MonetizationPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-neutral-700/60 bg-neutral-900/40">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <Coins className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-neutral-400">Est. ARPPU</span>
+              <span className="text-xs text-muted-foreground">Est. ARPPU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData || !safeRevenueStats.estimatedArppu ? (
-                <span className="text-lg font-medium text-neutral-500">—</span>
+                <span className="text-lg font-medium text-muted-foreground">—</span>
               ) : (
                 formatRobux(safeRevenueStats.estimatedArppu)
               )}
             </div>
-            <p className="text-[10px] text-neutral-500 mt-1">Per paying user</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Per paying user</p>
           </CardContent>
         </Card>
 
-        <Card className="border-neutral-700/60 bg-neutral-900/40">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-neutral-400">Est. ARPDAU</span>
+              <span className="text-xs text-muted-foreground">Est. ARPDAU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData || !safeRevenueStats.estimatedArpdau ? (
-                <span className="text-lg font-medium text-neutral-500">—</span>
+                <span className="text-lg font-medium text-muted-foreground">—</span>
               ) : (
                 formatRobux(safeRevenueStats.estimatedArpdau)
               )}
             </div>
-            <p className="text-[10px] text-neutral-500 mt-1">Per daily active user</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Per daily active user</p>
           </CardContent>
         </Card>
       </div>
 
       {/* Hero Chart: Hourly Revenue / Sales */}
-      <Card className="border-neutral-700/60 bg-neutral-900/40">
+      <Card className="border-border bg-card shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">
                 Estimated Revenue & Sales
               </CardTitle>
-              <p className="text-sm text-neutral-400 mt-0.5">
+              <p className="text-sm text-muted-foreground mt-0.5">
                 {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : chartRange === "28d" ? "Last 28 days" : "Last 90 days"}
                 {chartInterval === "1m" ? " (per minute)" : chartInterval === "hourly" ? " (hourly)" : " (daily)"}
               </p>
@@ -687,15 +687,15 @@ export default function MonetizationPage() {
             {/* Chart Controls */}
             <div className="flex flex-wrap items-center gap-2">
               {/* Range selector */}
-              <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+              <div className="flex items-center bg-secondary/50 dark:bg-secondary/80 rounded-lg p-0.5">
                 {(["1h", "6h", "24h", "72h", "7d", "28d", "90d"] as ChartRange[]).map((r) => (
                   <button
                     key={r}
                     onClick={() => handleRangeChange(r)}
                     className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
                       chartRange === r
-                        ? "bg-neutral-700 text-white"
-                        : "text-neutral-400 hover:text-neutral-200"
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
                     }`}
                   >
                     {r.toUpperCase()}
@@ -703,7 +703,7 @@ export default function MonetizationPage() {
                 ))}
               </div>
               {/* Interval selector */}
-              <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+              <div className="flex items-center bg-secondary/50 dark:bg-secondary/80 rounded-lg p-0.5">
                 {(["1m", "hourly", "daily"] as ChartInterval[]).map((i) => {
                   // Disable 1m for ranges > 24h, disable hourly for 90d
                   const is1mDisabled = i === "1m" && !supportsMinuteInterval(chartRange);
@@ -722,10 +722,10 @@ export default function MonetizationPage() {
                       disabled={isDisabled}
                       className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                         chartInterval === i
-                          ? i === "1m" ? "bg-emerald-600 text-white" : "bg-neutral-700 text-white"
+                          ? i === "1m" ? "bg-emerald-600 text-white" : "bg-background text-foreground shadow-sm"
                           : isDisabled
-                            ? "text-neutral-600 cursor-not-allowed"
-                            : "text-neutral-400 hover:text-neutral-200"
+                            ? "text-muted-foreground/50 cursor-not-allowed"
+                            : "text-muted-foreground hover:text-foreground"
                       }`}
                       title={disabledTitle}
                     >
@@ -735,13 +735,13 @@ export default function MonetizationPage() {
                 })}
               </div>
               {/* Mode selector: Total / Gamepasses / Dev Products */}
-              <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+              <div className="flex items-center bg-secondary/50 dark:bg-secondary/80 rounded-lg p-0.5">
                 <button
                   onClick={() => setChartMode("total")}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     chartMode === "total"
                       ? "bg-blue-600 text-white"
-                      : "text-neutral-400 hover:text-neutral-200"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Total
@@ -751,7 +751,7 @@ export default function MonetizationPage() {
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     chartMode === "gamepasses"
                       ? "bg-pink-600 text-white"
-                      : "text-neutral-400 hover:text-neutral-200"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Gamepasses
@@ -761,7 +761,7 @@ export default function MonetizationPage() {
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                     chartMode === "devproducts"
                       ? "bg-green-600 text-white"
-                      : "text-neutral-400 hover:text-neutral-200"
+                      : "text-muted-foreground hover:text-foreground"
                   }`}
                 >
                   Dev Products
@@ -773,17 +773,17 @@ export default function MonetizationPage() {
         <CardContent className="pt-2">
           {!hasTrackerData ? (
             <div className="h-[350px] flex flex-col items-center justify-center text-center">
-              <Activity className="w-12 h-12 text-neutral-600 mb-4" />
-              <p className="text-base font-medium text-neutral-300 mb-1">Not enough purchase data yet</p>
-              <p className="text-sm text-neutral-500 max-w-md">
+              <Activity className="w-12 h-12 text-muted-foreground mb-4" />
+              <p className="text-base font-medium text-foreground mb-1">Not enough purchase data yet</p>
+              <p className="text-sm text-muted-foreground max-w-md">
                 Make a few purchases in your game to populate the revenue chart. Revenue tracking requires the tracking script.
               </p>
             </div>
           ) : !hasChartData ? (
             <div className="h-[350px] flex flex-col items-center justify-center text-center">
-              <Activity className="w-12 h-12 text-neutral-600 mb-4" />
-              <p className="text-base font-medium text-neutral-300 mb-1">No revenue in selected period</p>
-              <p className="text-sm text-neutral-500 max-w-md">
+              <Activity className="w-12 h-12 text-muted-foreground mb-4" />
+              <p className="text-base font-medium text-foreground mb-1">No revenue in selected period</p>
+              <p className="text-sm text-muted-foreground max-w-md">
                 No purchases have been tracked in the {chartRange === "24h" ? "last 24 hours" : chartRange === "72h" ? "last 72 hours" : chartRange === "7d" ? "last 7 days" : chartRange === "28d" ? "last 28 days" : "last 90 days"}. Try selecting a different time range.
               </p>
             </div>
@@ -792,18 +792,18 @@ export default function MonetizationPage() {
               {/* Summary stats for selected mode */}
               <div className="flex items-center justify-center gap-6 mb-4 text-center">
                 <div>
-                  <p className="text-2xl font-bold text-white">R${modeConfig.revenue.toLocaleString()}</p>
-                  <p className="text-xs text-neutral-400">{modeConfig.label}</p>
+                  <p className="text-2xl font-bold text-foreground">R${modeConfig.revenue.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{modeConfig.label}</p>
                 </div>
-                <div className="w-px h-10 bg-neutral-700" />
+                <div className="w-px h-10 bg-border" />
                 <div>
-                  <p className="text-2xl font-bold text-white">{modeConfig.purchases.toLocaleString()}</p>
-                  <p className="text-xs text-neutral-400">{modeConfig.purchaseLabel}</p>
+                  <p className="text-2xl font-bold text-foreground">{modeConfig.purchases.toLocaleString()}</p>
+                  <p className="text-xs text-muted-foreground">{modeConfig.purchaseLabel}</p>
                 </div>
-                <div className="w-px h-10 bg-neutral-700" />
+                <div className="w-px h-10 bg-border" />
                 <div>
-                  <p className="text-2xl font-bold text-white">{chartTotals.activeBuckets}</p>
-                  <p className="text-xs text-neutral-400">Active {chartInterval === "1m" ? "Minutes" : chartInterval === "hourly" ? "Hours" : "Days"}</p>
+                  <p className="text-2xl font-bold text-foreground">{chartTotals.activeBuckets}</p>
+                  <p className="text-xs text-muted-foreground">Active {chartInterval === "1m" ? "Minutes" : chartInterval === "hourly" ? "Hours" : "Days"}</p>
                 </div>
               </div>
 
@@ -813,21 +813,21 @@ export default function MonetizationPage() {
                   <>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.totalRevenue }} />
-                      <span className="text-xs text-neutral-300">Total Revenue</span>
+                      <span className="text-xs text-foreground">Total Revenue</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.gamepass }} />
-                      <span className="text-xs text-neutral-300">Gamepasses</span>
+                      <span className="text-xs text-foreground">Gamepasses</span>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="w-3 h-3 rounded-full" style={{ backgroundColor: COLORS.devProduct }} />
-                      <span className="text-xs text-neutral-300">Dev Products</span>
+                      <span className="text-xs text-foreground">Dev Products</span>
                     </div>
                   </>
                 ) : (
                   <div className="flex items-center gap-2">
                     <div className="w-3 h-3 rounded-full" style={{ backgroundColor: modeConfig.color }} />
-                    <span className="text-xs text-neutral-300">{modeConfig.label}</span>
+                    <span className="text-xs text-foreground">{modeConfig.label}</span>
                   </div>
                 )}
               </div>
@@ -835,16 +835,16 @@ export default function MonetizationPage() {
               <div className="h-[360px] relative">
                 {/* Empty state when no data for selected mode */}
                 {!hasCurrentModeData && (
-                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-neutral-900/80 rounded-lg">
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-background/90 rounded-lg">
                     {chartInterval === "1m" ? (
                       <>
-                        <p className="text-neutral-400 text-sm font-medium">No revenue in this minute-level range yet</p>
-                        <p className="text-neutral-500 text-xs mt-1">New purchases will appear here in real time.</p>
+                        <p className="text-muted-foreground text-sm font-medium">No revenue in this minute-level range yet</p>
+                        <p className="text-muted-foreground text-xs mt-1">New purchases will appear here in real time.</p>
                       </>
                     ) : (
                       <>
-                        <p className="text-neutral-400 text-sm font-medium">No revenue for this view</p>
-                        <p className="text-neutral-500 text-xs mt-1">Try another product type or range.</p>
+                        <p className="text-muted-foreground text-sm font-medium">No revenue for this view</p>
+                        <p className="text-muted-foreground text-xs mt-1">Try another product type or range.</p>
                       </>
                     )}
                   </div>
@@ -1012,10 +1012,10 @@ export default function MonetizationPage() {
       {hasTrackerData && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Daily Revenue Chart */}
-          <Card className="border-neutral-700/60 bg-neutral-900/40">
+          <Card className="border-border bg-card shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold text-foreground">Daily Revenue</CardTitle>
-              <p className="text-xs text-neutral-400">Revenue grouped by day</p>
+              <p className="text-xs text-muted-foreground">Revenue grouped by day</p>
             </CardHeader>
             <CardContent className="pt-2">
               {monetizationCharts?.revenueOverTime?.length ? (
@@ -1060,17 +1060,17 @@ export default function MonetizationPage() {
                 </div>
               ) : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-neutral-500">No daily revenue data</p>
+                  <p className="text-sm text-muted-foreground">No daily revenue data</p>
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* Purchases Over Time Chart */}
-          <Card className="border-neutral-700/60 bg-neutral-900/40">
+          <Card className="border-border bg-card shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold text-foreground">Purchases Over Time</CardTitle>
-              <p className="text-xs text-neutral-400">Number of transactions</p>
+              <p className="text-xs text-muted-foreground">Number of transactions</p>
             </CardHeader>
             <CardContent className="pt-2">
               {monetizationCharts?.purchasesOverTime?.length ? (
@@ -1118,17 +1118,17 @@ export default function MonetizationPage() {
                 </div>
               ) : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-neutral-500">No purchase data</p>
+                  <p className="text-sm text-muted-foreground">No purchase data</p>
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* Revenue by Product Type - Donut Chart (estimated 70%) */}
-          <Card className="border-neutral-700/60 bg-neutral-900/40">
+          <Card className="border-border bg-card shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold text-foreground">Est. Revenue by Type</CardTitle>
-              <p className="text-xs text-neutral-400">Gamepasses vs Developer Products</p>
+              <p className="text-xs text-muted-foreground">Gamepasses vs Developer Products</p>
             </CardHeader>
             <CardContent className="pt-2">
               {monetizationCharts?.revenueByProductType?.length ? (() => {
@@ -1179,12 +1179,12 @@ export default function MonetizationPage() {
                               style={{ backgroundColor: item.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct }}
                             />
                             <div>
-                              <p className="text-sm font-medium text-neutral-300">
+                              <p className="text-sm font-medium text-foreground">
                                 {item.productType === "gamepass" ? "Game Passes" : "Dev Products"}
                               </p>
-                              <p className="text-lg font-bold text-white">
+                              <p className="text-lg font-bold text-foreground">
                                 R${item.revenue.toLocaleString()}
-                                <span className="text-xs text-neutral-500 ml-1">({percentage}%)</span>
+                                <span className="text-xs text-muted-foreground ml-1">({percentage}%)</span>
                               </p>
                             </div>
                           </div>
@@ -1195,17 +1195,17 @@ export default function MonetizationPage() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-neutral-500">No revenue breakdown</p>
+                  <p className="text-sm text-muted-foreground">No revenue breakdown</p>
                 </div>
               )}
             </CardContent>
           </Card>
 
           {/* Top Products - Horizontal Bar Chart (estimated 70%) */}
-          <Card className="border-neutral-700/60 bg-neutral-900/40">
+          <Card className="border-border bg-card shadow-sm">
             <CardHeader className="pb-2">
               <CardTitle className="text-base font-semibold text-foreground">Top Products by Est. Revenue</CardTitle>
-              <p className="text-xs text-neutral-400">Best performing products</p>
+              <p className="text-xs text-muted-foreground">Best performing products</p>
             </CardHeader>
             <CardContent className="pt-2">
               {monetizationCharts?.topProducts?.length ? (() => {
@@ -1253,7 +1253,7 @@ export default function MonetizationPage() {
                             return [
                               <span key="value">
                                 R${value.toLocaleString()} 
-                                <span className="text-neutral-400 ml-2">({payload?.purchases || 0} sales)</span>
+                                <span className="text-muted-foreground ml-2">({payload?.purchases || 0} sales)</span>
                               </span>,
                               payload?.productType === "gamepass" ? "Game Pass" : "Dev Product"
                             ];
@@ -1271,7 +1271,7 @@ export default function MonetizationPage() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-neutral-500">No product data</p>
+                  <p className="text-sm text-muted-foreground">No product data</p>
                 </div>
               )}
             </CardContent>
@@ -1280,7 +1280,7 @@ export default function MonetizationPage() {
       )}
 
       {/* Data explanation */}
-      <Card className="border-neutral-700/50 bg-neutral-900/30">
+      <Card className="border-border bg-card">
         <CardHeader>
           <CardTitle className="text-base">How Monetization Data Works</CardTitle>
           <CardDescription>
@@ -1289,7 +1289,7 @@ export default function MonetizationPage() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
-            <div className="p-4 rounded-lg bg-neutral-800/30 border border-neutral-700/50">
+            <div className="p-4 rounded-lg bg-muted/50 border border-border">
               <h4 className="font-medium text-foreground mb-2 flex items-center gap-2">
                 <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">
                   RoMonetize Tracker
@@ -1304,12 +1304,12 @@ export default function MonetizationPage() {
               </ul>
             </div>
 
-            <div className="p-4 rounded-lg bg-neutral-800/30 border border-neutral-700/50">
+            <div className="p-4 rounded-lg bg-muted/50 border border-border">
               <h4 className="font-medium text-foreground mb-2">Required Event: purchase_success</h4>
               <p className="text-sm text-muted-foreground mb-2">
                 Fire this event when a player completes a purchase:
               </p>
-              <pre className="text-xs bg-neutral-900/50 p-2 rounded border border-neutral-700/30 overflow-x-auto">
+              <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto">
 {`RoMonetize:TrackPurchase({
   player_id = player.UserId,
   product_id = productId,

@@ -290,7 +290,7 @@ export default function ProductsPage() {
 
       {/* Products from Tracker (purchase_success events) */}
       {hasTrackerEvents && hasTrackerProducts && (
-        <Card className="border-neutral-700/60 bg-neutral-900/50">
+        <Card className="border-border bg-card shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">Product Performance</CardTitle>
@@ -304,14 +304,14 @@ export default function ProductsPage() {
             <div className="overflow-x-auto -mx-6">
               <table className="w-full text-sm min-w-[900px]">
                 <thead>
-                  <tr className="border-b border-neutral-700 bg-neutral-800/50">
-                    <th className="text-left py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Product</th>
-                    <th className="text-left py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Revenue</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="text-left py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Product</th>
+                    <th className="text-left py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Type</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Purchases</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Buyers</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Conv.</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -330,10 +330,10 @@ export default function ProductsPage() {
                     const estimatedRevPerBuyer = product.estimatedRevenuePerBuyer ?? Math.round(grossRevPerBuyer * CREATOR_REVENUE_RATE);
                     
                     return (
-                      <tr key={productId} className="border-b border-neutral-800 hover:bg-neutral-800/50 transition-colors">
+                      <tr key={productId} className="border-b border-border hover:bg-muted/50 transition-colors">
                         <td className="py-4 px-6">
                           <div className="font-medium text-foreground">{productName}</div>
-                          <div className="text-xs text-neutral-500 mt-0.5 font-mono">ID: {productId}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 font-mono">ID: {productId}</div>
                         </td>
                         <td className="py-4 px-3">
                           <Badge 
@@ -359,10 +359,10 @@ export default function ProductsPage() {
                           {conversionRate !== null ? (
                             <span className="font-medium text-foreground">{formatPercent(conversionRate)}</span>
                           ) : (
-                            <span className="text-neutral-600">—</span>
+                            <span className="text-muted-foreground">—</span>
                           )}
                         </td>
-                        <td className="py-4 px-6 text-right font-mono text-neutral-300">
+                        <td className="py-4 px-6 text-right font-mono text-muted-foreground">
                           {formatRobux(estimatedRevPerBuyer)}
                         </td>
                       </tr>
@@ -396,7 +396,7 @@ export default function ProductsPage() {
 
       {/* Synced Roblox Products List - only show if synced products exist AND no tracker products */}
       {hasSyncedProducts && !hasTrackerProducts && (
-        <Card className="border-neutral-700/60 bg-neutral-900/50">
+        <Card className="border-border bg-card shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">Synced Roblox Products</CardTitle>
@@ -410,15 +410,15 @@ export default function ProductsPage() {
             <div className="overflow-x-auto -mx-6">
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
-                  <tr className="border-b border-neutral-700 bg-neutral-800/50">
-                    <th className="text-left py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Product</th>
-                    <th className="text-left py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Price</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Revenue</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
+                  <tr className="border-b border-border bg-muted/50">
+                    <th className="text-left py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Product</th>
+                    <th className="text-left py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Type</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Price</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Purchases</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Buyers</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Conv.</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>

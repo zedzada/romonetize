@@ -51,7 +51,7 @@ export function RangeControls({
   const availableRanges = CHART_RANGES.filter(r => ranges.includes(r.value));
   
   return (
-    <div className={`flex items-center bg-neutral-800/50 rounded-lg p-0.5 ${className}`}>
+    <div className={`flex items-center bg-secondary/50 dark:bg-secondary/80 rounded-lg p-0.5 ${className}`}>
       {availableRanges.map((r) => (
         <TooltipProvider key={r.value} delayDuration={300}>
           <Tooltip>
@@ -60,8 +60,8 @@ export function RangeControls({
                 onClick={() => onChange(r.value)}
                 className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors ${
                   value === r.value
-                    ? "bg-neutral-700 text-white"
-                    : "text-neutral-400 hover:text-neutral-200"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
                 {r.label}
@@ -151,7 +151,7 @@ export function ChartCard({
 
   return (
     <>
-      <Card className={`border-neutral-700/60 bg-neutral-900/50 ${className}`}>
+      <Card className={`border-border bg-card shadow-sm ${className}`}>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-2">
             <div className="flex-1 min-w-0">
@@ -192,7 +192,7 @@ export function ChartCard({
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-7 w-7 text-neutral-400 hover:text-white hover:bg-neutral-700/50"
+                        className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                         onClick={() => setIsExpanded(true)}
                       >
                         <Maximize2 className="h-4 w-4" />
@@ -214,10 +214,10 @@ export function ChartCard({
 
       {/* Expanded Modal - Wide analytics view */}
       <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
-        <DialogContent className="w-[75vw] min-w-[min(900px,96vw)] max-w-[1200px] h-[70vh] max-h-[760px] bg-neutral-900 border-neutral-700 p-0 gap-0 sm:rounded-lg lg:w-[75vw] md:w-[82vw] md:h-[72vh] max-md:w-[96vw] max-md:h-[80vh] max-md:max-h-none">
+        <DialogContent className="w-[75vw] min-w-[min(900px,96vw)] max-w-[1200px] h-[70vh] max-h-[760px] bg-card border-border p-0 gap-0 sm:rounded-lg lg:w-[75vw] md:w-[82vw] md:h-[72vh] max-md:w-[96vw] max-md:h-[80vh] max-md:max-h-none">
           <div className="flex h-full flex-col">
             {/* Compact Header */}
-            <DialogHeader className="shrink-0 px-6 pt-5 pb-4 border-b border-neutral-800">
+            <DialogHeader className="shrink-0 px-6 pt-5 pb-4 border-b border-border">
               <div className="flex items-center justify-between gap-4">
                 <div className="flex items-center gap-3 min-w-0 flex-wrap">
                   <DialogTitle className="text-lg font-semibold text-foreground">
@@ -236,7 +236,7 @@ export function ChartCard({
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="h-8 w-8 shrink-0 text-neutral-400 hover:text-white hover:bg-neutral-700/50"
+                  className="h-8 w-8 shrink-0 text-muted-foreground hover:text-foreground hover:bg-secondary/50"
                   onClick={() => setIsExpanded(false)}
                 >
                   <X className="h-5 w-5" />
@@ -309,22 +309,37 @@ export const CHART_COLORS = {
   axis: "#9CA3AF",
 } as const;
 
-// Consistent chart styling props - improved visibility
+// Consistent chart styling props - theme-aware for light/dark mode
+// Use CSS variables where possible, with fallbacks
 export const chartAxisStyle = {
   axisLine: false,
   tickLine: false,
   tickMargin: 10,
-  tick: { fill: "#D1D5DB", fontSize: 11 },  // Brighter axis labels
+  tick: { fill: "var(--chart-axis, #4B5563)", fontSize: 11 },
 };
 
 export const chartGridStyle = {
   strokeDasharray: "3 3",
-  stroke: "#4B5563",      // Slightly brighter grid
+  stroke: "var(--chart-grid, #E5E7EB)",
   strokeOpacity: 0.6,
   vertical: false,
 };
 
-export const chartTooltipStyle = {
+// Light mode tooltip style (default)
+export const chartTooltipStyleLight = {
+  contentStyle: {
+    backgroundColor: "#FFFFFF",
+    border: "1px solid #E5E7EB",
+    borderRadius: "8px",
+    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
+    padding: "12px",
+  },
+  labelStyle: { color: "#111827", fontWeight: 600, marginBottom: "4px" },
+  itemStyle: { color: "#374151" },
+};
+
+// Dark mode tooltip style
+export const chartTooltipStyleDark = {
   contentStyle: {
     backgroundColor: "#171717",
     border: "1px solid #404040",
@@ -335,3 +350,6 @@ export const chartTooltipStyle = {
   labelStyle: { color: "#F5F5F5", fontWeight: 600, marginBottom: "4px" },
   itemStyle: { color: "#E5E5E5" },
 };
+
+// Default export for backwards compatibility (will be dark mode)
+export const chartTooltipStyle = chartTooltipStyleDark;
