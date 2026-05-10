@@ -358,8 +358,11 @@ export default function PerformancePage() {
     uniquePlayers: 0,
     totalSessions: 0,
     avgSessionDuration: null,
-    newPlayers: 0,
+    firstSeenPlayers: 0,
     returningPlayers: 0,
+    hasHistoryBeforeRange: false,
+    rangeStart: new Date().toISOString(),
+    rangeEnd: new Date().toISOString(),
     totalPurchases: 0,
   };
 
@@ -658,11 +661,11 @@ export default function PerformancePage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 mb-2">
                 <UserPlus className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs text-muted-foreground">New Players</span>
+                <span className="text-xs text-muted-foreground">First Seen</span>
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.newPlayers)}
+                  {formatNumber(safeTrackerStats.firstSeenPlayers)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -674,14 +677,21 @@ export default function PerformancePage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 mb-2">
                 <UserCheck className="w-4 h-4 text-teal-500" />
-                <span className="text-xs text-muted-foreground">Returning Players</span>
+                <span className="text-xs text-muted-foreground">Returning</span>
               </div>
               {safeDataHealth.hasTrackerEvents ? (
-                <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.returningPlayers)}
-                </div>
+                safeTrackerStats.hasHistoryBeforeRange ? (
+                  <div className="text-2xl font-bold text-foreground">
+                    {formatNumber(safeTrackerStats.returningPlayers)}
+                  </div>
+                ) : (
+                  <div className="text-sm text-muted-foreground">—</div>
+                )
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
+              )}
+              {safeDataHealth.hasTrackerEvents && !safeTrackerStats.hasHistoryBeforeRange && (
+                <p className="text-[10px] text-muted-foreground mt-1">Not enough history</p>
               )}
             </CardContent>
           </Card>
