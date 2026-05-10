@@ -168,6 +168,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({
         success: true,
         data: {
+          // Selected game identity - null when no game connected
+          selectedGameId: null,
+          selectedGameName: null,
+          robloxGameId: null,
           game: null,
           range,
           dataHealth: {
@@ -659,23 +663,24 @@ export async function GET(request: NextRequest) {
     ? Math.round(sessionDurations.reduce((a, b) => a + b, 0) / sessionDurations.length)
     : null;
 
-  // === NEW VS RETURNING PLAYERS ===
-  // Get unique player joins in range
+  // === FIRST SEEN VS RETURNING PLAYERS ===
+  // Get unique player joins in range (player_join events only for this game)
   const joinEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
   const uniqueJoinPlayerIds = new Set(joinEvents.filter((e) => e.player_id).map((e) => e.player_id));
   
-  let newPlayers = 0;
+  let firstSeenPlayers = 0;
   let returningPlayers = 0;
+  let hasHistoryBeforeRange = false;
   const playerFirstSeen = new Map<string, Date>();
 
   try {
     // Get all-time first seen dates for players who joined in this range
-    // This is needed to determine if they're new (first join in range) or returning
+    // IMPORTANT: Only query events for THIS selected game (gameId)
     if (uniqueJoinPlayerIds.size > 0) {
       const { data: allTimeJoins } = await supabase
         .from("events")
         .select("player_id, created_at")
-        .eq("game_id", gameId)
+        .eq("game_id", gameId) // Filter by selected game only
         .in("event_type", sessionStartTypes)
         .order("created_at", { ascending: true });
 
@@ -685,45 +690,55 @@ export async function GET(request: NextRequest) {
         }
       });
 
-      // Count new vs returning based on unique join players in range
+      // Check if we have any historical data before the range start
+      // This determines if returning = 0 is meaningful or just "unknown"
+      playerFirstSeen.forEach((firstSeen) => {
+        if (firstSeen < startDate) {
+          hasHistoryBeforeRange = true;
+        }
+      });
+
+      // Count first seen vs returning based on unique join players in range
       uniqueJoinPlayerIds.forEach((playerId) => {
         const firstSeen = playerFirstSeen.get(playerId!);
         if (firstSeen && firstSeen >= startDate) {
-          newPlayers++;
-        } else if (firstSeen) {
+          // First join for THIS game is inside selected range
+          firstSeenPlayers++;
+        } else if (firstSeen && firstSeen < startDate) {
+          // First join for THIS game is before selected range
           returningPlayers++;
         } else {
-          // No historical data - count as new (first seen in this range)
-          newPlayers++;
+          // No historical data for this player - count as first seen
+          firstSeenPlayers++;
         }
       });
       
-      // Debug in development
+      // Debug in development only
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Selected game analytics debug", {
+        console.log("[v0] Tracker stats by selected game", {
           selectedGameId: gameId,
-          selectedRobloxGameId: selectedGame.roblox_game_id,
-          trackerEventsCount: allEvents.length,
-          playerJoinCount: joinEvents.length,
+          selectedGameName: selectedGame.name,
+          totalEvents: allEvents.length,
+          playerJoinEvents: joinEvents.length,
           uniquePlayers,
-          uniqueJoinPlayers: uniqueJoinPlayerIds.size,
-          newPlayers,
+          firstSeenPlayers,
           returningPlayers,
+          hasHistoryBeforeRange,
           rangeStart: startDate.toISOString(),
         });
       }
     } else {
-      // No join events in range - fallback to allPlayerIds
-      // This handles cases where we have events but no explicit join events
+      // No join events in range
+      // If we have other events but no joins, players are "unknown"
       if (uniquePlayers > 0) {
-        newPlayers = uniquePlayers; // Treat all as "first seen" if no join history
+        firstSeenPlayers = uniquePlayers;
       }
     }
   } catch (err) {
     sectionErrors.newReturning = err instanceof Error ? err.message : "Failed to calculate";
-    // Fallback: if calculation fails, use unique players as new
-    if (uniquePlayers > 0 && newPlayers === 0) {
-      newPlayers = uniquePlayers;
+    // Fallback: if calculation fails, use unique players as first seen
+    if (uniquePlayers > 0 && firstSeenPlayers === 0) {
+      firstSeenPlayers = uniquePlayers;
     }
   }
 
@@ -1246,6 +1261,10 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     success: true,
     data: {
+      // Selected game identity - clients must verify this matches before rendering
+      selectedGameId: selectedGame.id,
+      selectedGameName: selectedGame.name,
+      robloxGameId: selectedGame.roblox_game_id,
       game: {
         id: selectedGame.id,
         name: selectedGame.name,
@@ -1274,10 +1293,18 @@ export async function GET(request: NextRequest) {
         totalSessions: totalSessions || 0,
         avgSessionDuration: avgSessionDuration || null,
         avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
-        newPlayers: newPlayers || 0,
+        // First seen = players whose first join for THIS game is in selected range
+        firstSeenPlayers: firstSeenPlayers || 0,
+        // Returning = players active in range whose first join for THIS game is before range
         returningPlayers: returningPlayers || 0,
+        // Flag to indicate if returning = 0 is meaningful or just "no history"
+        hasHistoryBeforeRange,
+        rangeStart: startDate.toISOString(),
+        rangeEnd: now.toISOString(),
         totalPurchases: totalPurchases || 0,
         lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
+        // Legacy alias for backwards compatibility
+        newPlayers: firstSeenPlayers || 0,
       } : null,
       // Revenue stats (for Monetization tab)
       // All revenue values include both gross (raw tracked) and estimated (70% creator payout)

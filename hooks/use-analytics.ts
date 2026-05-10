@@ -57,10 +57,15 @@ export interface TrackerStats {
   totalSessions: number;
   avgSessionDuration: number | null;
   avgSessionFormatted: string | null;
-  newPlayers: number;
+  firstSeenPlayers: number;
   returningPlayers: number;
+  hasHistoryBeforeRange: boolean;
+  rangeStart: string;
+  rangeEnd: string;
   totalPurchases: number;
   lastEventTime: string | null;
+  // Legacy alias for backwards compatibility
+  newPlayers?: number;
 }
 
 export interface RevenueStats {
@@ -210,6 +215,10 @@ export interface ProductAnalytics {
 }
 
 export interface AnalyticsData {
+  // Selected game identity - must match current selection before rendering
+  selectedGameId: string | null;
+  selectedGameName: string | null;
+  robloxGameId: string | null;
   game: {
     id: string;
     name: string;
@@ -237,6 +246,7 @@ export interface AnalyticsData {
 
 interface UseAnalyticsOptions {
   gameId?: string;
+  selectedGameId?: string; // Pass current selected game ID to validate responses
   range?: DateRange;
   enabled?: boolean;
 }
@@ -257,12 +267,13 @@ const fetcher = async (url: string) => {
  * Centralized analytics hook that provides consistent data across all dashboard tabs
  * Uses SWR for caching, deduplication, and revalidation
  */
-export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
+export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  const [currentSelectedGameId, setCurrentSelectedGameId] = useState<string | null>(selectedGameId || null);
   
-  // Build API URL
+  // Build API URL - include selectedGameId to ensure fresh data for correct game
   const apiUrl = enabled
-    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}`
+    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${currentSelectedGameId ? `&selectedGameId=${currentSelectedGameId}` : ""}`
     : null;
 
   // Use SWR for data fetching with caching
@@ -296,9 +307,11 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
     const handleGameChange = (event: CustomEvent<{ gameId: string; robloxGameId: string }>) => {
       // Debug in development
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Selected game changed, refreshing analytics", event.detail);
+        console.log("[v0] Selected game changed, clearing stale data and refreshing", event.detail);
       }
-      // Clear stale data and refetch with cache bust
+      // Update current selected game ID to invalidate cache key
+      setCurrentSelectedGameId(event.detail.gameId);
+      // Clear stale data immediately and refetch
       mutate(undefined, { revalidate: true });
     };
 
