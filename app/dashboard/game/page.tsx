@@ -116,12 +116,27 @@ export default function GamePage() {
       setHasRobloxAccount(!!profile?.roblox_user_id);
       
       // Fetch connected games with group metadata and thumbnail
-      const { data: games } = await supabase
+      const { data: games, error: gamesError } = await supabase
         .from("games")
         .select("id, roblox_game_id, name, api_key, is_selected, source, group_id, group_name, root_place_id, role_name, role_rank, thumbnail_url")
         .eq("user_id", user.id)
         .neq("status", "deleted")
         .order("created_at", { ascending: false });
+      
+      // Debug in development only
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] My Game connected games debug", {
+          userId: user.id,
+          connectedGamesCount: games?.length ?? 0,
+          connectedGames: games?.map(g => ({
+            id: g.id,
+            name: g.name,
+            roblox_game_id: g.roblox_game_id,
+            is_selected: g.is_selected
+          })) ?? [],
+          error: gamesError?.message ?? null
+        });
+      }
       
       if (games) {
         setConnectedGames(games);
@@ -151,9 +166,22 @@ export default function GamePage() {
           setRobloxError(data.error || "Failed to fetch games");
         }
       } else {
-        setRobloxGames(data.games || []);
+        const robloxGamesData = data.games || [];
+        setRobloxGames(robloxGamesData);
         if (data.warning) {
           setGroupWarning(data.warning);
+        }
+        
+        // Debug in development - check matching
+        if (process.env.NODE_ENV === "development") {
+          console.log("[v0] Roblox games fetched", {
+            robloxGamesCount: robloxGamesData.length,
+            robloxGameIds: robloxGamesData.map((g: RobloxGame) => String(g.id)),
+            connectedGameIds: connectedGames.map(g => g.roblox_game_id),
+            matches: robloxGamesData.filter((rg: RobloxGame) => 
+              connectedGames.some(cg => cg.roblox_game_id === String(rg.id))
+            ).map((g: RobloxGame) => g.name)
+          });
         }
       }
     } catch {
@@ -161,7 +189,7 @@ export default function GamePage() {
     }
     
     setLoadingRobloxGames(false);
-  }, [hasRobloxAccount]);
+  }, [hasRobloxAccount, connectedGames]);
 
   useEffect(() => {
     if (hasRobloxAccount === true) {

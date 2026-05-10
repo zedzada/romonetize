@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime, type CCUHistoryRange, type CCUHistoryInterval } from "@/hooks/use-analytics";
-import { ChartCard, RangeControls, chartAxisStyle, chartGridStyle, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
+import { ChartCard, RangeControls, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
+import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import { 
   ChartContainer,
   ChartTooltip,
@@ -105,6 +106,12 @@ function getDefaultCcuInterval(range: CCUHistoryRange): CCUHistoryInterval {
 
 export default function PerformancePage() {
   const [chartRange, setChartRange] = useState<PerformanceRange>("7d");
+  
+  // Theme-aware chart colors
+  const chartTheme = useChartTheme();
+  const axisProps = getChartAxisProps(chartTheme);
+  const gridProps = getChartGridProps(chartTheme);
+  const tooltipStyle = getChartTooltipStyle(chartTheme);
   
   // CCU History chart controls (independent of other charts)
   const [ccuRange, setCcuRange] = useState<CCUHistoryRange>("24h");
@@ -805,26 +812,20 @@ export default function PerformancePage() {
                           <stop offset="100%" stopColor="#38BDF8" stopOpacity={0.05}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid {...chartGridStyle} />
+                      <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="timeLabel"
-                        {...chartAxisStyle}
+                        {...axisProps}
                         interval="preserveStartEnd"
                         minTickGap={40}
                       />
                       <YAxis 
                         domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2), 10)]}
                         allowDecimals={false}
-                        {...chartAxisStyle}
+                        {...axisProps}
                       />
                       <Tooltip
-                        contentStyle={{
-                          backgroundColor: "#171717",
-                          border: "1px solid #404040",
-                          borderRadius: "8px",
-                          padding: "10px",
-                        }}
-                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                        {...tooltipStyle}
                         formatter={(value: number | null) => [value !== null ? value.toLocaleString() : "—", "CCU"]}
                         labelFormatter={(label) => `${label}`}
                       />
@@ -886,24 +887,18 @@ export default function PerformancePage() {
                       <stop offset="100%" stopColor={CHART_COLORS.violet} stopOpacity={0.7}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid {...chartGridStyle} />
+                  <CartesianGrid {...gridProps} />
                   <XAxis 
                     dataKey="date" 
                     tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
-                    {...chartAxisStyle}
+                    {...axisProps}
                   />
                   <YAxis 
                     allowDecimals={false}
-                    {...chartAxisStyle}
+                    {...axisProps}
                   />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#171717",
-                      border: "1px solid #404040",
-                      borderRadius: "8px",
-                      padding: "10px",
-                    }}
-                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                    {...tooltipStyle}
                     formatter={(value: number) => [value.toLocaleString(), "Actions"]}
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
@@ -914,7 +909,7 @@ export default function PerformancePage() {
                     maxBarSize={50}
                   >
                     {(performanceCharts?.eventsOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="events" position="top" fill="#F5F5F5" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="events" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -939,24 +934,18 @@ export default function PerformancePage() {
                       <stop offset="100%" stopColor={CHART_COLORS.cyan} stopOpacity={0.7}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid {...chartGridStyle} />
+                  <CartesianGrid {...gridProps} />
                   <XAxis 
                     dataKey="date" 
                     tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
-                    {...chartAxisStyle}
+                    {...axisProps}
                   />
                   <YAxis 
                     allowDecimals={false}
-                    {...chartAxisStyle}
+                    {...axisProps}
                   />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#171717",
-                      border: "1px solid #404040",
-                      borderRadius: "8px",
-                      padding: "10px",
-                    }}
-                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                    {...tooltipStyle}
                     formatter={(value: number) => [value.toLocaleString(), "Players"]}
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
@@ -967,7 +956,7 @@ export default function PerformancePage() {
                     maxBarSize={50}
                   >
                     {(performanceCharts?.playersOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="players" position="top" fill="#F5F5F5" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="players" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -992,24 +981,18 @@ export default function PerformancePage() {
                       <stop offset="100%" stopColor={CHART_COLORS.green} stopOpacity={0.7}/>
                     </linearGradient>
                   </defs>
-                  <CartesianGrid {...chartGridStyle} />
+                  <CartesianGrid {...gridProps} />
                   <XAxis 
                     dataKey="date" 
                     tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
-                    {...chartAxisStyle}
+                    {...axisProps}
                   />
                   <YAxis 
                     allowDecimals={false}
-                    {...chartAxisStyle}
+                    {...axisProps}
                   />
                   <Tooltip
-                    contentStyle={{
-                      backgroundColor: "#171717",
-                      border: "1px solid #404040",
-                      borderRadius: "8px",
-                      padding: "10px",
-                    }}
-                    labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                    {...tooltipStyle}
                     formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
@@ -1020,7 +1003,7 @@ export default function PerformancePage() {
                     maxBarSize={50}
                   >
                     {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="purchases" position="top" fill="#F5F5F5" fontSize={12} fontWeight={600} />
+                      <LabelList dataKey="purchases" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
