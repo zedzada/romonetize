@@ -61,10 +61,6 @@ function formatRobux(value: number | null | undefined): string {
 type ChartRange = "1h" | "6h" | "24h" | "72h" | "7d" | "28d" | "90d";
 type ChartInterval = "1m" | "hourly" | "daily";
 type ChartMode = "total" | "gamepasses" | "devproducts";
-type RevenueMode = "gross" | "real";
-
-// Roblox takes 30% of revenue, so real revenue is 70% of gross
-const ROBLOX_PAYOUT_RATE = 0.70;
 
 // Ranges that support 1m interval (max 24h of minute data)
 const MINUTE_COMPATIBLE_RANGES: ChartRange[] = ["1h", "6h", "24h"];
@@ -82,7 +78,10 @@ function requiresDailyInterval(range: ChartRange): boolean {
   return DAILY_ONLY_RANGES.includes(range);
 }
 
-// Custom tooltip for the hero chart - shows mode-specific data
+// Roblox takes 30%, creators get 70%
+const CREATOR_REVENUE_RATE = 0.7;
+
+// Custom tooltip for the hero chart - shows mode-specific data with estimated revenue
 function HeroChartTooltip({ 
   active, 
   payload, 
@@ -117,44 +116,49 @@ function HeroChartTooltip({
     hour12: true,
   });
 
-  // Get the underlying data point
+  // Get the underlying data point (gross values from API)
   const dataPoint = payload[0]?.payload;
-  const totalRevenue = dataPoint?.totalRevenue ?? 0;
-  const devproductRevenue = dataPoint?.devproductRevenue ?? 0;
-  const gamepassRevenue = dataPoint?.gamepassRevenue ?? 0;
+  const grossTotal = dataPoint?.totalRevenue ?? 0;
+  const grossDevproduct = dataPoint?.devproductRevenue ?? 0;
+  const grossGamepass = dataPoint?.gamepassRevenue ?? 0;
   const purchases = dataPoint?.purchases ?? 0;
   
+  // Calculate estimated (70%) values
+  const estTotal = Math.round(grossTotal * CREATOR_REVENUE_RATE);
+  const estDevproduct = Math.round(grossDevproduct * CREATOR_REVENUE_RATE);
+  const estGamepass = Math.round(grossGamepass * CREATOR_REVENUE_RATE);
+  
   // Estimate purchases by type based on revenue ratio
-  const gamepassPurchases = totalRevenue > 0 ? Math.round(purchases * (gamepassRevenue / totalRevenue)) : 0;
-  const devproductPurchases = totalRevenue > 0 ? Math.round(purchases * (devproductRevenue / totalRevenue)) : 0;
+  const gamepassPurchases = grossTotal > 0 ? Math.round(purchases * (grossGamepass / grossTotal)) : 0;
+  const devproductPurchases = grossTotal > 0 ? Math.round(purchases * (grossDevproduct / grossTotal)) : 0;
   
   return (
     <div className="bg-neutral-900 border border-neutral-700 rounded-lg shadow-xl p-3 min-w-[180px]">
       <p className="text-xs text-neutral-400 mb-3 font-medium border-b border-neutral-700 pb-2">{formattedTime}</p>
       <div className="space-y-2">
-        {/* Total mode: show all 3 revenue types */}
+        {/* Total mode: show all 3 revenue types with estimated values */}
         {chartMode === "total" && (
           <>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                <span className="text-xs text-neutral-300">Total Revenue</span>
+                <span className="text-xs text-neutral-300">Est. Revenue</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${totalRevenue.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-white">R${estTotal.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
                 <span className="text-xs text-neutral-300">Gamepasses</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${gamepassRevenue.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-white">R${estGamepass.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
                 <span className="text-xs text-neutral-300">Dev Products</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${devproductRevenue.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-white">R${estDevproduct.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
               <div className="flex items-center gap-2">
@@ -172,9 +176,9 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
-                <span className="text-xs text-neutral-300">Gamepasses</span>
+                <span className="text-xs text-neutral-300">Est. Gamepasses</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${gamepassRevenue.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-white">R${estGamepass.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
               <div className="flex items-center gap-2">
@@ -192,9 +196,9 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <span className="text-xs text-neutral-300">Dev Products</span>
+                <span className="text-xs text-neutral-300">Est. Dev Products</span>
               </div>
-              <span className="text-xs font-semibold text-white">R${devproductRevenue.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-white">R${estDevproduct.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-neutral-700 pt-2 mt-2">
               <div className="flex items-center gap-2">
@@ -231,7 +235,6 @@ export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
-  const [revenueMode, setRevenueMode] = useState<RevenueMode>("gross");
 
   // Handle range change with auto-switch interval if incompatible
   const handleRangeChange = (newRange: ChartRange) => {
@@ -280,12 +283,13 @@ export default function MonetizationPage() {
   const processedChartData = useMemo(() => {
     const now = new Date();
     
-    // Helper to normalize all values to numbers
+    // Helper to normalize all values to numbers and apply 70% estimated revenue
     const normalizePoint = (point: { time: string; totalRevenue: number; devproductRevenue: number; gamepassRevenue: number; purchases: number }) => ({
       time: point.time,
-      totalRevenue: Number(point.totalRevenue ?? 0),
-      devproductRevenue: Number(point.devproductRevenue ?? 0),
-      gamepassRevenue: Number(point.gamepassRevenue ?? 0),
+      // Apply 70% creator revenue rate to all revenue values for display
+      totalRevenue: Math.round(Number(point.totalRevenue ?? 0) * CREATOR_REVENUE_RATE),
+      devproductRevenue: Math.round(Number(point.devproductRevenue ?? 0) * CREATOR_REVENUE_RATE),
+      gamepassRevenue: Math.round(Number(point.gamepassRevenue ?? 0) * CREATOR_REVENUE_RATE),
       purchases: Number(point.purchases ?? 0),
     });
 
@@ -334,16 +338,17 @@ export default function MonetizationPage() {
     const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
     let filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
 
-    // If daily interval, aggregate by day
+    // If daily interval, aggregate by day (with 70% estimated revenue)
     if (chartInterval === "daily") {
       const dailyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
       
       filteredData.forEach((d) => {
         const dayKey = d.time.slice(0, 10);
         const existing = dailyBuckets.get(dayKey) || { total: 0, devproduct: 0, gamepass: 0, purchases: 0 };
-        existing.total += Number(d.totalRevenue ?? 0);
-        existing.devproduct += Number(d.devproductRevenue ?? 0);
-        existing.gamepass += Number(d.gamepassRevenue ?? 0);
+        // Apply 70% creator revenue rate
+        existing.total += Math.round(Number(d.totalRevenue ?? 0) * CREATOR_REVENUE_RATE);
+        existing.devproduct += Math.round(Number(d.devproductRevenue ?? 0) * CREATOR_REVENUE_RATE);
+        existing.gamepass += Math.round(Number(d.gamepassRevenue ?? 0) * CREATOR_REVENUE_RATE);
         existing.purchases += Number(d.purchases ?? 0);
         dailyBuckets.set(dayKey, existing);
       });
@@ -420,11 +425,11 @@ export default function MonetizationPage() {
     return yMax;
   }, [processedChartData, chartMode]);
 
-  // Get current mode display info
+  // Get current mode display info (all revenue labels now indicate estimated)
   const modeConfig = useMemo(() => {
     if (chartMode === "total") {
       return {
-        label: "Total Revenue",
+        label: "Est. Revenue",
         color: COLORS.totalRevenue,
         dataKey: "totalRevenue" as const,
         revenue: chartTotals.total,
@@ -433,7 +438,7 @@ export default function MonetizationPage() {
       };
     } else if (chartMode === "gamepasses") {
       return {
-        label: "Gamepasses",
+        label: "Est. Gamepasses",
         color: COLORS.gamepass,
         dataKey: "gamepassRevenue" as const,
         revenue: chartTotals.gamepass,
@@ -442,7 +447,7 @@ export default function MonetizationPage() {
       };
     } else {
       return {
-        label: "Dev Products",
+        label: "Est. Dev Products",
         color: COLORS.devProduct,
         dataKey: "devproductRevenue" as const,
         revenue: chartTotals.devproduct,
@@ -563,33 +568,21 @@ export default function MonetizationPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card className="border-neutral-700/60 bg-neutral-900/40">
           <CardContent className="pt-5 pb-4">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="flex items-center gap-2">
-                <DollarSign className="w-4 h-4 text-emerald-400" />
-                <span className="text-xs text-neutral-400">
-                  {revenueMode === "gross" ? "Gross Revenue" : "Real Revenue"}
-                </span>
-              </div>
-              <button
-                onClick={() => setRevenueMode(revenueMode === "gross" ? "real" : "gross")}
-                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 transition-colors"
-              >
-                {revenueMode === "gross" ? "Show Real" : "Show Gross"}
-              </button>
+            <div className="flex items-center gap-2 mb-2">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs text-neutral-400">Est. Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
               ) : (
-                formatRobux(
-                  revenueMode === "gross" 
-                    ? safeRevenueStats.totalRevenue 
-                    : Math.round(safeRevenueStats.totalRevenue * ROBLOX_PAYOUT_RATE)
-                )
+                formatRobux(safeRevenueStats.estimatedRevenue ?? 0)
               )}
             </div>
-            {hasTrackerData && revenueMode === "real" && (
-              <p className="text-[10px] text-neutral-500 mt-1">After 30% Roblox fee</p>
+            {hasTrackerData && safeRevenueStats.grossRevenue > 0 && (
+              <p className="text-[10px] text-neutral-500 mt-1" title={`Gross: R$${safeRevenueStats.grossRevenue?.toLocaleString()}`}>
+                After 30% Roblox fee
+              </p>
             )}
           </CardContent>
         </Card>
@@ -598,19 +591,13 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-xs text-neutral-400">
-                72h {revenueMode === "real" ? "Real" : ""} Revenue
-              </span>
+              <span className="text-xs text-neutral-400">Est. 72h Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
               ) : (
-                formatRobux(
-                  revenueMode === "gross" 
-                    ? safeRevenueStats.revenue72h 
-                    : Math.round(safeRevenueStats.revenue72h * ROBLOX_PAYOUT_RATE)
-                )
+                formatRobux(safeRevenueStats.estimatedRevenue72h ?? 0)
               )}
             </div>
             <p className="text-[10px] text-neutral-500 mt-1">Last 72 hours</p>
@@ -653,13 +640,13 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <Coins className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-neutral-400">ARPPU</span>
+              <span className="text-xs text-neutral-400">Est. ARPPU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData || !safeRevenueStats.arppu ? (
+              {!hasTrackerData || !safeRevenueStats.estimatedArppu ? (
                 <span className="text-lg font-medium text-neutral-500">—</span>
               ) : (
-                formatRobux(safeRevenueStats.arppu)
+                formatRobux(safeRevenueStats.estimatedArppu)
               )}
             </div>
             <p className="text-[10px] text-neutral-500 mt-1">Per paying user</p>
@@ -670,13 +657,13 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-neutral-400">ARPDAU</span>
+              <span className="text-xs text-neutral-400">Est. ARPDAU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData || !safeRevenueStats.arpdau ? (
+              {!hasTrackerData || !safeRevenueStats.estimatedArpdau ? (
                 <span className="text-lg font-medium text-neutral-500">—</span>
               ) : (
-                formatRobux(safeRevenueStats.arpdau)
+                formatRobux(safeRevenueStats.estimatedArpdau)
               )}
             </div>
             <p className="text-[10px] text-neutral-500 mt-1">Per daily active user</p>
@@ -690,7 +677,7 @@ export default function MonetizationPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">
-                Revenue & Sales
+                Estimated Revenue & Sales
               </CardTitle>
               <p className="text-sm text-neutral-400 mt-0.5">
                 {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : chartRange === "28d" ? "Last 28 days" : "Last 90 days"}
@@ -1137,69 +1124,76 @@ export default function MonetizationPage() {
             </CardContent>
           </Card>
 
-          {/* Revenue by Product Type - Donut Chart */}
+          {/* Revenue by Product Type - Donut Chart (estimated 70%) */}
           <Card className="border-neutral-700/60 bg-neutral-900/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground">Revenue by Product Type</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Est. Revenue by Type</CardTitle>
               <p className="text-xs text-neutral-400">Gamepasses vs Developer Products</p>
             </CardHeader>
             <CardContent className="pt-2">
-              {monetizationCharts?.revenueByProductType?.length ? (
-                <div className="h-[220px] flex items-center justify-center gap-6">
-                  <ResponsiveContainer width={180} height={180}>
-                    <PieChart>
-                      <Pie
-                        data={monetizationCharts.revenueByProductType}
-                        dataKey="revenue"
-                        nameKey="productType"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={50}
-                        outerRadius={80}
-                        paddingAngle={3}
-                        strokeWidth={0}
-                      >
-                        {monetizationCharts.revenueByProductType.map((entry) => (
-                          <Cell 
-                            key={entry.productType} 
-                            fill={entry.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px" }}
-                        formatter={(value: number, name: string) => [
-                          `R$${value.toLocaleString()}`,
-                          name === "gamepass" ? "Game Passes" : "Dev Products"
-                        ]}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="space-y-3">
-                    {monetizationCharts.revenueByProductType.map((item) => {
-                      const total = monetizationCharts.revenueByProductType.reduce((s, i) => s + i.revenue, 0);
-                      const percentage = total > 0 ? ((item.revenue / total) * 100).toFixed(1) : "0";
-                      return (
-                        <div key={item.productType} className="flex items-center gap-3">
-                          <div 
-                            className="w-4 h-4 rounded-md" 
-                            style={{ backgroundColor: item.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct }}
-                          />
-                          <div>
-                            <p className="text-sm font-medium text-neutral-300">
-                              {item.productType === "gamepass" ? "Game Passes" : "Dev Products"}
-                            </p>
-                            <p className="text-lg font-bold text-white">
-                              R${item.revenue.toLocaleString()}
-                              <span className="text-xs text-neutral-500 ml-1">({percentage}%)</span>
-                            </p>
+              {monetizationCharts?.revenueByProductType?.length ? (() => {
+                // Transform to estimated revenue (70%)
+                const estimatedData = monetizationCharts.revenueByProductType.map(item => ({
+                  ...item,
+                  revenue: Math.round(item.revenue * CREATOR_REVENUE_RATE)
+                }));
+                const estimatedTotal = estimatedData.reduce((s, i) => s + i.revenue, 0);
+                return (
+                  <div className="h-[220px] flex items-center justify-center gap-6">
+                    <ResponsiveContainer width={180} height={180}>
+                      <PieChart>
+                        <Pie
+                          data={estimatedData}
+                          dataKey="revenue"
+                          nameKey="productType"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={50}
+                          outerRadius={80}
+                          paddingAngle={3}
+                          strokeWidth={0}
+                        >
+                          {estimatedData.map((entry) => (
+                            <Cell 
+                              key={entry.productType} 
+                              fill={entry.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px" }}
+                          formatter={(value: number, name: string) => [
+                            `R$${value.toLocaleString()}`,
+                            name === "gamepass" ? "Game Passes" : "Dev Products"
+                          ]}
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                    <div className="space-y-3">
+                      {estimatedData.map((item) => {
+                        const percentage = estimatedTotal > 0 ? ((item.revenue / estimatedTotal) * 100).toFixed(1) : "0";
+                        return (
+                          <div key={item.productType} className="flex items-center gap-3">
+                            <div 
+                              className="w-4 h-4 rounded-md" 
+                              style={{ backgroundColor: item.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct }}
+                            />
+                            <div>
+                              <p className="text-sm font-medium text-neutral-300">
+                                {item.productType === "gamepass" ? "Game Passes" : "Dev Products"}
+                              </p>
+                              <p className="text-lg font-bold text-white">
+                                R${item.revenue.toLocaleString()}
+                                <span className="text-xs text-neutral-500 ml-1">({percentage}%)</span>
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ) : (
+                );
+              })() : (
                 <div className="h-[220px] flex items-center justify-center">
                   <p className="text-sm text-neutral-500">No revenue breakdown</p>
                 </div>
@@ -1207,68 +1201,75 @@ export default function MonetizationPage() {
             </CardContent>
           </Card>
 
-          {/* Top Products - Horizontal Bar Chart */}
+          {/* Top Products - Horizontal Bar Chart (estimated 70%) */}
           <Card className="border-neutral-700/60 bg-neutral-900/40">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground">Top Products by Revenue</CardTitle>
+              <CardTitle className="text-base font-semibold text-foreground">Top Products by Est. Revenue</CardTitle>
               <p className="text-xs text-neutral-400">Best performing products</p>
             </CardHeader>
             <CardContent className="pt-2">
-              {monetizationCharts?.topProducts?.length ? (
-                <div className="h-[220px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart 
-                      data={monetizationCharts.topProducts.slice(0, 5)} 
-                      layout="vertical"
-                      margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
-                    >
-                      <defs>
-                        <linearGradient id="topProductsGradient" x1="0" y1="0" x2="1" y2="0">
-                          <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.8}/>
-                          <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={1}/>
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} horizontal={true} vertical={false} />
-                      <XAxis 
-                        type="number"
-                        tickFormatter={(v) => `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
-                      />
-                      <YAxis 
-                        type="category"
-                        dataKey="productName"
-                        width={100}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 11 }}
-                        tickFormatter={(v) => v.length > 14 ? v.slice(0, 14) + "..." : v}
-                      />
-                      <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
-                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
-                        formatter={(value: number, name: string, props: { payload?: { productType?: string; purchases?: number } }) => {
-                          const payload = props.payload;
-                          return [
-                            <span key="value">
-                              R${value.toLocaleString()} 
-                              <span className="text-neutral-400 ml-2">({payload?.purchases || 0} sales)</span>
-                            </span>,
-                            payload?.productType === "gamepass" ? "Game Pass" : "Dev Product"
-                          ];
-                        }}
-                      />
-                      <Bar 
-                        dataKey="revenue" 
-                        fill="url(#topProductsGradient)"
-                        radius={[0, 6, 6, 0]}
-                        maxBarSize={30}
-                      />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
+              {monetizationCharts?.topProducts?.length ? (() => {
+                // Transform to estimated revenue (70%)
+                const estimatedProducts = monetizationCharts.topProducts.slice(0, 5).map(p => ({
+                  ...p,
+                  revenue: Math.round(p.revenue * CREATOR_REVENUE_RATE)
+                }));
+                return (
+                  <div className="h-[220px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart 
+                        data={estimatedProducts} 
+                        layout="vertical"
+                        margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+                      >
+                        <defs>
+                          <linearGradient id="topProductsGradient" x1="0" y1="0" x2="1" y2="0">
+                            <stop offset="0%" stopColor={COLORS.devProduct} stopOpacity={0.8}/>
+                            <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={1}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} horizontal={true} vertical={false} />
+                        <XAxis 
+                          type="number"
+                          tickFormatter={(v) => `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: COLORS.axis, fontSize: 10 }}
+                        />
+                        <YAxis 
+                          type="category"
+                          dataKey="productName"
+                          width={100}
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: COLORS.axis, fontSize: 11 }}
+                          tickFormatter={(v) => v.length > 14 ? v.slice(0, 14) + "..." : v}
+                        />
+                        <Tooltip
+                          contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
+                          labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                          formatter={(value: number, name: string, props: { payload?: { productType?: string; purchases?: number } }) => {
+                            const payload = props.payload;
+                            return [
+                              <span key="value">
+                                R${value.toLocaleString()} 
+                                <span className="text-neutral-400 ml-2">({payload?.purchases || 0} sales)</span>
+                              </span>,
+                              payload?.productType === "gamepass" ? "Game Pass" : "Dev Product"
+                            ];
+                          }}
+                        />
+                        <Bar 
+                          dataKey="revenue" 
+                          fill="url(#topProductsGradient)"
+                          radius={[0, 6, 6, 0]}
+                          maxBarSize={30}
+                        />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                );
+              })() : (
                 <div className="h-[220px] flex items-center justify-center">
                   <p className="text-sm text-neutral-500">No product data</p>
                 </div>
@@ -1295,11 +1296,11 @@ export default function MonetizationPage() {
                 </Badge>
               </h4>
               <ul className="text-sm text-muted-foreground space-y-1">
-                <li>• Revenue (from purchase_success robux field)</li>
+                <li>• Estimated Revenue (70% of gross, after Roblox fee)</li>
                 <li>• Purchases (count of purchase_success events)</li>
                 <li>• Paying Users (distinct player_id from purchases)</li>
-                <li>• ARPPU (revenue / paying users)</li>
-                <li>• ARPDAU (revenue / unique active players)</li>
+                <li>• Est. ARPPU (estimated revenue / paying users)</li>
+                <li>• Est. ARPDAU (estimated revenue / unique active players)</li>
               </ul>
             </div>
 

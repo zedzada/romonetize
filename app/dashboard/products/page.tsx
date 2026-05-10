@@ -43,6 +43,9 @@ function formatPercent(value: unknown): string {
   return "—";
 }
 
+// Roblox takes 30%, creators get 70%
+const CREATOR_REVENUE_RATE = 0.7;
+
 // Products page range type - supports 7d to All time
 type ProductsRange = "7d" | "28d" | "90d";
 
@@ -304,11 +307,11 @@ export default function ProductsPage() {
                   <tr className="border-b border-neutral-700 bg-neutral-800/50">
                     <th className="text-left py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Product</th>
                     <th className="text-left py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Revenue</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Rev/Buyer</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -317,11 +320,14 @@ export default function ProductsPage() {
                     const productId = product.productId ?? product.id ?? "unknown";
                     const productName = product.productName ?? product.name ?? productId;
                     const productType = product.productType ?? product.type ?? "unknown";
-                    const revenue = product.revenue ?? 0;
+                    // Use estimated values (70% of gross) if available, otherwise calculate from gross
+                    const grossRevenue = product.grossRevenue ?? product.revenue ?? 0;
+                    const estimatedRevenue = product.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
                     const purchases = product.purchases ?? 0;
                     const buyers = product.buyers ?? product.uniqueBuyers ?? 0;
                     const conversionRate = product.conversionRate ?? null;
-                    const revenuePerBuyer = product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? revenue / buyers : 0);
+                    const grossRevPerBuyer = product.grossRevenuePerBuyer ?? product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? grossRevenue / buyers : 0);
+                    const estimatedRevPerBuyer = product.estimatedRevenuePerBuyer ?? Math.round(grossRevPerBuyer * CREATOR_REVENUE_RATE);
                     
                     return (
                       <tr key={productId} className="border-b border-neutral-800 hover:bg-neutral-800/50 transition-colors">
@@ -340,8 +346,8 @@ export default function ProductsPage() {
                             {productType === "gamepass" ? "Game Pass" : productType === "devproduct" ? "Dev Product" : productType}
                           </Badge>
                         </td>
-                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-400">
-                          {formatRobux(revenue)}
+                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-400" title={`Gross: R$${grossRevenue.toLocaleString()}`}>
+                          {formatRobux(estimatedRevenue)}
                         </td>
                         <td className="py-4 px-3 text-right font-medium text-foreground">
                           {formatNumber(purchases)}
@@ -357,7 +363,7 @@ export default function ProductsPage() {
                           )}
                         </td>
                         <td className="py-4 px-6 text-right font-mono text-neutral-300">
-                          {formatRobux(revenuePerBuyer)}
+                          {formatRobux(estimatedRevPerBuyer)}
                         </td>
                       </tr>
                     );
@@ -408,11 +414,11 @@ export default function ProductsPage() {
                     <th className="text-left py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Product</th>
                     <th className="text-left py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Type</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Price</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Revenue</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Rev/Buyer</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -427,6 +433,12 @@ export default function ProductsPage() {
                     const trackerProduct = Array.isArray(safeProductStats.products)
                       ? safeProductStats.products.find((p: { id?: string }) => p?.id === String(id))
                       : null;
+                    
+                    // Calculate estimated values for tracker product
+                    const grossRevenue = trackerProduct?.revenue ?? 0;
+                    const estimatedRevenue = Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+                    const buyers = trackerProduct?.uniqueBuyers ?? 0;
+                    const estimatedRevPerBuyer = buyers > 0 ? Math.round((grossRevenue * CREATOR_REVENUE_RATE) / buyers) : 0;
 
                     return (
                       <tr key={id} className="border-b border-border/30 hover:bg-muted/40 transition-colors">
@@ -448,10 +460,10 @@ export default function ProductsPage() {
                         <td className="py-4 px-3 text-right font-mono font-medium">
                           {formatRobux(price)}
                         </td>
-                        <td className="py-4 px-3 text-right">
+                        <td className="py-4 px-3 text-right" title={grossRevenue > 0 ? `Gross: R$${grossRevenue.toLocaleString()}` : undefined}>
                           {!hasTrackerEvents 
                             ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-mono font-semibold text-emerald-500">{formatRobux(trackerProduct?.revenue ?? 0)}</span>
+                            : <span className="font-mono font-semibold text-emerald-500">{formatRobux(estimatedRevenue)}</span>
                           }
                         </td>
                         <td className="py-4 px-3 text-right">
@@ -463,7 +475,7 @@ export default function ProductsPage() {
                         <td className="py-4 px-3 text-right">
                           {!hasTrackerEvents 
                             ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-medium">{formatNumber(trackerProduct?.uniqueBuyers ?? 0)}</span>
+                            : <span className="font-medium">{formatNumber(buyers)}</span>
                           }
                         </td>
                         <td className="py-4 px-3 text-right">
@@ -477,7 +489,7 @@ export default function ProductsPage() {
                         <td className="py-4 px-6 text-right">
                           {!hasTrackerEvents 
                             ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-mono">{formatRobux(trackerProduct?.revPerBuyer ?? 0)}</span>
+                            : <span className="font-mono">{formatRobux(estimatedRevPerBuyer)}</span>
                           }
                         </td>
                       </tr>
