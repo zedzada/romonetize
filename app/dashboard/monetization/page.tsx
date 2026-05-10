@@ -61,6 +61,10 @@ function formatRobux(value: number | null | undefined): string {
 type ChartRange = "1h" | "6h" | "24h" | "72h" | "7d" | "28d" | "90d";
 type ChartInterval = "1m" | "hourly" | "daily";
 type ChartMode = "total" | "gamepasses" | "devproducts";
+type RevenueMode = "gross" | "real";
+
+// Roblox takes 30% of revenue, so real revenue is 70% of gross
+const ROBLOX_PAYOUT_RATE = 0.70;
 
 // Ranges that support 1m interval (max 24h of minute data)
 const MINUTE_COMPATIBLE_RANGES: ChartRange[] = ["1h", "6h", "24h"];
@@ -227,6 +231,7 @@ export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
+  const [revenueMode, setRevenueMode] = useState<RevenueMode>("gross");
 
   // Handle range change with auto-switch interval if incompatible
   const handleRangeChange = (newRange: ChartRange) => {
@@ -558,17 +563,34 @@ export default function MonetizationPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card className="border-neutral-700/60 bg-neutral-900/40">
           <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <DollarSign className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs text-neutral-400">Total Revenue</span>
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-emerald-400" />
+                <span className="text-xs text-neutral-400">
+                  {revenueMode === "gross" ? "Gross Revenue" : "Real Revenue"}
+                </span>
+              </div>
+              <button
+                onClick={() => setRevenueMode(revenueMode === "gross" ? "real" : "gross")}
+                className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 transition-colors"
+              >
+                {revenueMode === "gross" ? "Show Real" : "Show Gross"}
+              </button>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
               ) : (
-                formatRobux(safeRevenueStats.totalRevenue)
+                formatRobux(
+                  revenueMode === "gross" 
+                    ? safeRevenueStats.totalRevenue 
+                    : Math.round(safeRevenueStats.totalRevenue * ROBLOX_PAYOUT_RATE)
+                )
               )}
             </div>
+            {hasTrackerData && revenueMode === "real" && (
+              <p className="text-[10px] text-neutral-500 mt-1">After 30% Roblox fee</p>
+            )}
           </CardContent>
         </Card>
 
@@ -576,13 +598,19 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-xs text-neutral-400">72h Revenue</span>
+              <span className="text-xs text-neutral-400">
+                72h {revenueMode === "real" ? "Real" : ""} Revenue
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-neutral-500 font-normal">Requires tracking</span>
               ) : (
-                formatRobux(safeRevenueStats.revenue72h)
+                formatRobux(
+                  revenueMode === "gross" 
+                    ? safeRevenueStats.revenue72h 
+                    : Math.round(safeRevenueStats.revenue72h * ROBLOX_PAYOUT_RATE)
+                )
               )}
             </div>
             <p className="text-[10px] text-neutral-500 mt-1">Last 72 hours</p>

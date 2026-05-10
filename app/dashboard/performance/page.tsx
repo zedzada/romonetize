@@ -45,6 +45,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
+import { GameIcon } from "@/components/dashboard/game-icon";
 
 // Safe number formatter - never crashes
 function formatNumber(value: number | null | undefined): string {
@@ -426,9 +427,11 @@ export default function PerformancePage() {
           <CardContent className="pt-6">
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Gamepad2 className="w-5 h-5 text-primary" />
-                </div>
+                <GameIcon 
+                  name={game.name} 
+                  thumbnailUrl={game.thumbnail_url} 
+                  size="md"
+                />
                 <div>
                   <h2 className="font-semibold text-foreground">{game.name}</h2>
                   <p className="text-sm text-muted-foreground">
@@ -865,15 +868,15 @@ export default function PerformancePage() {
           </div>
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Events Over Time */}
+            {/* Activity Over Time */}
             <ChartCard
-              title="Events Over Time"
-              subtitle="All tracked events from your game"
+              title="Activity Over Time"
+              subtitle="All tracked actions from your game"
               source="tracker"
               summary={performanceCharts?.eventsOverTime?.length ? `Total: ${performanceCharts.eventsOverTime.reduce((sum, d) => sum + (d.events ?? 0), 0).toLocaleString()}` : undefined}
               isEmpty={!performanceCharts?.eventsOverTime?.length}
-              emptyTitle="No events yet"
-              emptyMessage="Events will appear after players interact with your game."
+              emptyTitle="No tracking data yet"
+              emptyMessage="Activity will appear after players interact with your game."
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={performanceCharts?.eventsOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
@@ -901,7 +904,7 @@ export default function PerformancePage() {
                       padding: "10px",
                     }}
                     labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
-                    formatter={(value: number) => [value.toLocaleString(), "Events"]}
+                    formatter={(value: number) => [value.toLocaleString(), "Actions"]}
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 

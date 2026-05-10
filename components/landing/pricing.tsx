@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Check, Star } from "lucide-react";
+import { Check, Star, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const plans = [
@@ -33,7 +33,7 @@ const plans = [
       "30-day analytics history",
       "Revenue analytics",
       "Product performance analytics",
-      "Live events feed",
+      "Live activity feed",
       "AI Assistant included",
       "100 AI credits/month"
     ],
@@ -66,8 +66,14 @@ export function Pricing() {
 
   return (
     <section id="pricing" className="py-32 relative overflow-hidden">
-      {/* Background */}
+      {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary/3 to-transparent" />
+      
+      {/* Dotted grid overlay */}
+      <div className="absolute inset-0 bg-dot-grid opacity-60" />
+      
+      {/* Subtle glow behind Pro card */}
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/3 w-[600px] h-[500px] bg-primary/8 rounded-full blur-[120px] pointer-events-none" />
       
       <div className="relative z-10 max-w-5xl mx-auto px-6">
         <div className="text-center mb-16">
@@ -116,27 +122,33 @@ export function Pricing() {
             <div 
               key={plan.name}
               className={cn(
-                "relative rounded-2xl transition-all duration-300",
-                plan.variant === "pro" && "lg:-mt-4 lg:mb-4"
+                "group relative rounded-2xl transition-all duration-300",
+                plan.variant === "pro" && "lg:-mt-4 lg:mb-4 lg:scale-[1.02]"
               )}
             >
-              {/* Border effect */}
+              {/* Border effect - enhanced gradient for Pro */}
               <div className={cn(
-                "absolute -inset-px rounded-2xl",
+                "absolute -inset-px rounded-2xl transition-all duration-300",
                 plan.variant === "pro" 
-                  ? "bg-gradient-to-b from-primary via-primary/50 to-primary/20"
-                  : "bg-border"
+                  ? "bg-gradient-to-b from-primary via-blue-400/70 to-primary/30 shadow-lg shadow-primary/20"
+                  : plan.variant === "studio"
+                    ? "bg-gradient-to-b from-border via-border to-border/50 group-hover:from-primary/50 group-hover:via-primary/30 group-hover:to-primary/10"
+                    : "bg-border group-hover:bg-primary/30"
               )} />
               
               {/* Card */}
               <div className={cn(
-                "relative rounded-2xl p-8 h-full flex flex-col bg-card",
-                plan.variant === "pro" && "bg-gradient-to-b from-primary/5 to-card"
+                "relative rounded-2xl p-8 h-full flex flex-col transition-all duration-300",
+                plan.variant === "pro" 
+                  ? "bg-gradient-to-b from-primary/10 via-card to-card"
+                  : plan.variant === "studio"
+                    ? "bg-gradient-to-b from-card via-card to-card/95 group-hover:from-primary/5"
+                    : "bg-card group-hover:bg-card/95"
               )}>
-                {/* Badge */}
+                {/* Badge - enhanced styling */}
                 {plan.badge && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-                    <div className="px-4 py-1.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-primary/30">
+                  <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
+                    <div className="px-4 py-1.5 rounded-full bg-gradient-to-r from-primary to-blue-400 text-primary-foreground text-xs font-semibold flex items-center gap-1.5 shadow-lg shadow-primary/40">
                       <Star className="w-3 h-3 fill-current" />
                       {plan.badge}
                     </div>
@@ -146,48 +158,76 @@ export function Pricing() {
                 {/* Header */}
                 <div className={cn("mb-6", plan.badge && "mt-2")}>
                   <h3 className={cn(
-                    "text-xl font-bold mb-1",
+                    "text-xl font-bold mb-1 flex items-center gap-2",
                     plan.variant === "pro" ? "text-primary" : "text-foreground"
                   )}>
                     {plan.name}
+                    {plan.variant === "studio" && (
+                      <Sparkles className="w-4 h-4 text-amber-500" />
+                    )}
                   </h3>
                   <p className="text-sm text-muted-foreground">{plan.description}</p>
                 </div>
 
-                {/* Price */}
+                {/* Price - enhanced typography */}
                 <div className="flex items-baseline gap-1 mb-8">
-                  <span className="text-5xl font-bold tracking-tight text-foreground">
+                  <span className={cn(
+                    "text-5xl font-bold tracking-tight",
+                    plan.variant === "pro" 
+                      ? "bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text"
+                      : "text-foreground"
+                  )}>
                     {isYearly ? plan.price.yearly : plan.price.monthly}
                   </span>
                   <span className="text-muted-foreground">{plan.period}</span>
+                  {isYearly && plan.variant !== "free" && (
+                    <span className="ml-2 text-xs text-emerald-500 font-medium">Save 20%</span>
+                  )}
                 </div>
 
-                {/* Features */}
+                {/* Features - enhanced checkmarks */}
                 <ul className="space-y-4 mb-8 flex-grow">
                   {plan.features.map((feature) => (
                     <li key={feature} className="flex items-start gap-3">
                       <div className={cn(
-                        "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5",
-                        plan.variant === "pro" ? "bg-primary/20" : "bg-muted"
+                        "flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center mt-0.5 transition-colors",
+                        plan.variant === "pro" 
+                          ? "bg-primary/20" 
+                          : plan.variant === "studio"
+                            ? "bg-amber-500/10 group-hover:bg-amber-500/20"
+                            : "bg-muted"
                       )}>
                         <Check className={cn(
                           "w-3 h-3",
-                          plan.variant === "pro" ? "text-primary" : "text-muted-foreground"
+                          plan.variant === "pro" 
+                            ? "text-primary" 
+                            : plan.variant === "studio"
+                              ? "text-amber-500"
+                              : "text-muted-foreground"
                         )} />
                       </div>
-                      <span className="text-sm text-foreground/80">{feature}</span>
+                      <span className={cn(
+                        "text-sm",
+                        feature.includes("AI credits") || feature.includes("AI Assistant")
+                          ? "text-foreground font-medium"
+                          : "text-foreground/80"
+                      )}>
+                        {feature}
+                      </span>
                     </li>
                   ))}
                 </ul>
 
-                {/* CTA */}
+                {/* CTA - enhanced buttons */}
                 <Button 
                   asChild
                   className={cn(
                     "w-full h-12 font-semibold rounded-xl transition-all duration-300",
                     plan.variant === "pro" 
-                      ? "bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20" 
-                      : "bg-secondary hover:bg-secondary/80 text-foreground border border-border"
+                      ? "bg-gradient-to-r from-primary to-blue-500 hover:from-primary/90 hover:to-blue-500/90 text-primary-foreground shadow-lg shadow-primary/30 hover:shadow-xl hover:shadow-primary/40 hover:scale-[1.02]" 
+                      : plan.variant === "studio"
+                        ? "bg-secondary hover:bg-secondary/80 text-foreground border border-border hover:border-primary/30 hover:shadow-lg"
+                        : "bg-secondary hover:bg-secondary/80 text-foreground border border-border"
                   )}
                 >
                   <Link href="/dashboard">{plan.cta}</Link>

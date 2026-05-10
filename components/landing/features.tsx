@@ -16,8 +16,8 @@ const features = [
   },
   {
     icon: Zap,
-    title: "Live Event Tracking",
-    description: "Watch player purchases, gamepass clicks, and conversions happen in real-time on your dashboard.",
+    title: "Live Activity Tracking",
+    description: "Watch player purchases and conversions happen in real-time on your dashboard.",
     metric: "Sub-second latency"
   },
   {
@@ -49,8 +49,11 @@ const features = [
 export function Features() {
   return (
     <section id="features" className="py-32 relative">
-      {/* Subtle background */}
+      {/* Subtle background gradient */}
       <div className="absolute inset-0 bg-gradient-to-b from-primary/3 via-transparent to-transparent" />
+      
+      {/* Square grid overlay */}
+      <div className="absolute inset-0 bg-square-grid opacity-80" />
       
       <div className="relative z-10 max-w-6xl mx-auto px-6">
         <div className="text-center mb-20">

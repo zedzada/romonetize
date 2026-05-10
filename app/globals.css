@@ -142,3 +142,44 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Premium grid background utilities */
+@layer utilities {
+  /* Dotted grid - for hero and landing sections (visible) */
+  .bg-dot-grid {
+    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.22) 1px, transparent 1px);
+    background-size: 18px 18px;
+  }
+
+  /* Dotted grid with radial mask - hero primary grid */
+  .bg-dot-grid-masked {
+    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.20) 1.2px, transparent 1.2px);
+    background-size: 18px 18px;
+    -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, black 0%, black 40%, transparent 80%);
+    mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, black 0%, black 40%, transparent 80%);
+  }
+
+  /* Square grid - for subtle backgrounds */
+  .bg-square-grid {
+    background-image:
+      linear-gradient(rgba(56, 189, 248, 0.10) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56, 189, 248, 0.10) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* Dashboard grid - extremely subtle for authenticated pages */
+  .bg-dashboard-grid {
+    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.04) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  /* Hero glow effect - more visible */
+  .bg-hero-glow {
+    background: radial-gradient(ellipse 70% 50% at 50% 35%, rgba(56, 189, 248, 0.12) 0%, transparent 65%);
+  }
+
+  /* Hero secondary glow - cyan accent */
+  .bg-hero-glow-secondary {
+    background: radial-gradient(ellipse 50% 40% at 50% 50%, rgba(34, 211, 238, 0.08) 0%, transparent 70%);
+  }
+}
