@@ -28,6 +28,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { createClient } from "@/lib/supabase/client";
 import { getPlanGameLimit } from "@/lib/products";
+import { getUserGames, getSelectedGame } from "@/lib/actions/games";
 
 // Roblox game from API (now includes group games)
 interface RobloxGame {
@@ -92,54 +93,65 @@ export default function GamePage() {
   const gamesUsed = connectedGames.length;
   const isAtLimit = gamesUsed >= planLimit;
 
-  // Fetch connected games and user plan
+  // Fetch connected games and user plan using same server actions as dashboard layout
   useEffect(() => {
     async function fetchData() {
       setLoading(true);
       
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-      
-      // Get user plan and Roblox account status
-      const { data: profile } = await supabase
-        .from("profiles")
-        .select("plan, roblox_user_id")
-        .eq("id", user.id)
-        .single();
-      
-      setUserPlan(profile?.plan || "free");
-      setHasRobloxAccount(!!profile?.roblox_user_id);
-      
-      // Fetch connected games with group metadata and thumbnail
-      const { data: games, error: gamesError } = await supabase
-        .from("games")
-        .select("id, roblox_game_id, name, api_key, is_selected, source, group_id, group_name, root_place_id, role_name, role_rank, thumbnail_url")
-        .eq("user_id", user.id)
-        .neq("status", "deleted")
-        .order("created_at", { ascending: false });
+      // Use server actions (same as dashboard layout) for connected games
+      const [gamesResult, selectedResult] = await Promise.all([
+        getUserGames(),
+        getSelectedGame(),
+      ]);
       
       // Debug in development only
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] My Game connected games debug", {
-          userId: user.id,
-          connectedGamesCount: games?.length ?? 0,
-          connectedGames: games?.map(g => ({
+        console.log("[v0] My Game connected games debug (server actions)", {
+          gamesCount: gamesResult.games?.length ?? 0,
+          gamesError: gamesResult.error,
+          selectedGame: selectedResult.game?.name ?? null,
+          selectedGameError: selectedResult.error,
+          games: gamesResult.games?.map(g => ({
             id: g.id,
             name: g.name,
             roblox_game_id: g.roblox_game_id,
             is_selected: g.is_selected
           })) ?? [],
-          error: gamesError?.message ?? null
         });
       }
       
-      if (games) {
-        setConnectedGames(games);
+      if (!gamesResult.error && gamesResult.games) {
+        // Map to ConnectedGame interface
+        const mappedGames: ConnectedGame[] = gamesResult.games.map(g => ({
+          id: g.id,
+          roblox_game_id: g.roblox_game_id,
+          name: g.name,
+          api_key: g.api_key,
+          is_selected: g.is_selected ?? false,
+          source: g.source ?? undefined,
+          group_id: g.group_id ?? undefined,
+          group_name: g.group_name ?? undefined,
+          root_place_id: g.root_place_id ?? undefined,
+          role_name: g.role_name ?? undefined,
+          role_rank: g.role_rank ?? undefined,
+          thumbnail_url: g.thumbnail_url ?? undefined,
+        }));
+        setConnectedGames(mappedGames);
+      }
+      
+      // Get user plan and Roblox account status (still need client for this)
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (user) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("plan, roblox_user_id")
+          .eq("id", user.id)
+          .single();
+        
+        setUserPlan(profile?.plan || "free");
+        setHasRobloxAccount(!!profile?.roblox_user_id);
       }
       
       setLoading(false);
@@ -172,15 +184,14 @@ export default function GamePage() {
           setGroupWarning(data.warning);
         }
         
-        // Debug in development - check matching
+        // Debug in development
         if (process.env.NODE_ENV === "development") {
           console.log("[v0] Roblox games fetched", {
             robloxGamesCount: robloxGamesData.length,
-            robloxGameIds: robloxGamesData.map((g: RobloxGame) => String(g.id)),
-            connectedGameIds: connectedGames.map(g => g.roblox_game_id),
-            matches: robloxGamesData.filter((rg: RobloxGame) => 
-              connectedGames.some(cg => cg.roblox_game_id === String(rg.id))
-            ).map((g: RobloxGame) => g.name)
+            sampleGames: robloxGamesData.slice(0, 3).map((g: RobloxGame) => ({
+              id: g.id,
+              name: g.name,
+            })),
           });
         }
       }
@@ -189,7 +200,7 @@ export default function GamePage() {
     }
     
     setLoadingRobloxGames(false);
-  }, [hasRobloxAccount, connectedGames]);
+  }, [hasRobloxAccount]);
 
   useEffect(() => {
     if (hasRobloxAccount === true) {
