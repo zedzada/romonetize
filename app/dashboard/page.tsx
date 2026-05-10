@@ -18,7 +18,6 @@ import {
   RefreshCw,
   TrendingUp,
   TrendingDown,
-  FlaskConical,
   CheckCircle,
   XCircle,
   Bell,
@@ -34,7 +33,7 @@ import { getDashboardStats, getAnalyticsAlerts, getUserGameIds, type DashboardSt
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { Users, Heart, ThumbsUp } from "lucide-react";
-import { createGame, getFirstGameApiKey } from "@/lib/actions/games";
+import { createGame } from "@/lib/actions/games";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useToast } from "@/hooks/use-toast";
 import { triggerStatsRefresh, useStatsRefresh } from "@/hooks/use-stats-refresh";
@@ -54,7 +53,7 @@ export default function DashboardPage() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [alerts, setAlerts] = useState<AnalyticsAlert[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [sendingTestEvent, setSendingTestEvent] = useState(false);
+
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [gameIds, setGameIds] = useState<string[]>([]);
@@ -174,75 +173,7 @@ export default function DashboardPage() {
     setAiMessage("");
   };
 
-  const handleSendTestEvent = async () => {
-    setSendingTestEvent(true);
-    setError(null);
 
-    try {
-      // Fetch API key fresh from database via server action
-      const result = await getFirstGameApiKey();
-      const { apiKey, error: keyError } = result;
-      
-      if (keyError || !apiKey) {
-        toast({
-          variant: "destructive",
-          title: "No active game found",
-          description: keyError || "Connect a real game first to send test events.",
-        });
-        setSendingTestEvent(false);
-        return;
-      }
-
-      // Send test event to API with x-api-key header
-      const response = await fetch("/api/events", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey.trim(),
-        },
-        body: JSON.stringify({
-          event_type: "purchase_success",
-          product_name: "VIP Pass",
-          product_id: "vip_pass_199",
-          product_type: "gamepass",
-          robux: 199,
-          player_id: "test_player_" + Date.now(),
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        toast({
-          variant: "destructive",
-          title: "Test event failed",
-          description: data.error || "Failed to send test event",
-        });
-        setSendingTestEvent(false);
-        return;
-      }
-
-      // Success - refresh stats
-      toast({
-        title: "Test event received",
-        description: "Purchase event saved successfully. Refreshing stats...",
-      });
-
-      // Trigger global stats refresh for all dashboard pages
-      triggerStatsRefresh();
-
-      // Refresh dashboard stats
-      await fetchStats(false);
-    } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: err instanceof Error ? err.message : "Unknown error occurred",
-      });
-    }
-
-    setSendingTestEvent(false);
-  };
 
   const formatEventType = (type: string) => {
     return type.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
@@ -458,24 +389,6 @@ export default function DashboardPage() {
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
             {isRefreshing ? "Refreshing..." : "Refresh Data"}
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleSendTestEvent}
-            disabled={sendingTestEvent}
-            className="gap-2 border-dashed border-primary/50 hover:border-primary hover:bg-primary/5"
-          >
-            {sendingTestEvent ? (
-              <>
-                <RefreshCw className="w-4 h-4 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <FlaskConical className="w-4 h-4" />
-                Send Test Event
-              </>
-            )}
           </Button>
         </div>
       </div>

@@ -35,9 +35,9 @@ function formatRobux(value: unknown): string {
   return "—";
 }
 
-// Safe percentage formatter
+// Safe percentage formatter - handles NaN, Infinity, null, undefined
 function formatPercent(value: unknown): string {
-  if (typeof value === "number" && !isNaN(value)) {
+  if (typeof value === "number" && !isNaN(value) && isFinite(value)) {
     return `${(value * 100).toFixed(1)}%`;
   }
   return "—";
@@ -307,8 +307,6 @@ export default function ProductsPage() {
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Revenue</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Purchases</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Views</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Clicks</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Conv.</th>
                     <th className="text-right py-3.5 px-6 font-semibold text-neutral-300 text-xs uppercase tracking-wide">Rev/Buyer</th>
                   </tr>
@@ -322,8 +320,6 @@ export default function ProductsPage() {
                     const revenue = product.revenue ?? 0;
                     const purchases = product.purchases ?? 0;
                     const buyers = product.buyers ?? product.uniqueBuyers ?? 0;
-                    const views = product.views ?? 0;
-                    const clicks = product.clicks ?? 0;
                     const conversionRate = product.conversionRate ?? null;
                     const revenuePerBuyer = product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? revenue / buyers : 0);
                     
@@ -353,21 +349,11 @@ export default function ProductsPage() {
                         <td className="py-4 px-3 text-right font-medium text-foreground">
                           {formatNumber(buyers)}
                         </td>
-                        <td className="py-4 px-3 text-right text-neutral-400">
-                          {views > 0 ? formatNumber(views) : (
-                            <span className="text-neutral-600">—</span>
-                          )}
-                        </td>
-                        <td className="py-4 px-3 text-right text-neutral-400">
-                          {clicks > 0 ? formatNumber(clicks) : (
-                            <span className="text-neutral-600">—</span>
-                          )}
-                        </td>
                         <td className="py-4 px-3 text-right">
                           {conversionRate !== null ? (
                             <span className="font-medium text-foreground">{formatPercent(conversionRate)}</span>
                           ) : (
-                            <span className="text-xs text-neutral-600">Needs views</span>
+                            <span className="text-neutral-600">—</span>
                           )}
                         </td>
                         <td className="py-4 px-6 text-right font-mono text-neutral-300">

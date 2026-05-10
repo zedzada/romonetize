@@ -16,8 +16,8 @@ const features = [
   },
   {
     icon: Zap,
-    title: "Live Event Tracking",
-    description: "Watch player purchases, gamepass clicks, and conversions happen in real-time on your dashboard.",
+    title: "Live Activity Tracking",
+    description: "Watch player purchases and conversions happen in real-time on your dashboard.",
     metric: "Sub-second latency"
   },
   {

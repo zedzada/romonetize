@@ -6,7 +6,6 @@ import {
   ShoppingCart, 
   Eye, 
   Gamepad2,
-  MousePointerClick,
   Sparkles,
   RefreshCw,
 } from "lucide-react";
@@ -24,16 +23,16 @@ const mockStats = {
 const mockRecentEvents = [
   { id: "1", event_type: "purchase_success", product_name: "VIP Pass", robux: 499, game_name: "Tower Defense", created_at: "2 min ago" },
   { id: "2", event_type: "player_join", product_name: null, robux: 0, game_name: "Tower Defense", created_at: "3 min ago" },
-  { id: "3", event_type: "gamepass_click", product_name: "2x Cash", robux: 0, game_name: "Pet Simulator", created_at: "5 min ago" },
+  { id: "3", event_type: "shop_open", product_name: "2x Cash", robux: 0, game_name: "Pet Simulator", created_at: "5 min ago" },
   { id: "4", event_type: "purchase_success", product_name: "Starter Pack", robux: 199, game_name: "Tower Defense", created_at: "8 min ago" },
-  { id: "5", event_type: "shop_open", product_name: null, robux: 0, game_name: "Pet Simulator", created_at: "12 min ago" },
+  { id: "5", event_type: "session_start", product_name: null, robux: 0, game_name: "Pet Simulator", created_at: "12 min ago" },
 ];
 
 const mockTopProducts = [
-  { id: "1", name: "VIP Pass", product_type: "gamepass", total_revenue: 840500, total_purchases: 1682, total_clicks: 12450 },
-  { id: "2", name: "2x Cash Boost", product_type: "gamepass", total_revenue: 620200, total_purchases: 3101, total_clicks: 18200 },
-  { id: "3", name: "Lucky Crate", product_type: "devproduct", total_revenue: 510800, total_purchases: 8526, total_clicks: 24100 },
-  { id: "4", name: "Speed Boost", product_type: "gamepass", total_revenue: 420100, total_purchases: 2101, total_clicks: 14200 },
+  { id: "1", name: "VIP Pass", product_type: "gamepass", total_revenue: 840500, total_purchases: 1682 },
+  { id: "2", name: "2x Cash Boost", product_type: "gamepass", total_revenue: 620200, total_purchases: 3101 },
+  { id: "3", name: "Lucky Crate", product_type: "devproduct", total_revenue: 510800, total_purchases: 8526 },
+  { id: "4", name: "Speed Boost", product_type: "gamepass", total_revenue: 420100, total_purchases: 2101 },
 ];
 
 const formatEventType = (type: string) => {
@@ -212,9 +211,6 @@ export function DashboardPreview() {
                           <div className="text-sm font-medium text-foreground flex items-center gap-1">
                             <span className="text-primary text-xs">R$</span>
                             {formatNumber(product.total_revenue)}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {formatNumber(product.total_clicks)} clicks
                           </div>
                         </div>
                       </div>

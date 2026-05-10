@@ -67,7 +67,7 @@ export function Hero({ onOpenAuthModal }: HeroProps) {
 
         {/* Value proposition */}
         <p className="text-xl text-foreground/80 max-w-2xl mx-auto mb-4 text-pretty font-medium">
-          Track every gamepass click, purchase, and conversion in real-time.
+          Track every purchase and conversion in real-time.
         </p>
         <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-12 text-pretty">
           See exactly where players drop off and fix revenue leaks before they cost you thousands.
@@ -101,7 +101,7 @@ export function Hero({ onOpenAuthModal }: HeroProps) {
             </div>
             <div className="text-left">
               <div className="text-sm font-semibold text-foreground">Live Tracking</div>
-              <div className="text-xs text-muted-foreground">Monitor events in real-time</div>
+              <div className="text-xs text-muted-foreground">Monitor activity in real-time</div>
             </div>
           </div>
           <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm">
@@ -109,8 +109,8 @@ export function Hero({ onOpenAuthModal }: HeroProps) {
               <Zap className="w-5 h-5 text-amber-500" />
             </div>
             <div className="text-left">
-              <div className="text-sm font-semibold text-foreground">Real-Time Events</div>
-              <div className="text-xs text-muted-foreground">Instant data streaming</div>
+              <div className="text-sm font-semibold text-foreground">Real-Time Data</div>
+              <div className="text-xs text-muted-foreground">Instant streaming</div>
             </div>
           </div>
           <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm">

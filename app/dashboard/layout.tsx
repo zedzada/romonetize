@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { OnboardingTutorial } from "@/components/dashboard/onboarding-tutorial";
 import { ProfileModal } from "@/components/dashboard/profile-modal";
 import { CreditsWidget } from "@/components/dashboard/credits-widget";
+import { GameIcon } from "@/components/dashboard/game-icon";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 import {
@@ -52,6 +53,7 @@ type Game = {
   status: string;
   api_key: string;
   is_selected?: boolean;
+  thumbnail_url?: string | null;
 };
 
 export default function DashboardLayout({
@@ -329,7 +331,16 @@ export default function DashboardLayout({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="gap-2 hidden md:flex" disabled={switchingGame}>
-                  <Gamepad2 className="w-4 h-4" />
+                  {selectedGame ? (
+                    <GameIcon 
+                      name={selectedGame.name} 
+                      thumbnailUrl={selectedGame.thumbnail_url} 
+                      size="sm" 
+                      className="w-5 h-5"
+                    />
+                  ) : (
+                    <Gamepad2 className="w-4 h-4" />
+                  )}
                   {switchingGame ? "Switching..." : (selectedGame?.name || "Select game")}
                   {selectedGame?.status === "active" && !switchingGame && (
                     <span className="w-2 h-2 rounded-full bg-green-500" />
@@ -345,6 +356,12 @@ export default function DashboardLayout({
                     className="flex justify-between"
                   >
                     <div className="flex items-center gap-2">
+                      <GameIcon 
+                        name={game.name} 
+                        thumbnailUrl={game.thumbnail_url} 
+                        size="sm" 
+                        className="w-5 h-5"
+                      />
                       {game.id === selectedGame?.id && (
                         <span className="w-1.5 h-1.5 rounded-full bg-primary" />
                       )}
