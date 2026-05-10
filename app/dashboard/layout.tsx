@@ -461,8 +461,12 @@ export default function DashboardLayout({
         )}
 
         {/* Page content */}
-        <main className="flex-1 overflow-auto p-4 md:p-6">
-          {children}
+        <main className="flex-1 overflow-auto p-4 md:p-6 relative">
+          {/* Subtle dashboard grid background */}
+          <div className="absolute inset-0 bg-dashboard-grid pointer-events-none" />
+          <div className="relative z-10">
+            {children}
+          </div>
         </main>
       </div>
 

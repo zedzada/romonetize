@@ -42,8 +42,11 @@ const formatEventType = (type: string) => {
 export function DashboardPreview() {
   return (
     <section id="dashboard" className="py-32 relative">
-      {/* Background */}
+      {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary/3 to-transparent" />
+      
+      {/* Square grid overlay */}
+      <div className="absolute inset-0 bg-square-grid opacity-50" />
       
       <div className="relative z-10 max-w-6xl mx-auto px-6">
         <div className="text-center mb-16">

@@ -66,8 +66,11 @@ export function Pricing() {
 
   return (
     <section id="pricing" className="py-32 relative overflow-hidden">
-      {/* Background */}
+      {/* Background gradient */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary/3 to-transparent" />
+      
+      {/* Dotted grid overlay */}
+      <div className="absolute inset-0 bg-dot-grid opacity-60" />
       
       {/* Subtle glow behind Pro card */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/3 w-[600px] h-[500px] bg-primary/8 rounded-full blur-[120px] pointer-events-none" />
