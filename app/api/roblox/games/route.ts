@@ -43,6 +43,13 @@ interface EnhancedGame {
   groupId?: number;
   roleName?: string;
   roleRank?: number;
+  iconUrl?: string | null;
+}
+
+interface ThumbnailData {
+  targetId: number;
+  state: string;
+  imageUrl: string | null;
 }
 
 export async function GET() {
@@ -200,6 +207,45 @@ export async function GET() {
 
     // Convert map to array
     const allGames = Array.from(gamesMap.values());
+
+    // Batch fetch thumbnails for all games
+    if (allGames.length > 0) {
+      try {
+        const universeIds = allGames.map(g => g.id).join(",");
+        const thumbnailResponse = await fetch(
+          `https://thumbnails.roblox.com/v1/games/icons?universeIds=${universeIds}&size=150x150&format=Png&isCircular=false`,
+          {
+            headers: { "Accept": "application/json" },
+            next: { revalidate: 3600 }, // Cache for 1 hour
+          }
+        );
+
+        if (thumbnailResponse.ok) {
+          const thumbnailData = await thumbnailResponse.json();
+          const thumbnails: ThumbnailData[] = thumbnailData.data || [];
+          
+          // Map thumbnails back to games
+          for (const game of allGames) {
+            const thumbnail = thumbnails.find((t: ThumbnailData) => t.targetId === game.id);
+            if (thumbnail && thumbnail.state === "Completed" && thumbnail.imageUrl) {
+              game.iconUrl = thumbnail.imageUrl;
+            }
+          }
+
+          // Debug log in development
+          if (process.env.NODE_ENV === "development") {
+            console.log("[Roblox API] Thumbnails:", {
+              universeIdsRequested: allGames.length,
+              thumbnailsReturned: thumbnails.length,
+              gamesWithIconUrl: allGames.filter(g => g.iconUrl).length,
+            });
+          }
+        }
+      } catch (error) {
+        console.error("[Roblox API] Failed to fetch thumbnails:", error);
+        // Continue without thumbnails - games will use fallback icons
+      }
+    }
 
     // Return combined results
     return NextResponse.json({ 

@@ -39,6 +39,7 @@ interface RobloxGame {
   groupId?: number;
   roleName?: string;
   roleRank?: number;
+  iconUrl?: string | null;
 }
 
 // Game from database
@@ -54,6 +55,7 @@ interface ConnectedGame {
   root_place_id?: string;
   role_name?: string;
   role_rank?: number;
+  thumbnail_url?: string | null;
 }
 
 export default function GamePage() {
@@ -113,10 +115,10 @@ export default function GamePage() {
       setUserPlan(profile?.plan || "free");
       setHasRobloxAccount(!!profile?.roblox_user_id);
       
-      // Fetch connected games with group metadata
+      // Fetch connected games with group metadata and thumbnail
       const { data: games } = await supabase
         .from("games")
-        .select("id, roblox_game_id, name, api_key, is_selected, source, group_id, group_name, root_place_id, role_name, role_rank")
+        .select("id, roblox_game_id, name, api_key, is_selected, source, group_id, group_name, root_place_id, role_name, role_rank, thumbnail_url")
         .eq("user_id", user.id)
         .neq("status", "deleted")
         .order("created_at", { ascending: false });
@@ -293,6 +295,7 @@ export default function GamePage() {
       groupName: robloxGame.groupName ?? null,
       roleName: robloxGame.roleName ?? null,
       roleRank: robloxGame.roleRank ?? null,
+      iconUrl: robloxGame.iconUrl ?? null,
     };
     
     try {
@@ -759,15 +762,12 @@ print("[RoMonetize] Tracker initialized!")` : "";
                           }`}
                         >
                           <div className="flex items-start gap-3">
-                            <div className={`w-12 h-12 rounded-lg flex items-center justify-center shrink-0 ${
-                              robloxGame.source === "group" 
-                                ? "bg-gradient-to-br from-purple-500/20 to-pink-400/20" 
-                                : "bg-gradient-to-br from-primary/20 to-blue-400/20"
-                            }`}>
-                              <Gamepad2 className={`w-6 h-6 ${
-                                robloxGame.source === "group" ? "text-purple-500" : "text-primary"
-                              }`} />
-                            </div>
+                            <GameIcon 
+                              name={robloxGame.name} 
+                              thumbnailUrl={robloxGame.iconUrl} 
+                              size="lg"
+                              className="shrink-0"
+                            />
                             <div className="flex-1 min-w-0">
                               <div className="font-medium text-foreground truncate">{robloxGame.name}</div>
                               <div className="text-xs text-muted-foreground">ID: {robloxGame.id}</div>
