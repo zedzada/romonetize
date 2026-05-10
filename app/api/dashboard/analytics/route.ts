@@ -1274,6 +1274,11 @@ export async function GET(request: NextRequest) {
       } : null,
       // Product stats (for Products tab)
       productStats: {
+        // Gross values (raw tracked)
+        grossTotalRevenue: totalProductRevenue,
+        // Estimated values (after 30% Roblox fee)
+        estimatedTotalRevenue: Math.round(totalProductRevenue * CREATOR_REVENUE_RATE),
+        // Legacy field - now points to gross for backwards compatibility
         totalRevenue: totalProductRevenue,
         totalPurchases: totalProductPurchases,
         uniqueBuyers: totalUniqueBuyers,

@@ -269,14 +269,19 @@ export default function MonetizationPage() {
     refresh,
   } = useAnalytics({ enabled: true, range: "7d" });
 
-  // Safe defaults
+  // Safe defaults - use estimated (70%) values for user-facing display
   const safeRevenueStats = {
-    totalRevenue: revenueStats?.totalRevenue ?? 0,
-    revenue72h: revenueStats?.revenue72h ?? 0,
+    // Estimated values (after 30% Roblox fee) - primary display
+    estimatedRevenue: revenueStats?.estimatedRevenue ?? 0,
+    estimatedRevenue72h: revenueStats?.estimatedRevenue72h ?? 0,
+    estimatedArppu: revenueStats?.estimatedArppu ?? 0,
+    estimatedArpdau: revenueStats?.estimatedArpdau ?? 0,
+    // Gross values (raw tracked) - for tooltips/debug only
+    grossRevenue: revenueStats?.grossRevenue ?? 0,
+    grossRevenue72h: revenueStats?.grossRevenue72h ?? 0,
+    // Non-revenue metrics
     totalPurchases: revenueStats?.totalPurchases ?? 0,
     payingUsers: revenueStats?.payingUsers ?? 0,
-    arppu: revenueStats?.arppu ?? 0,
-    arpdau: revenueStats?.arpdau ?? 0,
   };
 
   // Process chart data based on selected range and interval

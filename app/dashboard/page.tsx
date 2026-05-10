@@ -79,8 +79,9 @@ export default function DashboardPage() {
       setLastRefresh(new Date());
       // Update AI response based on data
       if (statsResult.stats && statsResult.stats.totalEvents > 0) {
+        const estimatedRev = statsResult.stats.estimatedRevenue ?? Math.round(statsResult.stats.totalRevenue * 0.7);
         setAiResponse(
-          `I'm analyzing your ${statsResult.stats.totalEvents.toLocaleString()} tracked player actions across ${statsResult.stats.totalGames} game${statsResult.stats.totalGames !== 1 ? "s" : ""}. Your total revenue is ${statsResult.stats.totalRevenue.toLocaleString()} Robux with ${statsResult.stats.totalProducts} tracked products. Ask me anything about your monetization performance!`
+          `I'm analyzing your ${statsResult.stats.totalEvents.toLocaleString()} tracked player actions across ${statsResult.stats.totalGames} game${statsResult.stats.totalGames !== 1 ? "s" : ""}. Your estimated revenue is ${estimatedRev.toLocaleString()} Robux with ${statsResult.stats.totalProducts} tracked products. Ask me anything about your monetization performance!`
         );
       }
     }
@@ -163,7 +164,7 @@ export default function DashboardPage() {
     // In a real app, this would call your AI endpoint
     if (stats && stats.totalEvents > 0) {
       setAiResponse(
-        `Based on your question "${aiMessage}", I analyzed your game data. With ${stats.totalRevenue.toLocaleString()} Robux in revenue and ${stats.totalPurchases || 0} purchases, your performance is solid. Focus on increasing conversion rates for better results.`
+        `Based on your question "${aiMessage}", I analyzed your game data. With ${(stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7)).toLocaleString()} Robux in estimated revenue and ${stats.totalPurchases || 0} purchases, your performance is solid. Focus on increasing conversion rates for better results.`
       );
     } else {
       setAiResponse(
@@ -441,7 +442,7 @@ export default function DashboardPage() {
               <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
                 <DollarSign className="w-5 h-5 text-green-500" />
               </div>
-              {stats.totalRevenue > 0 && (
+              {(stats.estimatedRevenue ?? stats.totalRevenue) > 0 && (
                 <span className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
                   <TrendingUp className="w-3 h-3" />
                   Revenue
@@ -449,9 +450,9 @@ export default function DashboardPage() {
               )}
             </div>
             <div className="text-3xl font-bold text-foreground tracking-tight">
-              <RobuxValue value={stats.totalRevenue.toLocaleString()} iconSize="sm" />
+              <RobuxValue value={(stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7)).toLocaleString()} iconSize="sm" />
             </div>
-            <div className="text-xs text-muted-foreground mt-1">Total Revenue</div>
+            <div className="text-xs text-muted-foreground mt-1" title={`Gross: R$${stats.totalRevenue.toLocaleString()}`}>Est. Revenue</div>
           </CardContent>
         </Card>
 
