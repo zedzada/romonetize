@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime, type HourlyMonetizationPoint } from "@/hooks/use-analytics";
-import { CHART_COLORS, chartAxisStyle, chartGridStyle } from "@/components/dashboard/chart-card";
+import { CHART_COLORS } from "@/components/dashboard/chart-card";
+import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import {
   AreaChart,
   Area,
@@ -37,14 +38,12 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 
-// Chart color palette - vivid and highly visible on dark mode
+// Chart color palette - series colors (theme-independent, always vibrant)
 const COLORS = {
   totalRevenue: "#3B82F6",    // Bright blue
   devProduct: "#22C55E",      // Vivid green
   gamepass: "#EC4899",        // Hot pink
   purchases: "#F59E0B",       // Amber
-  grid: "#4B5563",            // Visible grid
-  axis: "#D1D5DB",            // Bright axis labels
 };
 
 // Safe number formatter
@@ -235,6 +234,12 @@ export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
+  
+  // Theme-aware chart colors
+  const chartTheme = useChartTheme();
+  const axisProps = getChartAxisProps(chartTheme);
+  const gridProps = getChartGridProps(chartTheme);
+  const tooltipStyle = getChartTooltipStyle(chartTheme);
 
   // Handle range change with auto-switch interval if incompatible
   const handleRangeChange = (newRange: ChartRange) => {
@@ -859,7 +864,7 @@ export default function MonetizationPage() {
                   {/* Use LineChart for Total mode (more reliable), AreaChart for single-series modes */}
                   {chartMode === "total" ? (
                     <LineChart data={processedChartData} margin={{ top: 20, right: 20, left: 10, bottom: 10 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
+                      <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="time" 
                         tickFormatter={(v) => {
@@ -872,19 +877,15 @@ export default function MonetizationPage() {
                           }
                           return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
                         }}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
-                        tickMargin={10}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 10 }}
                         interval={chartInterval === "1m" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
                       />
                       <YAxis 
                         domain={[0, yAxisMax]}
                         tickFormatter={(v) => v === 0 ? "0" : `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 11 }}
-                        tickMargin={8}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 11 }}
                         width={60}
                       />
                       <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
@@ -933,7 +934,7 @@ export default function MonetizationPage() {
                           <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={0.05}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
+                      <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="time" 
                         tickFormatter={(v) => {
@@ -946,19 +947,15 @@ export default function MonetizationPage() {
                           }
                           return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
                         }}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
-                        tickMargin={10}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 10 }}
                         interval={chartInterval === "1m" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
                       />
                       <YAxis 
                         domain={[0, yAxisMax]}
                         tickFormatter={(v) => v === 0 ? "0" : `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 11 }}
-                        tickMargin={8}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 11 }}
                         width={60}
                       />
                       <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
@@ -1033,25 +1030,21 @@ export default function MonetizationPage() {
                           <stop offset="100%" stopColor={COLORS.totalRevenue} stopOpacity={0.6}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
+                      <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="date" 
                         tickFormatter={(v) => formatChartTime(v, "7d")}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
-                        tickMargin={8}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 10 }}
                       />
                       <YAxis 
                         tickFormatter={(v) => `R$${v}`}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 10 }}
                         width={50}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
-                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                        {...tooltipStyle}
                         formatter={(value: number) => [`R$${value.toLocaleString()}`, "Revenue"]}
                       />
                       <Bar 
@@ -1088,25 +1081,21 @@ export default function MonetizationPage() {
                           <stop offset="100%" stopColor={COLORS.purchases} stopOpacity={0.05}/>
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.7} vertical={false} />
+                      <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="date" 
                         tickFormatter={(v) => formatChartTime(v, "7d")}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
-                        tickMargin={8}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 10 }}
                       />
                       <YAxis 
                         allowDecimals={false}
-                        axisLine={false}
-                        tickLine={false}
-                        tick={{ fill: COLORS.axis, fontSize: 10 }}
+                        {...axisProps}
+                        tick={{ fill: chartTheme.axis, fontSize: 10 }}
                         width={30}
                       />
                       <Tooltip
-                        contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
-                        labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                        {...tooltipStyle}
                         formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
                       />
                       <Area 
@@ -1166,7 +1155,7 @@ export default function MonetizationPage() {
                           ))}
                         </Pie>
                         <Tooltip
-                          contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px" }}
+                          {...tooltipStyle}
                           formatter={(value: number, name: string) => [
                             `R$${value.toLocaleString()}`,
                             name === "gamepass" ? "Game Passes" : "Dev Products"
@@ -1233,32 +1222,29 @@ export default function MonetizationPage() {
                             <stop offset="100%" stopColor={COLORS.devProduct} stopOpacity={1}/>
                           </linearGradient>
                         </defs>
-                        <CartesianGrid strokeDasharray="3 3" stroke={COLORS.grid} strokeOpacity={0.5} horizontal={true} vertical={false} />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} strokeOpacity={chartTheme.gridOpacity} horizontal={true} vertical={false} />
                         <XAxis 
                           type="number"
                           tickFormatter={(v) => `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: COLORS.axis, fontSize: 10 }}
+                          {...axisProps}
+                          tick={{ fill: chartTheme.axis, fontSize: 10 }}
                         />
                         <YAxis 
                           type="category"
                           dataKey="productName"
                           width={100}
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: COLORS.axis, fontSize: 11 }}
+                          {...axisProps}
+                          tick={{ fill: chartTheme.label, fontSize: 11 }}
                           tickFormatter={(v) => v.length > 14 ? v.slice(0, 14) + "..." : v}
                         />
                         <Tooltip
-                          contentStyle={{ backgroundColor: "#171717", border: "1px solid #404040", borderRadius: "8px", padding: "10px" }}
-                          labelStyle={{ color: "#F5F5F5", fontWeight: 600 }}
+                          {...tooltipStyle}
                           formatter={(value: number, name: string, props: { payload?: { productType?: string; purchases?: number } }) => {
                             const payload = props.payload;
                             return [
                               <span key="value">
                                 R${value.toLocaleString()} 
-                                <span className="text-muted-foreground ml-2">({payload?.purchases || 0} sales)</span>
+                                <span style={{ color: chartTheme.mutedLabel, marginLeft: "8px" }}>({payload?.purchases || 0} sales)</span>
                               </span>,
                               payload?.productType === "gamepass" ? "Game Pass" : "Dev Product"
                             ];

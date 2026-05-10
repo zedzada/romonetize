@@ -309,47 +309,5 @@ export const CHART_COLORS = {
   axis: "#9CA3AF",
 } as const;
 
-// Consistent chart styling props - theme-aware for light/dark mode
-// Use CSS variables where possible, with fallbacks
-export const chartAxisStyle = {
-  axisLine: false,
-  tickLine: false,
-  tickMargin: 10,
-  tick: { fill: "var(--chart-axis, #4B5563)", fontSize: 11 },
-};
-
-export const chartGridStyle = {
-  strokeDasharray: "3 3",
-  stroke: "var(--chart-grid, #E5E7EB)",
-  strokeOpacity: 0.6,
-  vertical: false,
-};
-
-// Light mode tooltip style (default)
-export const chartTooltipStyleLight = {
-  contentStyle: {
-    backgroundColor: "#FFFFFF",
-    border: "1px solid #E5E7EB",
-    borderRadius: "8px",
-    boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)",
-    padding: "12px",
-  },
-  labelStyle: { color: "#111827", fontWeight: 600, marginBottom: "4px" },
-  itemStyle: { color: "#374151" },
-};
-
-// Dark mode tooltip style
-export const chartTooltipStyleDark = {
-  contentStyle: {
-    backgroundColor: "#171717",
-    border: "1px solid #404040",
-    borderRadius: "8px",
-    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
-    padding: "12px",
-  },
-  labelStyle: { color: "#F5F5F5", fontWeight: 600, marginBottom: "4px" },
-  itemStyle: { color: "#E5E5E5" },
-};
-
-// Default export for backwards compatibility (will be dark mode)
-export const chartTooltipStyle = chartTooltipStyleDark;
+// NOTE: Chart styling is now theme-aware via useChartTheme hook
+// Import from "@/hooks/use-chart-theme" for theme-aware axis, grid, and tooltip props
