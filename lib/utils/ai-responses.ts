@@ -1,17 +1,21 @@
 // Client-side AI response generation based on real stats
 
+// Roblox takes 30%, creators get 70%
+const CREATOR_REVENUE_RATE = 0.7;
+
 export interface AIContext {
   hasData: boolean;
-  totalRevenue: number;
+  // Use estimated revenue (70% of gross) for all AI responses
+  totalRevenue: number; // This should be estimated (70%) revenue
   totalEvents: number;
   totalPurchases: number;
   totalClicks: number;
   conversionRate: number;
   uniquePlayers: number;
-  revenueByType: { gamepass: number; devproduct: number };
+  revenueByType: { gamepass: number; devproduct: number }; // Should be estimated values
   topProducts: {
     name: string;
-    revenue: number;
+    revenue: number; // Should be estimated revenue
     purchases: number;
     clicks: number;
     conversionRate: number;
@@ -27,8 +31,8 @@ export interface AIContext {
     revenueChange: number;
     purchaseChange: number;
     playerChange: number;
-    currentWeekRevenue: number;
-    previousWeekRevenue: number;
+    currentWeekRevenue: number; // Should be estimated
+    previousWeekRevenue: number; // Should be estimated
     currentWeekPurchases: number;
     previousWeekPurchases: number;
     currentWeekPlayers: number;
@@ -37,10 +41,15 @@ export interface AIContext {
   recentEvents: {
     eventType: string;
     productName: string | null;
-    robux: number;
+    robux: number; // Should be estimated
     createdAt: string;
   }[];
   gameName: string | null;
+}
+
+// Helper to convert gross revenue to estimated (for contexts where gross values are passed)
+export function toEstimatedRevenue(grossRevenue: number): number {
+  return Math.round(grossRevenue * CREATOR_REVENUE_RATE);
 }
 
 // Format trend as a readable string

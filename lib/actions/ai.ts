@@ -2,6 +2,9 @@
 
 import { createClient } from "@/lib/supabase/server";
 
+// Roblox takes 30%, creators get 70%
+const CREATOR_REVENUE_RATE = 0.7;
+
 export interface AIContext {
   hasData: boolean;
   totalRevenue: number;
@@ -147,7 +150,9 @@ export async function getAIContext(): Promise<{ context: AIContext | null; error
   const clickEvents = allEvents.filter(e => clickEventTypes.includes(e.event_type));
   const sessionEvents = allEvents.filter(e => sessionStartTypes.includes(e.event_type));
   
-  const totalRevenue = purchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+  // Calculate gross revenue first, then convert to estimated (70% creator payout)
+  const grossRevenue = purchaseEvents.reduce((sum, e) => sum + (e.robux || 0), 0);
+  const totalRevenue = Math.round(grossRevenue * CREATOR_REVENUE_RATE);
   const totalPurchases = purchaseEvents.length;
   const totalClicks = clickEvents.length;
   const conversionRate = totalClicks > 0 ? (totalPurchases / totalClicks) * 100 : 0;
@@ -155,13 +160,15 @@ export async function getAIContext(): Promise<{ context: AIContext | null; error
   // Unique players
   const uniquePlayers = new Set(allEvents.map(e => e.player_id).filter(Boolean)).size;
   
-  // Revenue by type (check product_type or event_type)
-  const gamepassRevenue = purchaseEvents
+  // Revenue by type (check product_type or event_type) - use estimated (70%)
+  const grossGamepassRevenue = purchaseEvents
     .filter(e => e.product_type === "gamepass" || e.event_type === "gamepass_purchase")
     .reduce((sum, e) => sum + (e.robux || 0), 0);
-  const devproductRevenue = purchaseEvents
+  const gamepassRevenue = Math.round(grossGamepassRevenue * CREATOR_REVENUE_RATE);
+  const grossDevproductRevenue = purchaseEvents
     .filter(e => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
     .reduce((sum, e) => sum + (e.robux || 0), 0);
+  const devproductRevenue = Math.round(grossDevproductRevenue * CREATOR_REVENUE_RATE);
 
   // Calculate top products
   const productMap = new Map<string, {
@@ -175,13 +182,14 @@ export async function getAIContext(): Promise<{ context: AIContext | null; error
   purchaseEvents.forEach(e => {
     const key = e.product_id || e.product_name || "unknown";
     const existing = productMap.get(key);
+    const estimatedRobux = Math.round((e.robux || 0) * CREATOR_REVENUE_RATE);
     if (existing) {
-      existing.revenue += e.robux || 0;
+      existing.revenue += estimatedRobux;
       existing.purchases += 1;
     } else {
       productMap.set(key, {
         name: e.product_name || "Unknown",
-        revenue: e.robux || 0,
+        revenue: estimatedRobux,
         purchases: 1,
         clicks: 0,
         productType: e.product_type || "gamepass",
@@ -236,8 +244,11 @@ export async function getAIContext(): Promise<{ context: AIContext | null; error
   const currentWeekPurchases = currentWeekEvents.filter(e => purchaseEventTypes.includes(e.event_type));
   const previousWeekPurchases = previousWeekEvents.filter(e => purchaseEventTypes.includes(e.event_type));
 
-  const currentWeekRevenue = currentWeekPurchases.reduce((sum, e) => sum + (e.robux || 0), 0);
-  const previousWeekRevenue = previousWeekPurchases.reduce((sum, e) => sum + (e.robux || 0), 0);
+  // Use estimated revenue (70% creator payout) for trends
+  const grossCurrentWeekRevenue = currentWeekPurchases.reduce((sum, e) => sum + (e.robux || 0), 0);
+  const currentWeekRevenue = Math.round(grossCurrentWeekRevenue * CREATOR_REVENUE_RATE);
+  const grossPreviousWeekRevenue = previousWeekPurchases.reduce((sum, e) => sum + (e.robux || 0), 0);
+  const previousWeekRevenue = Math.round(grossPreviousWeekRevenue * CREATOR_REVENUE_RATE);
 
   const currentWeekPlayers = new Set(
     currentWeekEvents.filter(e => sessionStartTypes.includes(e.event_type)).map(e => e.player_id).filter(Boolean)
@@ -256,11 +267,11 @@ export async function getAIContext(): Promise<{ context: AIContext | null; error
     ? ((currentWeekPlayers - previousWeekPlayers) / previousWeekPlayers) * 100 
     : (currentWeekPlayers > 0 ? 100 : 0);
 
-  // Recent events (last 10)
+  // Recent events (last 10) - use estimated revenue (70%)
   const recentEvents = allEvents.slice(0, 10).map(e => ({
     eventType: e.event_type,
     productName: e.product_name,
-    robux: e.robux || 0,
+    robux: Math.round((e.robux || 0) * CREATOR_REVENUE_RATE),
     createdAt: e.created_at,
   }));
 

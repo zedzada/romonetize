@@ -6,6 +6,9 @@ import { getSelectedGameForUser, getAllGamesForUser, type GameSummary } from "@/
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
 
+// Roblox takes 30% of revenue, creators receive 70%
+const CREATOR_REVENUE_RATE = 0.7;
+
 function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: number } {
   switch (range) {
     case "1h":
@@ -1241,16 +1244,33 @@ export async function GET(request: NextRequest) {
         lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
       } : null,
       // Revenue stats (for Monetization tab)
+      // All revenue values include both gross (raw tracked) and estimated (70% creator payout)
       revenueStats: hasTrackerEvents ? {
+        // Gross values (raw tracked sales)
+        grossRevenue: totalRevenue,
+        grossRevenue72h: revenue72h,
+        grossGamepassRevenue: gamepassRevenue,
+        grossDevproductRevenue: devproductRevenue,
+        grossArpdau: arpdau,
+        grossArppu: arppu,
+        // Estimated values (after 30% Roblox fee)
+        estimatedRevenue: Math.round(totalRevenue * CREATOR_REVENUE_RATE),
+        estimatedRevenue72h: Math.round(revenue72h * CREATOR_REVENUE_RATE),
+        estimatedGamepassRevenue: Math.round(gamepassRevenue * CREATOR_REVENUE_RATE),
+        estimatedDevproductRevenue: Math.round(devproductRevenue * CREATOR_REVENUE_RATE),
+        estimatedArpdau: arpdau > 0 ? Math.round(arpdau * CREATOR_REVENUE_RATE) : 0,
+        estimatedArppu: arppu > 0 ? Math.round(arppu * CREATOR_REVENUE_RATE) : 0,
+        // Legacy fields for backwards compatibility (now point to gross)
         totalRevenue,
         revenue72h,
         gamepassRevenue,
         devproductRevenue,
+        arpdau,
+        arppu,
+        // Non-revenue metrics unchanged
         totalPurchases,
         payingUsers,
         conversionRate,
-        arpdau,
-        arppu,
       } : null,
       // Product stats (for Products tab)
       productStats: {
@@ -1309,13 +1329,21 @@ export async function GET(request: NextRequest) {
           productName: p.name,
           productType: p.type,
           priceRobux: 0, // Would need to be fetched from Roblox API/synced products
+          // Gross values
+          grossRevenue: p.revenue,
+          grossRevenuePerBuyer: p.revPerBuyer,
+          // Estimated values (70% creator payout)
+          estimatedRevenue: Math.round(p.revenue * CREATOR_REVENUE_RATE),
+          estimatedRevenuePerBuyer: p.uniqueBuyers > 0 ? Math.round((p.revenue * CREATOR_REVENUE_RATE) / p.uniqueBuyers) : 0,
+          // Legacy fields for backwards compatibility
           revenue: p.revenue,
+          revenuePerBuyer: p.revPerBuyer,
+          // Non-revenue metrics unchanged
           purchases: p.purchases,
           buyers: p.uniqueBuyers,
           views: 0, // Future: from product_view events
           clicks: p.clicks,
           conversionRate: p.conversionRate,
-          revenuePerBuyer: p.revPerBuyer,
         })),
       },
       sectionErrors,

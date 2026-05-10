@@ -556,8 +556,8 @@ export default function TrackingSetupPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="bg-zinc-950 rounded-lg p-4 overflow-x-auto max-h-96">
-            <pre className="text-sm text-zinc-300 font-mono whitespace-pre">{luaScript}</pre>
+          <div className="bg-muted dark:bg-zinc-950 rounded-lg p-4 overflow-x-auto max-h-96">
+            <pre className="text-sm text-foreground font-mono whitespace-pre">{luaScript}</pre>
           </div>
         </CardContent>
       </Card>

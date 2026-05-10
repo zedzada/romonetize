@@ -64,28 +64,52 @@ export interface TrackerStats {
 }
 
 export interface RevenueStats {
+  // Gross values (raw tracked sales)
+  grossRevenue: number;
+  grossRevenue72h: number;
+  grossGamepassRevenue: number;
+  grossDevproductRevenue: number;
+  grossArpdau: number;
+  grossArppu: number;
+  // Estimated values (70% creator payout)
+  estimatedRevenue: number;
+  estimatedRevenue72h: number;
+  estimatedGamepassRevenue: number;
+  estimatedDevproductRevenue: number;
+  estimatedArpdau: number;
+  estimatedArppu: number;
+  // Legacy fields for backwards compatibility
   totalRevenue: number;
   revenue72h: number;
   gamepassRevenue: number;
   devproductRevenue: number;
+  arpdau: number;
+  arppu: number;
+  // Non-revenue metrics
   totalPurchases: number;
   payingUsers: number;
   conversionRate: number;
-  arpdau: number;
-  arppu: number;
 }
 
 export interface ProductInfo {
   id: string;
   name: string;
   type: string;
+  // Gross values
+  grossRevenue?: number;
+  grossRevenuePerBuyer?: number;
+  // Estimated values (70% creator payout)
+  estimatedRevenue?: number;
+  estimatedRevenuePerBuyer?: number;
+  // Legacy fields
   revenue: number;
+  revPerBuyer: number;
+  // Non-revenue metrics
   purchases: number;
   uniqueBuyers: number;
   clicks: number;
   conversionRate: number | null;
   conversionNeedsTracking: boolean;
-  revPerBuyer: number;
 }
 
 export interface ProductStats {

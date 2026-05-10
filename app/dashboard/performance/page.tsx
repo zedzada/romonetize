@@ -701,7 +701,7 @@ export default function PerformancePage() {
       {(hasTrackerData || ccuStats?.snapshots?.length || processedCcuHistory.data.length > 0) && (
         <div className="space-y-6">
           {/* Live CCU History - Large 2-column chart with its own controls */}
-          <Card className="border-neutral-700/60 bg-neutral-900/50 lg:col-span-2">
+          <Card className="border-border bg-card shadow-sm lg:col-span-2">
             <CardHeader className="pb-4">
               <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
                 <div className="flex-1">
@@ -741,7 +741,7 @@ export default function PerformancePage() {
                 {/* CCU Range and Interval Controls */}
                 <div className="flex flex-wrap items-center gap-2">
                   {/* Range selector */}
-                  <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+                  <div className="flex items-center bg-secondary/50 dark:bg-secondary/80 rounded-lg p-0.5">
                     {(["1h", "24h", "7d", "28d", "90d"] as CCUHistoryRange[]).map((r) => (
                       <button
                         type="button"
@@ -749,8 +749,8 @@ export default function PerformancePage() {
                         onClick={() => handleCcuRangeChange(r)}
                         className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors ${
                           ccuRange === r
-                            ? "bg-neutral-700 text-white"
-                            : "text-neutral-400 hover:text-neutral-200"
+? "bg-background text-foreground shadow-sm"
+                                            : "text-muted-foreground hover:text-foreground"
                         }`}
                       >
                         {r.toUpperCase()}
@@ -759,7 +759,7 @@ export default function PerformancePage() {
                   </div>
                   
                   {/* Interval selector */}
-                  <div className="flex items-center bg-neutral-800/50 rounded-lg p-0.5">
+                  <div className="flex items-center bg-secondary/50 dark:bg-secondary/80 rounded-lg p-0.5">
                     {(["1m", "hourly", "daily"] as CCUHistoryInterval[]).map((i) => {
                       // 1m only for 1H, hourly for 1H/24H/7D, daily for all
                       const is1mDisabled = i === "1m" && !CCU_MINUTE_COMPATIBLE_RANGES.includes(ccuRange);
@@ -779,10 +779,10 @@ export default function PerformancePage() {
                           disabled={isDisabled}
                           className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
                             ccuInterval === i
-                              ? i === "1m" ? "bg-emerald-600 text-white" : "bg-neutral-700 text-white"
-                              : isDisabled
-                                ? "text-neutral-600 cursor-not-allowed"
-                                : "text-neutral-400 hover:text-neutral-200"
+? i === "1m" ? "bg-emerald-600 text-white" : "bg-background text-foreground shadow-sm"
+                                              : isDisabled
+                                                ? "text-muted-foreground/50 cursor-not-allowed"
+                                                : "text-muted-foreground hover:text-foreground"
                           }`}
                           title={disabledTitle}
                         >
@@ -1032,7 +1032,7 @@ export default function PerformancePage() {
 
       {/* Empty state for charts when no tracker data and no CCU data */}
       {!hasTrackerData && !ccuStats?.snapshots?.length && processedCcuHistory.data.length === 0 && (
-        <Card className="border-neutral-700/60 bg-neutral-900/50">
+        <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-6 pb-6">
             <div className="text-center">
               <TrendingUp className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />

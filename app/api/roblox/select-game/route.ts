@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import crypto from "crypto";
+import { getRobloxGameThumbnail } from "@/lib/services/roblox-api";
 
 function generateApiKey(): string {
   return `rm_${crypto.randomBytes(24).toString("hex")}`;
@@ -10,7 +11,7 @@ export async function POST(request: NextRequest) {
   try {
     // Parse request body
     const body = await request.json();
-    const { roblox_game_id, name, rootPlaceId, source, groupId, groupName, roleName, roleRank } = body;
+    const { roblox_game_id, name, rootPlaceId, source, groupId, groupName, roleName, roleRank, iconUrl } = body;
 
     console.log("[API] /api/roblox/select-game called with:", {
       roblox_game_id,
@@ -21,6 +22,7 @@ export async function POST(request: NextRequest) {
       groupName,
       roleName,
       roleRank,
+      iconUrl: iconUrl ? "provided" : "not provided",
     });
 
     // Validate required fields
@@ -149,6 +151,19 @@ export async function POST(request: NextRequest) {
         updateData.role_rank = Number(roleRank);
       }
 
+      // Update thumbnail if provided or fetch it if missing
+      let thumbnailUrl = iconUrl || existingGame.thumbnail_url;
+      if (!thumbnailUrl) {
+        try {
+          thumbnailUrl = await getRobloxGameThumbnail(String(roblox_game_id));
+        } catch (e) {
+          console.log("[API] Could not fetch thumbnail:", e);
+        }
+      }
+      if (thumbnailUrl) {
+        updateData.thumbnail_url = thumbnailUrl;
+      }
+
       console.log("[API] Updating existing game with:", updateData);
 
       // Try to update with all fields
@@ -209,6 +224,16 @@ export async function POST(request: NextRequest) {
     // Game doesn't exist - create new entry
     const apiKey = generateApiKey();
 
+    // Fetch thumbnail if not provided
+    let thumbnailUrl = iconUrl;
+    if (!thumbnailUrl) {
+      try {
+        thumbnailUrl = await getRobloxGameThumbnail(String(roblox_game_id));
+      } catch (e) {
+        console.log("[API] Could not fetch thumbnail for new game:", e);
+      }
+    }
+
     // Build insert object with all fields including group metadata
     const insertData: Record<string, unknown> = {
       user_id: user.id,
@@ -226,6 +251,8 @@ export async function POST(request: NextRequest) {
       root_place_id: rootPlaceId ? String(rootPlaceId) : null,
       role_name: roleName || null,
       role_rank: roleRank !== undefined && roleRank !== null ? Number(roleRank) : null,
+      // Thumbnail
+      thumbnail_url: thumbnailUrl || null,
     };
 
     console.log("[API] Inserting game with data:", insertData);
