@@ -233,13 +233,18 @@ export default function ProductsPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-green-500" />
-              <span className="text-xs text-muted-foreground">Total Revenue</span>
+              <span className="text-xs text-muted-foreground">Est. Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents ? formatRobux(safeProductStats.totalRevenue) : (
+              {hasTrackerEvents ? formatRobux(safeProductStats.estimatedTotalRevenue ?? Math.round((safeProductStats.totalRevenue ?? 0) * CREATOR_REVENUE_RATE)) : (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               )}
             </div>
+            {hasTrackerEvents && safeProductStats.grossTotalRevenue > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1" title={`Gross: R$${(safeProductStats.grossTotalRevenue ?? safeProductStats.totalRevenue ?? 0).toLocaleString()}`}>
+                After 30% Roblox fee
+              </p>
+            )}
           </CardContent>
         </Card>
 

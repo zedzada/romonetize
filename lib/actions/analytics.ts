@@ -68,10 +68,16 @@ export async function getUserGameIds(): Promise<{ gameIds: string[]; error: stri
   };
 }
 
+// Roblox takes 30% of revenue, creators receive 70%
+const CREATOR_REVENUE_RATE = 0.7;
+
 export interface DashboardStats {
   totalGames: number;
   totalEvents: number;
+  // Gross revenue (raw tracked sales)
   totalRevenue: number;
+  // Estimated revenue (after 30% Roblox fee) - primary display value
+  estimatedRevenue: number;
   totalProducts: number;
   totalPurchases: number;
   recentEvents: RecentEvent[];
@@ -134,6 +140,7 @@ export async function getDashboardStats(): Promise<{ stats: DashboardStats | nul
         totalGames: totalGamesCount,
         totalEvents: 0,
         totalRevenue: 0,
+        estimatedRevenue: 0,
         totalProducts: 0,
         totalPurchases: 0,
         recentEvents: [],
@@ -280,6 +287,7 @@ export async function getDashboardStats(): Promise<{ stats: DashboardStats | nul
       totalGames: totalGamesCount,
       totalEvents: totalEvents || 0,
       totalRevenue,
+      estimatedRevenue: Math.round(totalRevenue * CREATOR_REVENUE_RATE),
       totalProducts,
       totalPurchases,
       recentEvents,
