@@ -212,30 +212,24 @@ export function ChartCard({
         </CardContent>
       </Card>
 
-      {/* Expanded Modal - Large analytics view */}
+      {/* Expanded Modal - Wide analytics view */}
       <Dialog open={isExpanded} onOpenChange={setIsExpanded}>
-        <DialogContent className="w-[94vw] max-w-[1400px] h-[85vh] max-h-[85vh] bg-neutral-900 border-neutral-700 p-0 gap-0 sm:rounded-lg max-sm:w-[100vw] max-sm:h-[100vh] max-sm:max-h-[100vh] max-sm:rounded-none">
+        <DialogContent className="w-[75vw] min-w-[min(900px,96vw)] max-w-[1200px] h-[70vh] max-h-[760px] bg-neutral-900 border-neutral-700 p-0 gap-0 sm:rounded-lg lg:w-[75vw] md:w-[82vw] md:h-[72vh] max-md:w-[96vw] max-md:h-[80vh] max-md:max-h-none">
           <div className="flex h-full flex-col">
-            {/* Header */}
-            <DialogHeader className="shrink-0 p-6 pb-4 border-b border-neutral-800">
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <DialogTitle className="text-xl font-semibold text-foreground">
-                      {title}
-                    </DialogTitle>
-                    {/* Source badge */}
-                    <Badge variant="secondary" className={`text-xs ${badgeClassName}`}>
-                      {label}
-                    </Badge>
-                    {summary && (
-                      <span className="text-sm font-medium text-muted-foreground bg-muted/50 px-2.5 py-1 rounded">
-                        {summary}
-                      </span>
-                    )}
-                  </div>
-                  {subtitle && (
-                    <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>
+            {/* Compact Header */}
+            <DialogHeader className="shrink-0 px-6 pt-5 pb-4 border-b border-neutral-800">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3 min-w-0 flex-wrap">
+                  <DialogTitle className="text-lg font-semibold text-foreground">
+                    {title}
+                  </DialogTitle>
+                  <Badge variant="secondary" className={`text-[10px] ${badgeClassName}`}>
+                    {label}
+                  </Badge>
+                  {summary && (
+                    <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded">
+                      {summary}
+                    </span>
                   )}
                 </div>
                 {/* Close button */}
@@ -248,9 +242,12 @@ export function ChartCard({
                   <X className="h-5 w-5" />
                 </Button>
               </div>
-              {/* Controls row below header */}
+              {subtitle && (
+                <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>
+              )}
+              {/* Controls row */}
               {(range && onRangeChange || controls) && (
-                <div className="flex items-center gap-3 mt-4 flex-wrap">
+                <div className="flex items-center gap-3 mt-3 flex-wrap">
                   {range && onRangeChange && (
                     <RangeControls 
                       value={range} 
@@ -262,9 +259,9 @@ export function ChartCard({
                 </div>
               )}
             </DialogHeader>
-            {/* Chart area - fills remaining space */}
-            <div className="flex-1 min-h-0 p-6">
-              <div className="h-full w-full min-h-[620px]">
+            {/* Chart area - uses remaining height */}
+            <div className="flex-1 min-h-0 px-6 pb-6 pt-4">
+              <div className="h-full w-full">
                 {isEmpty ? (
                   <div className="h-full flex flex-col items-center justify-center text-center px-6">
                     <div className="text-muted-foreground/40 mb-4">
