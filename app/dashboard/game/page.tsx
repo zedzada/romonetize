@@ -169,27 +169,47 @@ export default function GamePage() {
     }
   }, [hasRobloxAccount, fetchRobloxGames]);
 
-  // Auto-sync stale metadata when robloxGames are loaded
+  // Auto-sync stale metadata and missing thumbnails when robloxGames are loaded
   useEffect(() => {
     if (robloxGames.length === 0 || connectedGames.length === 0) return;
 
     const syncStaleMetadata = async () => {
+      // Debug log in development
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Roblox game icons check:", {
+          robloxGamesWithIcons: robloxGames.filter(g => g.iconUrl).length,
+          totalRobloxGames: robloxGames.length,
+          connectedGamesWithThumbnails: connectedGames.filter(g => g.thumbnail_url).length,
+          totalConnectedGames: connectedGames.length,
+          sampleRobloxGame: robloxGames[0] ? {
+            id: robloxGames[0].id,
+            name: robloxGames[0].name,
+            iconUrl: robloxGames[0].iconUrl,
+          } : null,
+        });
+      }
+
       for (const connected of connectedGames) {
         const roblox = getRobloxGameMetadata(connected.roblox_game_id);
         
-        if (roblox && isMetadataStale(connected, roblox)) {
+        // Check if metadata is stale OR thumbnail is missing but available from Roblox
+        const needsMetadataSync = roblox && isMetadataStale(connected, roblox);
+        const needsThumbnailSync = roblox && roblox.iconUrl && !connected.thumbnail_url;
+        
+        if (needsMetadataSync || needsThumbnailSync) {
           try {
             const response = await fetch("/api/roblox/sync-game-metadata", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 roblox_game_id: connected.roblox_game_id,
-                source: roblox.source,
-                groupId: roblox.groupId ? String(roblox.groupId) : null,
-                groupName: roblox.groupName ?? null,
-                roleName: roblox.roleName ?? null,
-                roleRank: roblox.roleRank ?? null,
-                rootPlaceId: roblox.rootPlaceId ? String(roblox.rootPlaceId) : null,
+                source: roblox?.source,
+                groupId: roblox?.groupId ? String(roblox.groupId) : null,
+                groupName: roblox?.groupName ?? null,
+                roleName: roblox?.roleName ?? null,
+                roleRank: roblox?.roleRank ?? null,
+                rootPlaceId: roblox?.rootPlaceId ? String(roblox.rootPlaceId) : null,
+                iconUrl: roblox?.iconUrl ?? null,
               }),
             });
             
