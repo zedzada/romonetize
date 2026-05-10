@@ -660,35 +660,71 @@ export async function GET(request: NextRequest) {
     : null;
 
   // === NEW VS RETURNING PLAYERS ===
+  // Get unique player joins in range
+  const joinEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
+  const uniqueJoinPlayerIds = new Set(joinEvents.filter((e) => e.player_id).map((e) => e.player_id));
+  
   let newPlayers = 0;
   let returningPlayers = 0;
   const playerFirstSeen = new Map<string, Date>();
 
   try {
-    // Get all-time first seen dates for players
-    const { data: allTimeJoins } = await supabase
-      .from("events")
-      .select("player_id, created_at")
-      .eq("game_id", gameId)
-      .in("event_type", sessionStartTypes)
-      .order("created_at", { ascending: true });
+    // Get all-time first seen dates for players who joined in this range
+    // This is needed to determine if they're new (first join in range) or returning
+    if (uniqueJoinPlayerIds.size > 0) {
+      const { data: allTimeJoins } = await supabase
+        .from("events")
+        .select("player_id, created_at")
+        .eq("game_id", gameId)
+        .in("event_type", sessionStartTypes)
+        .order("created_at", { ascending: true });
 
-    (allTimeJoins || []).forEach((e) => {
-      if (e.player_id && !playerFirstSeen.has(e.player_id)) {
-        playerFirstSeen.set(e.player_id, new Date(e.created_at));
-      }
-    });
+      (allTimeJoins || []).forEach((e) => {
+        if (e.player_id && !playerFirstSeen.has(e.player_id)) {
+          playerFirstSeen.set(e.player_id, new Date(e.created_at));
+        }
+      });
 
-    allPlayerIds.forEach((playerId) => {
-      const firstSeen = playerFirstSeen.get(playerId!);
-      if (firstSeen && firstSeen >= startDate) {
-        newPlayers++;
-      } else {
-        returningPlayers++;
+      // Count new vs returning based on unique join players in range
+      uniqueJoinPlayerIds.forEach((playerId) => {
+        const firstSeen = playerFirstSeen.get(playerId!);
+        if (firstSeen && firstSeen >= startDate) {
+          newPlayers++;
+        } else if (firstSeen) {
+          returningPlayers++;
+        } else {
+          // No historical data - count as new (first seen in this range)
+          newPlayers++;
+        }
+      });
+      
+      // Debug in development
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Selected game analytics debug", {
+          selectedGameId: gameId,
+          selectedRobloxGameId: selectedGame.roblox_game_id,
+          trackerEventsCount: allEvents.length,
+          playerJoinCount: joinEvents.length,
+          uniquePlayers,
+          uniqueJoinPlayers: uniqueJoinPlayerIds.size,
+          newPlayers,
+          returningPlayers,
+          rangeStart: startDate.toISOString(),
+        });
       }
-    });
+    } else {
+      // No join events in range - fallback to allPlayerIds
+      // This handles cases where we have events but no explicit join events
+      if (uniquePlayers > 0) {
+        newPlayers = uniquePlayers; // Treat all as "first seen" if no join history
+      }
+    }
   } catch (err) {
     sectionErrors.newReturning = err instanceof Error ? err.message : "Failed to calculate";
+    // Fallback: if calculation fails, use unique players as new
+    if (uniquePlayers > 0 && newPlayers === 0) {
+      newPlayers = uniquePlayers;
+    }
   }
 
   // === RETENTION STATS (cohort-based) ===

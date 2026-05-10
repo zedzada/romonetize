@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import useSWR from "swr";
 import { useRealtimeStats } from "./use-realtime-stats";
 import { useStatsRefresh } from "./use-stats-refresh";
@@ -290,6 +290,23 @@ export function useAnalytics({ gameId, range = "7d", enabled = true }: UseAnalyt
 
   // Listen for global stats refresh
   useStatsRefresh(() => mutate());
+
+  // Listen for selected game changes and refresh analytics
+  useEffect(() => {
+    const handleGameChange = (event: CustomEvent<{ gameId: string; robloxGameId: string }>) => {
+      // Debug in development
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Selected game changed, refreshing analytics", event.detail);
+      }
+      // Clear stale data and refetch with cache bust
+      mutate(undefined, { revalidate: true });
+    };
+
+    window.addEventListener("selected-game-changed", handleGameChange as EventListener);
+    return () => {
+      window.removeEventListener("selected-game-changed", handleGameChange as EventListener);
+    };
+  }, [mutate]);
 
   // Manual refresh function
   const refresh = useCallback(async () => {

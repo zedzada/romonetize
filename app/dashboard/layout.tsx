@@ -108,6 +108,22 @@ export default function DashboardLayout({
     
     if (success) {
       setSelectedGame(game);
+      
+      // Dispatch event for analytics hooks to refresh without full page reload
+      window.dispatchEvent(new CustomEvent("selected-game-changed", {
+        detail: { gameId: game.id, robloxGameId: game.roblox_game_id }
+      }));
+      
+      // Sync Roblox data for the new selected game
+      try {
+        await fetch("/api/roblox/sync-selected-game", { 
+          method: "POST",
+          cache: "no-store",
+        });
+      } catch (syncError) {
+        console.error("[v0] Failed to sync Roblox data:", syncError);
+      }
+      
       // Refresh the current page to load new data
       router.refresh();
     } else {
