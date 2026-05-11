@@ -342,21 +342,31 @@ function GamePageContent() {
       if (!response.ok) {
         const errorMessage = data.error || data.message || "Failed to select game";
         toast.error(errorMessage);
-      } else if (data.game) {
+        return;
+      }
+      
+      if (data.game) {
         // Update local state
         setConnectedGames(connectedGames.map(g => ({
           ...g,
           is_selected: g.id === data.game.id,
         })));
         toast.success(`Selected ${game.name}`);
+        
+        // Dispatch event for header game selector to update
+        window.dispatchEvent(new CustomEvent("selected-game-changed", {
+          detail: { gameId: data.game.id, robloxGameId: data.game.roblox_game_id }
+        }));
+        
         router.refresh();
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to select game";
       toast.error(errorMessage);
+    } finally {
+      // Always clear loading state
+      setSelectingGameId(null);
     }
-    
-    setSelectingGameId(null);
   };
 
   // Connect a new game from Roblox list
@@ -367,14 +377,20 @@ function GamePageContent() {
     const payload = {
       roblox_game_id: String(robloxGame.id),
       name: robloxGame.name,
-      rootPlaceId: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
+      root_place_id: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
       source: robloxGame.source,
-      groupId: robloxGame.groupId ? String(robloxGame.groupId) : null,
-      groupName: robloxGame.groupName ?? null,
-      roleName: robloxGame.roleName ?? null,
-      roleRank: robloxGame.roleRank ?? null,
-      iconUrl: robloxGame.iconUrl ?? null,
+      group_id: robloxGame.groupId ? String(robloxGame.groupId) : null,
+      group_name: robloxGame.groupName ?? null,
+      icon_url: robloxGame.iconUrl ?? null,
     };
+    
+    // Dev logging
+    if (process.env.NODE_ENV === "development") {
+      console.log("[v0] Connect Game debug - sending request:", {
+        game: robloxGame,
+        payload,
+      });
+    }
     
     try {
       const response = await fetch("/api/roblox/select-game", {
@@ -385,14 +401,28 @@ function GamePageContent() {
       
       const data = await response.json();
       
+      // Dev logging
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Connect Game debug - response:", {
+          responseStatus: response.status,
+          responseBody: data,
+        });
+      }
+      
       if (response.status === 403) {
         const errorMessage = data.message || "You reached your plan limit. Upgrade to connect more games.";
         setLimitError(errorMessage);
         toast.error(errorMessage);
-      } else if (!response.ok) {
+        return;
+      }
+      
+      if (!response.ok) {
         const errorMessage = data.error || data.message || "Failed to connect game";
         toast.error(errorMessage);
-      } else if (data.game) {
+        return;
+      }
+      
+      if (data.game) {
         // Success - update local state
         if (data.action === "created") {
           // New game created - add to list and deselect others
@@ -404,15 +434,22 @@ function GamePageContent() {
           ));
         }
         setLimitError(null);
-        toast.success("Game connected successfully!");
+        toast.success("Game connected");
+        
+        // Dispatch event for header game selector to update
+        window.dispatchEvent(new CustomEvent("selected-game-changed", {
+          detail: { gameId: data.game.id, robloxGameId: data.game.roblox_game_id }
+        }));
+        
         router.refresh();
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect game";
       toast.error(errorMessage);
+    } finally {
+      // Always clear loading state
+      setConnectingGameId(null);
     }
-    
-    setConnectingGameId(null);
   };
 
   const copyToClipboard = (text: string, id: string) => {
