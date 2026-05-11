@@ -88,27 +88,6 @@ function GamePageContent() {
   const [showFullScript, setShowFullScript] = useState(false);
   const [syncingStats, setSyncingStats] = useState(false);
   
-  // Debug state for Connect Game troubleshooting
-  const [connectDebug, setConnectDebug] = useState<{
-    clickedGame: RobloxGame | null;
-    payloadSent: Record<string, unknown> | null;
-    endpoint: string | null;
-    requestSent: boolean;
-    responseStatus: number | null;
-    responseBody: Record<string, unknown> | null;
-    caughtError: string | null;
-    timestamp: string | null;
-  }>({
-    clickedGame: null,
-    payloadSent: null,
-    endpoint: null,
-    requestSent: false,
-    responseStatus: null,
-    responseBody: null,
-    caughtError: null,
-    timestamp: null,
-  });
-
   // Get selected game
   const selectedGame = connectedGames.find(g => g.is_selected) || null;
   const planLimit = getPlanGameLimit(userPlan);
@@ -392,68 +371,29 @@ function GamePageContent() {
 
   // Connect a new game from Roblox list
   const handleConnectGame = async (robloxGame: RobloxGame) => {
-    // Immediately show we received the click
-    toast.info(`Connecting ${robloxGame.name}...`);
     setConnectingGameId(robloxGame.id);
     setLimitError(null);
     
     // Build payload with both camelCase and snake_case for compatibility
     const gameId = String(robloxGame.id);
     const payload = {
-      // All possible ID formats
       roblox_game_id: gameId,
-      robloxGameId: gameId,
-      universeId: gameId,
-      // Name formats
       name: robloxGame.name,
-      gameName: robloxGame.name,
-      // Source
       source: robloxGame.source || null,
-      // Group info - both formats
       group_id: robloxGame.groupId ? String(robloxGame.groupId) : null,
-      groupId: robloxGame.groupId ? String(robloxGame.groupId) : null,
       group_name: robloxGame.groupName ?? null,
-      groupName: robloxGame.groupName ?? null,
-      // Icon - both formats
       icon_url: robloxGame.iconUrl ?? null,
-      iconUrl: robloxGame.iconUrl ?? null,
-      // Root place - both formats
       root_place_id: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
-      rootPlaceId: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
     };
     
-    const endpoint = "/api/roblox/select-game";
-    
-    // Set debug state immediately (before request)
-    setConnectDebug({
-      clickedGame: robloxGame,
-      payloadSent: payload,
-      endpoint,
-      requestSent: false,
-      responseStatus: null,
-      responseBody: null,
-      caughtError: null,
-      timestamp: new Date().toISOString(),
-    });
-    
     try {
-      // Mark request as sent
-      setConnectDebug(prev => ({ ...prev, requestSent: true }));
-      
-      const response = await fetch(endpoint, {
+      const response = await fetch("/api/roblox/select-game", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
       
       const data = await response.json();
-      
-      // Update debug state with response
-      setConnectDebug(prev => ({
-        ...prev,
-        responseStatus: response.status,
-        responseBody: data,
-      }));
       
       if (response.status === 403) {
         const errorMessage = data.message || "You reached your plan limit. Upgrade to connect more games.";
@@ -463,7 +403,7 @@ function GamePageContent() {
       }
       
       if (!response.ok) {
-        const errorMessage = data.error || data.message || `Failed to connect game (${response.status})`;
+        const errorMessage = data.error || data.message || "Failed to connect game";
         toast.error(errorMessage);
         return;
       }
@@ -491,10 +431,6 @@ function GamePageContent() {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect game";
-      setConnectDebug(prev => ({
-        ...prev,
-        caughtError: errorMessage,
-      }));
       toast.error(errorMessage);
     } finally {
       // Always clear loading state
@@ -607,165 +543,6 @@ print("[RoMonetize] Tracker initialized!")` : "";
         <h1 className="text-2xl font-bold text-foreground">My Game</h1>
         <p className="text-muted-foreground">Connect and manage your Roblox games</p>
       </div>
-
-      {/* DEBUG PANEL - ALWAYS VISIBLE AT TOP when debug info exists */}
-      {connectDebug.clickedGame && (
-        <Card className="border-2 border-yellow-500 bg-yellow-500/10">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-bold text-yellow-600 dark:text-yellow-400 flex items-center gap-2">
-              <AlertCircle className="w-5 h-5" />
-              CONNECT GAME DEBUG
-              <span className="text-xs font-normal text-muted-foreground ml-auto">
-                {connectDebug.timestamp}
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {/* ERROR BOX - Red prominent error display */}
-            {(connectDebug.responseStatus !== null && connectDebug.responseStatus !== 200) || 
-             (connectDebug.responseBody as Record<string, unknown>)?.success === false ||
-             (connectDebug.responseBody as Record<string, unknown>)?.error ||
-             connectDebug.caughtError ? (
-              <div className="p-4 bg-red-500/20 border-2 border-red-500 rounded-lg">
-                <div className="font-bold text-red-600 dark:text-red-400 text-lg mb-2">
-                  ERROR DETECTED
-                </div>
-                {connectDebug.caughtError && (
-                  <div className="text-red-600 dark:text-red-400 mb-2">
-                    <strong>Caught Error:</strong> {connectDebug.caughtError}
-                  </div>
-                )}
-                {connectDebug.responseStatus !== null && connectDebug.responseStatus !== 200 && (
-                  <div className="text-red-600 dark:text-red-400 mb-2">
-                    <strong>HTTP Status:</strong> {connectDebug.responseStatus}
-                  </div>
-                )}
-                {(connectDebug.responseBody as Record<string, unknown>)?.error && (
-                  <div className="text-red-600 dark:text-red-400 mb-2">
-                    <strong>Error Message:</strong> {String((connectDebug.responseBody as Record<string, unknown>)?.error)}
-                  </div>
-                )}
-                {(connectDebug.responseBody as Record<string, unknown>)?.step && (
-                  <div className="text-red-600 dark:text-red-400 mb-2">
-                    <strong>Failed Step:</strong> {String((connectDebug.responseBody as Record<string, unknown>)?.step)}
-                  </div>
-                )}
-                {/* Supabase error details */}
-                {(connectDebug.responseBody as Record<string, unknown>)?.supabaseError && (
-                  <div className="mt-3 p-3 bg-red-900/30 rounded border border-red-700">
-                    <div className="font-bold text-red-400 mb-1">Supabase Error:</div>
-                    <div className="text-sm text-red-300 space-y-1">
-                      <div><strong>message:</strong> {String((connectDebug.responseBody as { supabaseError: { message?: string } })?.supabaseError?.message || "N/A")}</div>
-                      <div><strong>code:</strong> {String((connectDebug.responseBody as { supabaseError: { code?: string } })?.supabaseError?.code || "N/A")}</div>
-                      <div><strong>details:</strong> {String((connectDebug.responseBody as { supabaseError: { details?: string } })?.supabaseError?.details || "N/A")}</div>
-                      <div><strong>hint:</strong> {String((connectDebug.responseBody as { supabaseError: { hint?: string } })?.supabaseError?.hint || "N/A")}</div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : null}
-
-            {/* No request sent warning */}
-            {connectDebug.clickedGame && !connectDebug.requestSent && connectDebug.responseStatus === null && !connectDebug.caughtError && (
-              <div className="p-4 bg-orange-500/20 border-2 border-orange-500 rounded-lg">
-                <div className="font-bold text-orange-600 dark:text-orange-400">
-                  Connect Game click fired but no request was sent yet
-                </div>
-                <div className="text-sm text-orange-500 mt-1">
-                  If this persists, the fetch call may have failed silently.
-                </div>
-              </div>
-            )}
-
-            {/* Success indicator */}
-            {connectDebug.responseStatus === 200 && (connectDebug.responseBody as Record<string, unknown>)?.success !== false && (
-              <div className="p-4 bg-green-500/20 border-2 border-green-500 rounded-lg">
-                <div className="font-bold text-green-600 dark:text-green-400">
-                  SUCCESS - Game connected
-                </div>
-              </div>
-            )}
-
-            {/* Debug info grid */}
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="font-bold text-foreground mb-1">Clicked Game</div>
-                <div className="text-muted-foreground">
-                  <div>Name: {connectDebug.clickedGame?.name}</div>
-                  <div>Universe ID: {connectDebug.clickedGame?.id}</div>
-                  <div>Source: {connectDebug.clickedGame?.source || "N/A"}</div>
-                  <div>Group: {connectDebug.clickedGame?.groupName || "N/A"}</div>
-                </div>
-              </div>
-              <div>
-                <div className="font-bold text-foreground mb-1">Request Info</div>
-                <div className="text-muted-foreground">
-                  <div>Endpoint: {connectDebug.endpoint || "N/A"}</div>
-                  <div>Request Sent: {connectDebug.requestSent ? "Yes" : "No"}</div>
-                  <div>Response Status: {connectDebug.responseStatus ?? "N/A"}</div>
-                  <div>Connected Games: {connectedGames.length}</div>
-                </div>
-              </div>
-            </div>
-
-            {/* Full JSON for copying */}
-            <details className="mt-2">
-              <summary className="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
-                Show Full JSON
-              </summary>
-              <pre className="mt-2 text-xs font-mono bg-black/50 text-green-400 p-4 rounded-lg overflow-x-auto whitespace-pre-wrap max-h-64 overflow-y-auto">
-{JSON.stringify({
-  clickedGame: connectDebug.clickedGame,
-  endpoint: connectDebug.endpoint,
-  requestSent: connectDebug.requestSent,
-  payloadSent: connectDebug.payloadSent,
-  responseStatus: connectDebug.responseStatus,
-  responseBody: connectDebug.responseBody,
-  caughtError: connectDebug.caughtError,
-  connectedGamesCount: connectedGames.length,
-}, null, 2)}
-              </pre>
-            </details>
-
-            <div className="flex gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={() => setConnectDebug({
-                  clickedGame: null,
-                  payloadSent: null,
-                  endpoint: null,
-                  requestSent: false,
-                  responseStatus: null,
-                  responseBody: null,
-                  caughtError: null,
-                  timestamp: null,
-                })}
-              >
-                Clear Debug
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  navigator.clipboard.writeText(JSON.stringify({
-                    clickedGame: connectDebug.clickedGame,
-                    endpoint: connectDebug.endpoint,
-                    requestSent: connectDebug.requestSent,
-                    payloadSent: connectDebug.payloadSent,
-                    responseStatus: connectDebug.responseStatus,
-                    responseBody: connectDebug.responseBody,
-                    caughtError: connectDebug.caughtError,
-                  }, null, 2));
-                  toast.success("Debug info copied to clipboard");
-                }}
-              >
-                Copy Debug Info
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Plan limit error */}
       {limitError && (
