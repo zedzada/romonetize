@@ -218,16 +218,61 @@ export async function POST(request: NextRequest) {
           hint: updateError.hint,
         });
         
-        // If is_selected doesn't exist, try without it
-        if (updateError.message.includes("is_selected")) {
+        // If icon_url or is_selected doesn't exist, retry without the missing column
+        if (updateError.message.includes("icon_url") || updateError.message.includes("is_selected")) {
+          const fallbackUpdateData: Record<string, unknown> = { ...updateData };
+          
+          // Remove potentially missing columns
+          if (updateError.message.includes("icon_url")) {
+            delete fallbackUpdateData.icon_url;
+            console.log("[API] Retrying update without icon_url column...");
+          }
+          if (updateError.message.includes("is_selected")) {
+            delete fallbackUpdateData.is_selected;
+            console.log("[API] Retrying update without is_selected column...");
+          }
+          
           const { data: fallbackGame, error: fallbackError } = await supabase
             .from("games")
-            .update(updateData)
+            .update(fallbackUpdateData)
             .eq("id", existingGame.id)
             .select("*")
             .single();
 
           if (fallbackError) {
+            // If still failing due to another missing column, try with minimal fields
+            if (fallbackError.message.includes("icon_url") || fallbackError.message.includes("is_selected")) {
+              delete fallbackUpdateData.icon_url;
+              delete fallbackUpdateData.is_selected;
+              
+              const { data: minimalGame, error: minimalError } = await supabase
+                .from("games")
+                .update(fallbackUpdateData)
+                .eq("id", existingGame.id)
+                .select("*")
+                .single();
+                
+              if (minimalError) {
+                return NextResponse.json(
+                  { 
+                    success: false,
+                    step: "select_game",
+                    error: `Failed to select game: ${minimalError.message}`,
+                    supabaseError: minimalError,
+                  },
+                  { status: 500 }
+                );
+              }
+              
+              return NextResponse.json({
+                success: true,
+                game: minimalGame,
+                message: `Selected ${name}`,
+                action: "selected",
+                warning: "Some columns not found - run migrations",
+              });
+            }
+            
             return NextResponse.json(
               { 
                 success: false,
@@ -244,7 +289,7 @@ export async function POST(request: NextRequest) {
             game: fallbackGame,
             message: `Selected ${name}`,
             action: "selected",
-            warning: "is_selected column not found - run migration",
+            warning: "Some columns not found - run migrations",
           });
         }
 
@@ -318,17 +363,60 @@ export async function POST(request: NextRequest) {
         hint: insertError.hint,
       });
 
-      // If is_selected column doesn't exist, try without it
-      if (insertError.message.includes("is_selected")) {
-        console.log("[API] Retrying insert without is_selected column...");
+      // If icon_url or is_selected column doesn't exist, retry without the missing column
+      if (insertError.message.includes("icon_url") || insertError.message.includes("is_selected")) {
+        const fallbackInsertData: Record<string, unknown> = { ...insertData };
+        
+        // Remove potentially missing columns
+        if (insertError.message.includes("icon_url")) {
+          delete fallbackInsertData.icon_url;
+          console.log("[API] Retrying insert without icon_url column...");
+        }
+        if (insertError.message.includes("is_selected")) {
+          delete fallbackInsertData.is_selected;
+          console.log("[API] Retrying insert without is_selected column...");
+        }
         
         const { data: fallbackGame, error: fallbackError } = await supabase
           .from("games")
-          .insert(insertData)
+          .insert(fallbackInsertData)
           .select("*")
           .single();
 
         if (fallbackError) {
+          // If still failing due to another missing column, try with minimal fields
+          if (fallbackError.message.includes("icon_url") || fallbackError.message.includes("is_selected")) {
+            delete fallbackInsertData.icon_url;
+            delete fallbackInsertData.is_selected;
+            
+            const { data: minimalGame, error: minimalError } = await supabase
+              .from("games")
+              .insert(fallbackInsertData)
+              .select("*")
+              .single();
+              
+            if (minimalError) {
+              console.error("[API] Minimal insert also failed:", minimalError);
+              return NextResponse.json(
+                { 
+                  success: false,
+                  step: "upsert_game",
+                  error: `Failed to create game: ${minimalError.message}`,
+                  supabaseError: minimalError,
+                },
+                { status: 500 }
+              );
+            }
+            
+            return NextResponse.json({
+              success: true,
+              game: minimalGame,
+              message: `Connected ${name}`,
+              action: "created",
+              warning: "Some columns not found - run migrations",
+            });
+          }
+          
           console.error("[API] Fallback insert also failed:", {
             message: fallbackError.message,
             code: fallbackError.code,
@@ -351,7 +439,7 @@ export async function POST(request: NextRequest) {
           game: fallbackGame,
           message: `Connected ${name}`,
           action: "created",
-          warning: "is_selected column not found - run migration to add it",
+          warning: "Some columns not found - run migrations",
         });
       }
 
