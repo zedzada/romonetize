@@ -87,6 +87,25 @@ function GamePageContent() {
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [showFullScript, setShowFullScript] = useState(false);
   const [syncingStats, setSyncingStats] = useState(false);
+  
+  // Debug state for Connect Game troubleshooting
+  const [connectDebug, setConnectDebug] = useState<{
+    clickedGame: RobloxGame | null;
+    payloadSent: Record<string, unknown> | null;
+    endpoint: string | null;
+    responseStatus: number | null;
+    responseBody: Record<string, unknown> | null;
+    caughtError: string | null;
+    timestamp: string | null;
+  }>({
+    clickedGame: null,
+    payloadSent: null,
+    endpoint: null,
+    responseStatus: null,
+    responseBody: null,
+    caughtError: null,
+    timestamp: null,
+  });
 
   // Get selected game
   const selectedGame = connectedGames.find(g => g.is_selected) || null;
@@ -371,29 +390,51 @@ function GamePageContent() {
 
   // Connect a new game from Roblox list
   const handleConnectGame = async (robloxGame: RobloxGame) => {
+    // Immediately show we received the click
+    toast.info(`Connecting ${robloxGame.name}...`);
     setConnectingGameId(robloxGame.id);
     setLimitError(null);
     
+    // Build payload with both camelCase and snake_case for compatibility
+    const gameId = String(robloxGame.id);
     const payload = {
-      roblox_game_id: String(robloxGame.id),
+      // All possible ID formats
+      roblox_game_id: gameId,
+      robloxGameId: gameId,
+      universeId: gameId,
+      // Name formats
       name: robloxGame.name,
-      root_place_id: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
-      source: robloxGame.source,
+      gameName: robloxGame.name,
+      // Source
+      source: robloxGame.source || null,
+      // Group info - both formats
       group_id: robloxGame.groupId ? String(robloxGame.groupId) : null,
+      groupId: robloxGame.groupId ? String(robloxGame.groupId) : null,
       group_name: robloxGame.groupName ?? null,
+      groupName: robloxGame.groupName ?? null,
+      // Icon - both formats
       icon_url: robloxGame.iconUrl ?? null,
+      iconUrl: robloxGame.iconUrl ?? null,
+      // Root place - both formats
+      root_place_id: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
+      rootPlaceId: robloxGame.rootPlaceId ? String(robloxGame.rootPlaceId) : null,
     };
     
-    // Dev logging
-    if (process.env.NODE_ENV === "development") {
-      console.log("[v0] Connect Game debug - sending request:", {
-        game: robloxGame,
-        payload,
-      });
-    }
+    const endpoint = "/api/roblox/select-game";
+    
+    // Set debug state immediately
+    setConnectDebug({
+      clickedGame: robloxGame,
+      payloadSent: payload,
+      endpoint,
+      responseStatus: null,
+      responseBody: null,
+      caughtError: null,
+      timestamp: new Date().toISOString(),
+    });
     
     try {
-      const response = await fetch("/api/roblox/select-game", {
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -401,13 +442,12 @@ function GamePageContent() {
       
       const data = await response.json();
       
-      // Dev logging
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Connect Game debug - response:", {
-          responseStatus: response.status,
-          responseBody: data,
-        });
-      }
+      // Update debug state with response
+      setConnectDebug(prev => ({
+        ...prev,
+        responseStatus: response.status,
+        responseBody: data,
+      }));
       
       if (response.status === 403) {
         const errorMessage = data.message || "You reached your plan limit. Upgrade to connect more games.";
@@ -417,7 +457,7 @@ function GamePageContent() {
       }
       
       if (!response.ok) {
-        const errorMessage = data.error || data.message || "Failed to connect game";
+        const errorMessage = data.error || data.message || `Failed to connect game (${response.status})`;
         toast.error(errorMessage);
         return;
       }
@@ -445,6 +485,10 @@ function GamePageContent() {
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : "Failed to connect game";
+      setConnectDebug(prev => ({
+        ...prev,
+        caughtError: errorMessage,
+      }));
       toast.error(errorMessage);
     } finally {
       // Always clear loading state
@@ -945,6 +989,80 @@ print("[RoMonetize] Tracker initialized!")` : "";
               )}
             </CardContent>
           </Card>
+
+          {/* DEBUG PANEL - Temporary for Connect Game troubleshooting */}
+          {connectDebug.clickedGame && (
+            <Card className="border-yellow-500/50 bg-yellow-500/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-mono text-yellow-600 dark:text-yellow-400 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4" />
+                  Connect Game Debug Panel
+                  <span className="text-xs font-normal text-muted-foreground ml-auto">
+                    {connectDebug.timestamp}
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="text-xs font-mono bg-black/50 text-green-400 p-4 rounded-lg overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto">
+{JSON.stringify({
+  clickedGame: connectDebug.clickedGame ? {
+    id: connectDebug.clickedGame.id,
+    name: connectDebug.clickedGame.name,
+    source: connectDebug.clickedGame.source,
+    groupId: connectDebug.clickedGame.groupId,
+    groupName: connectDebug.clickedGame.groupName,
+  } : null,
+  endpoint: connectDebug.endpoint,
+  payloadSent: connectDebug.payloadSent,
+  responseStatus: connectDebug.responseStatus,
+  responseBody: connectDebug.responseBody,
+  caughtError: connectDebug.caughtError,
+  connectedGamesCount: connectedGames.length,
+  connectedGames: connectedGames.map(g => ({
+    id: g.id,
+    name: g.name,
+    roblox_game_id: g.roblox_game_id,
+    is_selected: g.is_selected,
+  })),
+}, null, 2)}
+                </pre>
+                <div className="mt-3 flex gap-2">
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    onClick={() => setConnectDebug({
+                      clickedGame: null,
+                      payloadSent: null,
+                      endpoint: null,
+                      responseStatus: null,
+                      responseBody: null,
+                      caughtError: null,
+                      timestamp: null,
+                    })}
+                  >
+                    Clear Debug
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      navigator.clipboard.writeText(JSON.stringify({
+                        clickedGame: connectDebug.clickedGame,
+                        endpoint: connectDebug.endpoint,
+                        payloadSent: connectDebug.payloadSent,
+                        responseStatus: connectDebug.responseStatus,
+                        responseBody: connectDebug.responseBody,
+                        caughtError: connectDebug.caughtError,
+                      }, null, 2));
+                      toast.success("Debug info copied to clipboard");
+                    }}
+                  >
+                    Copy Debug Info
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
     </div>
