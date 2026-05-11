@@ -452,7 +452,7 @@ export async function POST(request: Request) {
         max_players: gameInfo?.maxPlayers,
         genre: gameInfo?.genre,
         description: gameInfo?.description,
-        thumbnail_url: thumbnailUrl,
+        icon_url: thumbnailUrl,
         raw: {
           stats,
           gameInfo,
@@ -482,7 +482,7 @@ export async function POST(request: Request) {
       };
 
       if (thumbnailUrl) {
-        gameUpdateData.thumbnail_url = thumbnailUrl;
+        gameUpdateData.icon_url = thumbnailUrl;
       }
 
       if (gameInfo) {

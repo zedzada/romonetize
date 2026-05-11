@@ -98,7 +98,7 @@ export async function syncRobloxData(gameId: string): Promise<SyncResult> {
     }
 
     if (thumbnailUrl) {
-      updateData.thumbnail_url = thumbnailUrl;
+      updateData.icon_url = thumbnailUrl;
     }
 
     const { error: updateError } = await supabase
@@ -167,7 +167,7 @@ export async function getRobloxSyncStatus(gameId: string): Promise<{
   
   const { data: game } = await supabase
     .from("games")
-    .select("universe_id, current_players, total_visits, favorites, likes, dislikes, thumbnail_url, creator_name, genre, last_roblox_sync, roblox_sync_status")
+    .select("universe_id, current_players, total_visits, favorites, likes, dislikes, icon_url, creator_name, genre, last_roblox_sync, roblox_sync_status")
     .eq("id", gameId)
     .single();
 
@@ -185,7 +185,7 @@ export async function getRobloxSyncStatus(gameId: string): Promise<{
       favorites: game.favorites ?? 0,
       likes: game.likes ?? 0,
       dislikes: game.dislikes ?? 0,
-      thumbnailUrl: game.thumbnail_url,
+      thumbnailUrl: game.icon_url,
       creatorName: game.creator_name,
       genre: game.genre,
     } : null,

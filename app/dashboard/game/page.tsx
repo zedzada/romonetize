@@ -56,7 +56,7 @@ interface ConnectedGame {
   root_place_id?: string;
   role_name?: string;
   role_rank?: number;
-  thumbnail_url?: string | null;
+  icon_url?: string | null;
 }
 
 function GamePageContent() {
@@ -174,7 +174,7 @@ function GamePageContent() {
           root_place_id: g.root_place_id ?? undefined,
           role_name: g.role_name ?? undefined,
           role_rank: g.role_rank ?? undefined,
-          thumbnail_url: g.thumbnail_url ?? undefined,
+          icon_url: g.icon_url ?? undefined,
         }));
         setConnectedGames(mappedGames);
       }
@@ -258,7 +258,7 @@ function GamePageContent() {
         console.log("[v0] Roblox game icons check:", {
           robloxGamesWithIcons: robloxGames.filter(g => g.iconUrl).length,
           totalRobloxGames: robloxGames.length,
-          connectedGamesWithThumbnails: connectedGames.filter(g => g.thumbnail_url).length,
+          connectedGamesWithIcons: connectedGames.filter(g => g.icon_url).length,
           totalConnectedGames: connectedGames.length,
           sampleRobloxGame: robloxGames[0] ? {
             id: robloxGames[0].id,
@@ -273,9 +273,9 @@ function GamePageContent() {
         
         // Check if metadata is stale OR thumbnail is missing but available from Roblox
         const needsMetadataSync = roblox && isMetadataStale(connected, roblox);
-        const needsThumbnailSync = roblox && roblox.iconUrl && !connected.thumbnail_url;
+        const needsIconSync = roblox && roblox.iconUrl && !connected.icon_url;
         
-        if (needsMetadataSync || needsThumbnailSync) {
+        if (needsMetadataSync || needsIconSync) {
           try {
             const response = await fetch("/api/roblox/sync-game-metadata", {
               method: "POST",
@@ -847,7 +847,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
                           <div className="flex items-center gap-3 min-w-0">
                                             <GameIcon 
                                               name={game.name} 
-                                              thumbnailUrl={game.thumbnail_url}
+                                              thumbnailUrl={game.icon_url}
                                               robloxGameId={game.roblox_game_id}
                                               size="md"
                                             />

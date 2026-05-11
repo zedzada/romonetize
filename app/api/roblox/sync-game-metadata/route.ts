@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
       updateData.role_rank = roleRank !== null ? Number(roleRank) : null;
     }
     if (iconUrl) {
-      updateData.thumbnail_url = iconUrl;
+      updateData.icon_url = iconUrl;
     }
 
     // Update the game matching user_id and roblox_game_id
