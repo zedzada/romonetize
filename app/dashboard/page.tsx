@@ -5,11 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   DollarSign,
-  Eye,
   MousePointerClick,
   ShoppingCart,
-  Percent,
-  Copy,
   Gamepad2,
   Sparkles,
   Send,
@@ -26,14 +23,12 @@ import {
   Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getDashboardStats, getAnalyticsAlerts, getUserGameIds, type DashboardStats, type AnalyticsAlert } from "@/lib/actions/analytics";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
 import { useAnalytics } from "@/hooks/use-analytics";
 import { Users, Heart, ThumbsUp } from "lucide-react";
-import { createGame } from "@/lib/actions/games";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useToast } from "@/hooks/use-toast";
 import { triggerStatsRefresh, useStatsRefresh } from "@/hooks/use-stats-refresh";
@@ -41,14 +36,10 @@ import { triggerStatsRefresh, useStatsRefresh } from "@/hooks/use-stats-refresh"
 export default function DashboardPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [gameId, setGameId] = useState("");
-  const [gameName, setGameName] = useState("");
-  
   const [aiMessage, setAiMessage] = useState("");
   const [aiResponse, setAiResponse] = useState(
     "Connect a game and start tracking activity to get AI-powered monetization insights."
   );
-  const [isConnecting, setIsConnecting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [alerts, setAlerts] = useState<AnalyticsAlert[]>([]);
@@ -140,25 +131,6 @@ export default function DashboardPage() {
 
   
 
-  const handleConnectGame = async () => {
-    if (!gameId.trim() || !gameName.trim()) return;
-    setIsConnecting(true);
-    setError(null);
-    
-    const { game, error: createError } = await createGame(gameId.trim(), gameName.trim());
-    
-    if (createError) {
-      setError(createError);
-    } else if (game) {
-      // Refresh stats
-      const { stats: newStats } = await getDashboardStats();
-      setStats(newStats);
-      setGameId("");
-      setGameName("");
-    }
-    setIsConnecting(false);
-  };
-
   const handleAskAI = () => {
     if (!aiMessage.trim()) return;
     // In a real app, this would call your AI endpoint
@@ -218,130 +190,69 @@ export default function DashboardPage() {
             <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary to-blue-500 flex items-center justify-center mb-6 shadow-lg shadow-primary/20">
               <Gamepad2 className="w-10 h-10 text-white" />
             </div>
-            <h1 className="text-3xl font-bold text-foreground mb-3">Start tracking your revenue</h1>
+            <h1 className="text-3xl font-bold text-foreground mb-3">Connect your Roblox game</h1>
             <p className="text-muted-foreground mb-6 text-lg">
-              Connect your Roblox game in 2 minutes and start seeing real-time monetization insights.
+              Connect your Roblox account, choose a game, then install the RoMonetize tracker to start seeing live analytics.
             </p>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
-                <span>Free to start</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
-                <span>No credit card</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <CheckCircle className="w-4 h-4 text-green-500" />
-                <span>5 min setup</span>
-              </div>
+            <div className="flex flex-col sm:flex-row items-center gap-4">
+              <Button size="lg" className="gap-2 shadow-lg shadow-primary/20" asChild>
+                <Link href="/dashboard/game">
+                  <Gamepad2 className="w-5 h-5" />
+                  Go to My Game
+                </Link>
+              </Button>
             </div>
           </div>
         </div>
 
-        {/* Setup cards */}
-        <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          {/* Connect game card */}
-          <Card className="border-primary/30 bg-gradient-to-br from-card to-primary/5 shadow-lg shadow-primary/5 relative overflow-hidden">
-            <div className="absolute top-3 right-3">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-primary bg-primary/10 px-2 py-1 rounded-full">
-                Step 1
-              </span>
-            </div>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <Gamepad2 className="w-4 h-4 text-primary" />
-                </div>
-                Connect your game
-              </CardTitle>
-              <CardDescription>Enter your Roblox Game ID to start tracking</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {error && (
-                <div className="text-sm text-destructive bg-destructive/10 p-3 rounded-lg border border-destructive/20">
-                  {error}
-                </div>
-              )}
-              <Input
-                placeholder="Roblox Game ID (e.g., 123456789)"
-                value={gameId}
-                onChange={(e) => setGameId(e.target.value)}
-                className="bg-background/50 border-border/50 h-11"
-              />
-              <Input
-                placeholder="Game Name"
-                value={gameName}
-                onChange={(e) => setGameName(e.target.value)}
-                className="bg-background/50 border-border/50 h-11"
-              />
-              <Button 
-                className="w-full gap-2 h-11 text-base shadow-lg shadow-primary/20" 
-                onClick={handleConnectGame}
-                disabled={isConnecting || !gameId.trim() || !gameName.trim()}
-              >
-                {isConnecting ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    Connecting...
-                  </>
-                ) : (
-                  "Connect Game"
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-
-          {/* Installation card */}
-          <Card className="border-border/50 bg-card shadow-lg relative overflow-hidden">
-            <div className="absolute top-3 right-3">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground bg-secondary px-2 py-1 rounded-full">
-                Step 2
-              </span>
-            </div>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center">
-                  <Copy className="w-4 h-4 text-muted-foreground" />
-                </div>
-                Install RoMonetize Tracker
-              </CardTitle>
-              <CardDescription>Add the full tracking script to your game</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {/* Setup steps */}
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">1</div>
-                  <span className="text-muted-foreground">Create Script in <code className="text-foreground bg-secondary px-1 rounded">ServerScriptService</code></span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">2</div>
-                  <span className="text-muted-foreground">Paste the full tracker script</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">3</div>
-                  <span className="text-muted-foreground">Enable HTTP Requests in Game Settings</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-5 h-5 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold">4</div>
-                  <span className="text-muted-foreground">Publish your game</span>
+        {/* Setup steps card */}
+        <Card className="max-w-2xl mx-auto border-border/50 bg-card shadow-lg">
+          <CardHeader>
+            <CardTitle className="text-lg">How to get started</CardTitle>
+            <CardDescription>Follow these steps to start tracking your Roblox game</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+                <div>
+                  <p className="font-medium text-foreground">Connect your Roblox account</p>
+                  <p className="text-sm text-muted-foreground">Link your Roblox account via OAuth to access your games</p>
                 </div>
               </div>
-              
-              <p className="text-xs text-muted-foreground">
-                Connect a game first to get your API key, then copy the full script from the My Game page.
-              </p>
-              
-              <Button variant="outline" className="w-full gap-2 h-11" asChild>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+                <div>
+                  <p className="font-medium text-foreground">Choose a Roblox game</p>
+                  <p className="text-sm text-muted-foreground">Select which game you want to track from your connected games</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</div>
+                <div>
+                  <p className="font-medium text-foreground">Install the RoMonetize tracker in ServerScriptService</p>
+                  <p className="text-sm text-muted-foreground">Copy the tracking script and paste it into your game</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-3">
+                <div className="w-6 h-6 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">4</div>
+                <div>
+                  <p className="font-medium text-foreground">Publish your game and start tracking</p>
+                  <p className="text-sm text-muted-foreground">Your analytics will appear once players join your game</p>
+                </div>
+              </div>
+            </div>
+            
+            <div className="pt-4 border-t border-border">
+              <Button className="w-full gap-2" asChild>
                 <Link href="/dashboard/game">
                   <ArrowRight className="w-4 h-4" />
                   Go to My Game
                 </Link>
               </Button>
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     );
   }
