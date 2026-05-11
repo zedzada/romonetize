@@ -439,7 +439,8 @@ export default function PerformancePage() {
               <div className="flex items-center gap-3">
                 <GameIcon 
                   name={game.name} 
-                  thumbnailUrl={game.thumbnail_url} 
+                  thumbnailUrl={game.thumbnail_url}
+                  robloxGameId={game.roblox_game_id}
                   size="md"
                 />
                 <div>

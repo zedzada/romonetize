@@ -350,7 +350,8 @@ export default function DashboardLayout({
                   {selectedGame ? (
                     <GameIcon 
                       name={selectedGame.name} 
-                      thumbnailUrl={selectedGame.thumbnail_url} 
+                      thumbnailUrl={selectedGame.thumbnail_url}
+                      robloxGameId={selectedGame.roblox_game_id}
                       size="sm" 
                       className="w-5 h-5"
                     />
@@ -374,7 +375,8 @@ export default function DashboardLayout({
                     <div className="flex items-center gap-2">
                       <GameIcon 
                         name={game.name} 
-                        thumbnailUrl={game.thumbnail_url} 
+                        thumbnailUrl={game.thumbnail_url}
+                        robloxGameId={game.roblox_game_id}
                         size="sm" 
                         className="w-5 h-5"
                       />
