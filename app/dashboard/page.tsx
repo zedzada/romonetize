@@ -50,6 +50,11 @@ export default function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [gameIds, setGameIds] = useState<string[]>([]);
+  
+  // Connect game form state
+  const [gameId, setGameId] = useState("");
+  const [gameName, setGameName] = useState("");
+  const [isConnecting, setIsConnecting] = useState(false);
 
   // Use central analytics hook for Roblox stats
   const { robloxStats, refresh: refreshAnalytics } = useAnalytics({ enabled: gameIds.length > 0 });
@@ -131,7 +136,45 @@ export default function DashboardPage() {
     setIsRefreshing(false);
   };
 
-  
+  // Connect a new game
+  const handleConnectGame = async () => {
+    if (!gameId.trim() || !gameName.trim()) return;
+    
+    setIsConnecting(true);
+    setError(null);
+    
+    try {
+      const response = await fetch("/api/roblox/select-game", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roblox_game_id: gameId.trim(),
+          name: gameName.trim(),
+        }),
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        setError(data.error || data.message || "Failed to connect game");
+        return;
+      }
+      
+      // Success - clear form and refresh stats
+      setGameId("");
+      setGameName("");
+      await fetchStats(false);
+      
+      // Dispatch event for header game selector to update
+      window.dispatchEvent(new CustomEvent("selected-game-changed", {
+        detail: { gameId: data.game?.id, robloxGameId: data.game?.roblox_game_id }
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to connect game");
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   const handleAskAI = () => {
     if (!aiMessage.trim()) return;
