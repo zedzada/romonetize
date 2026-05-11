@@ -35,7 +35,7 @@ const tutorialSteps = [
   },
   {
     title: "Install the tracker",
-    description: "Copy the Roblox Lua script and paste it into your game's ServerScriptService. This enables event tracking.",
+    description: "Copy the Roblox Lua script and paste it into your game's ServerScriptService. This enables activity tracking.",
     icon: Code,
     highlight: "/dashboard/game",
   },

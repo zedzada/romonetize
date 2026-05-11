@@ -298,13 +298,13 @@ export default function ProductsPage() {
         </Card>
       </div>
 
-      {/* Products from Tracker (purchase_success events) */}
+      {/* Products from Tracker (purchases) */}
       {hasTrackerEvents && hasTrackerProducts && (
         <Card className="border-border bg-card shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">Product Performance</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Based on purchase_success events from your tracking script</p>
+              <p className="text-sm text-muted-foreground mt-1">Based on tracked purchases from your game</p>
             </div>
             <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-[10px]">
               RoMonetize Tracker

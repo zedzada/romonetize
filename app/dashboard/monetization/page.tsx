@@ -550,7 +550,7 @@ export default function MonetizationPage() {
         </Badge>
         {hasTrackerData && (
           <span className="text-xs text-muted-foreground">
-            Revenue data from purchase_success events
+            Revenue data from tracked purchases
           </span>
         )}
       </div>
@@ -564,8 +564,8 @@ export default function MonetizationPage() {
               <div className="flex-1">
                 <h3 className="font-semibold text-foreground mb-1">Install tracking script to track revenue</h3>
                 <p className="text-sm text-muted-foreground mb-3">
-                  Monetization data requires the RoMonetize tracking script. The script captures purchase events 
-                  including the robux amount, product details, and player information.
+                  Monetization data requires the RoMonetize tracking script. The script captures purchases 
+                  including the Robux amount, product details, and player information.
                 </p>
                 <Button variant="outline" size="sm" asChild>
                   <Link href="/dashboard/game/tracking-setup">
@@ -1293,7 +1293,7 @@ export default function MonetizationPage() {
               </h4>
               <ul className="text-sm text-muted-foreground space-y-1">
                 <li>• Estimated Revenue (70% of gross, after Roblox fee)</li>
-                <li>• Purchases (count of purchase_success events)</li>
+                <li>• Purchases (count of tracked purchases)</li>
                 <li>• Paying Users (distinct player_id from purchases)</li>
                 <li>• Est. ARPPU (estimated revenue / paying users)</li>
                 <li>• Est. ARPDAU (estimated revenue / unique active players)</li>
@@ -1301,9 +1301,9 @@ export default function MonetizationPage() {
             </div>
 
             <div className="p-4 rounded-lg bg-muted/50 border border-border">
-              <h4 className="font-medium text-foreground mb-2">Required Event: purchase_success</h4>
+              <h4 className="font-medium text-foreground mb-2">Required: Track Purchases</h4>
               <p className="text-sm text-muted-foreground mb-2">
-                Fire this event when a player completes a purchase:
+                Call this when a player completes a purchase:
               </p>
               <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto">
 {`RoMonetize:TrackPurchase({
@@ -1321,7 +1321,7 @@ export default function MonetizationPage() {
             <h4 className="font-medium text-foreground mb-1 text-sm">Note on Roblox Revenue API</h4>
             <p className="text-sm text-muted-foreground">
               Roblox does not provide public API access to Creator Analytics revenue data. 
-              Revenue tracking requires the RoMonetize tracking script to capture purchase events directly from your game.
+              Revenue tracking requires the RoMonetize tracking script to capture purchases directly from your game.
             </p>
           </div>
         </CardContent>

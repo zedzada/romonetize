@@ -679,7 +679,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                           <li>Create a new Script in <code className="bg-secondary px-1 rounded">ServerScriptService</code></li>
                                           <li>Paste the code (API key and Game ID are already filled in)</li>
                                           <li>Enable HTTP Requests in Game Settings &gt; Security</li>
-                                          <li>Test your game - events will appear in the dashboard!</li>
+                                          <li>Test your game - activity will appear in the dashboard!</li>
                                         </ol>
                                       </div>
 

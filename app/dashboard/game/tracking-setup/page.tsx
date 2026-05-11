@@ -392,14 +392,14 @@ export default function TrackingSetupPage() {
             <div>
               <p className="text-xs text-muted-foreground mb-1">Tracking Status</p>
               {hasTracking ? (
-                <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/20">
+                  <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/20">
                   <CheckCircle2 className="w-3 h-3 mr-1" />
-                  Active ({eventCount} events)
+                  Active ({eventCount} tracked)
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20">
                   <AlertCircle className="w-3 h-3 mr-1" />
-                  Waiting for first event
+                  Waiting for first activity
                 </Badge>
               )}
             </div>
@@ -412,7 +412,7 @@ export default function TrackingSetupPage() {
               <span className="font-mono text-sm">{eventCount}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Last event:</span>
+              <span className="text-sm text-muted-foreground">Last activity:</span>
               <span className="font-mono text-sm">
                 {lastEvent ? (
                   <>
