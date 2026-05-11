@@ -593,7 +593,7 @@ export default function PerformancePage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 mb-2">
                 <Activity className="w-4 h-4 text-indigo-500" />
-                <span className="text-xs text-muted-foreground">Tracker Events</span>
+                <span className="text-xs text-muted-foreground">Tracked Actions</span>
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">

@@ -408,7 +408,7 @@ export default function TrackingSetupPage() {
           {/* Event Info */}
           <div className="bg-muted/30 rounded-lg p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Events received:</span>
+              <span className="text-sm text-muted-foreground">Activity tracked:</span>
               <span className="font-mono text-sm">{eventCount}</span>
             </div>
             <div className="flex items-center justify-between">
@@ -617,7 +617,7 @@ export default function TrackingSetupPage() {
           <div className="flex gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              <strong className="text-foreground">Events tracked:</strong> script_started, player_join, session_end, gamepass_purchase, devproduct_purchase
+              <strong className="text-foreground">Activity tracked:</strong> player_join, session_end, purchase_success
             </p>
           </div>
           <div className="flex gap-3">

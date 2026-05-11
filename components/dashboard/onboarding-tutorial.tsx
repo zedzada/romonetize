@@ -40,8 +40,8 @@ const tutorialSteps = [
     highlight: "/dashboard/game",
   },
   {
-    title: "Track monetization events",
-    description: "RoMonetize automatically tracks shop opens, gamepass clicks, purchase prompts, and completed purchases.",
+    title: "Track monetization activity",
+    description: "RoMonetize automatically tracks player sessions, purchase prompts, and completed purchases.",
     icon: MousePointerClick,
     highlight: "/dashboard/monetization",
   },
