@@ -70,6 +70,7 @@ export default function ProductsPage() {
     productStats,
     syncedProducts,
     productAnalytics,
+    selectedGameName,
     refresh,
   } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
 
@@ -161,7 +162,11 @@ export default function ProductsPage() {
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Products</h1>
-          <p className="text-muted-foreground">Track Roblox products, gamepasses, and monetization performance</p>
+          <p className="text-muted-foreground">
+            {selectedGameName
+              ? `Showing data for: ${selectedGameName}`
+              : "Track Roblox products, gamepasses, and monetization performance"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <RangeControls

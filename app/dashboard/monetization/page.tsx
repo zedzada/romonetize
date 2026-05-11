@@ -271,6 +271,7 @@ export default function MonetizationPage() {
     monetizationCharts,
     hasTrackerData,
     needsTrackingScript,
+    selectedGameName,
     refresh,
   } = useAnalytics({ enabled: true, range: "7d" });
 
@@ -525,7 +526,11 @@ export default function MonetizationPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Monetization</h1>
-          <p className="text-muted-foreground">Track revenue and purchase metrics from your tracking script</p>
+          <p className="text-muted-foreground">
+            {selectedGameName
+              ? `Showing data for: ${selectedGameName}`
+              : "Track revenue and purchase metrics from your tracking script"}
+          </p>
         </div>
         <Button 
           onClick={handleRefresh} 
