@@ -187,17 +187,17 @@ export async function POST(request: NextRequest) {
         updateData.role_rank = Number(roleRank);
       }
 
-      // Update thumbnail if provided or fetch it if missing
-      let thumbnailUrl = iconUrl || existingGame.thumbnail_url;
-      if (!thumbnailUrl) {
+      // Update icon_url if provided or fetch it if missing
+      let gameIconUrl = iconUrl || existingGame.icon_url;
+      if (!gameIconUrl) {
         try {
-          thumbnailUrl = await getRobloxGameThumbnail(String(roblox_game_id));
+          gameIconUrl = await getRobloxGameThumbnail(String(roblox_game_id));
         } catch (e) {
-          console.log("[API] Could not fetch thumbnail:", e);
+          console.log("[API] Could not fetch icon:", e);
         }
       }
-      if (thumbnailUrl) {
-        updateData.thumbnail_url = thumbnailUrl;
+      if (gameIconUrl) {
+        updateData.icon_url = gameIconUrl;
       }
 
       console.log("[API] Updating existing game with:", updateData);
@@ -270,13 +270,13 @@ export async function POST(request: NextRequest) {
     // Game doesn't exist - create new entry
     const apiKey = generateApiKey();
 
-    // Fetch thumbnail if not provided
-    let thumbnailUrl = iconUrl;
-    if (!thumbnailUrl) {
+    // Fetch icon if not provided
+    let gameIconUrl = iconUrl;
+    if (!gameIconUrl) {
       try {
-        thumbnailUrl = await getRobloxGameThumbnail(String(roblox_game_id));
+        gameIconUrl = await getRobloxGameThumbnail(String(roblox_game_id));
       } catch (e) {
-        console.log("[API] Could not fetch thumbnail for new game:", e);
+        console.log("[API] Could not fetch icon for new game:", e);
       }
     }
 
@@ -297,8 +297,8 @@ export async function POST(request: NextRequest) {
       root_place_id: rootPlaceId ? String(rootPlaceId) : null,
       role_name: roleName || null,
       role_rank: roleRank !== undefined && roleRank !== null ? Number(roleRank) : null,
-      // Thumbnail
-      thumbnail_url: thumbnailUrl || null,
+      // Icon
+      icon_url: gameIconUrl || null,
     };
 
     console.log("[API] Inserting game with data:", insertData);

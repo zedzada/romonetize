@@ -141,7 +141,7 @@ export async function GET(request: Request) {
     // First, try to get data from roblox_game_syncs (most reliable, from manual sync)
     const { data: latestSync } = await supabase
       .from("roblox_game_syncs")
-      .select("ccu, visits, favorites, likes, dislikes, synced_at, name, description, genre, max_players, thumbnail_url")
+      .select("ccu, visits, favorites, likes, dislikes, synced_at, name, description, genre, max_players, icon_url")
       .eq("game_id", gameId)
       .order("synced_at", { ascending: false })
       .limit(1)
@@ -169,7 +169,7 @@ export async function GET(request: Request) {
           description: latestSync.description || "",
           genre: latestSync.genre || "Unknown",
           maxPlayers: latestSync.max_players || 0,
-          thumbnailUrl: latestSync.thumbnail_url || game.thumbnail_url,
+          thumbnailUrl: latestSync.icon_url || game.icon_url,
           createdAt: game.created_at,
           lastFetched: latestSync.synced_at,
         },
@@ -204,7 +204,7 @@ export async function GET(request: Request) {
             description: latestSync.description || "",
             genre: latestSync.genre || "Unknown",
             maxPlayers: latestSync.max_players || 0,
-            thumbnailUrl: latestSync.thumbnail_url || game.thumbnail_url,
+            thumbnailUrl: latestSync.icon_url || game.icon_url,
             createdAt: game.created_at,
             lastFetched: latestSync.synced_at,
           },
@@ -230,7 +230,7 @@ export async function GET(request: Request) {
             description: game.description || "",
             genre: game.genre || "Unknown",
             maxPlayers: game.max_players || 0,
-            thumbnailUrl: game.thumbnail_url,
+            thumbnailUrl: game.icon_url,
             createdAt: game.created_at,
             lastFetched: game.last_roblox_sync,
           },
@@ -252,7 +252,7 @@ export async function GET(request: Request) {
       favorites: stats.favorites ?? 0,
       likes: stats.likes ?? 0,
       dislikes: stats.dislikes ?? 0,
-      thumbnail_url: thumbnailUrl,
+      icon_url: thumbnailUrl,
       last_roblox_sync: new Date().toISOString(),
       roblox_sync_status: "synced",
       ...(gameInfo && {

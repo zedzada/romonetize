@@ -38,7 +38,7 @@ export interface GameRecord {
   likes?: number | null;
   dislikes?: number | null;
   current_players?: number | null;
-  thumbnail_url?: string | null;
+  icon_url?: string | null;
   last_roblox_sync?: string | null;
   roblox_sync_status?: string | null;
   roblox_api_key?: string | null;
