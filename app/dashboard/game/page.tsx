@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect, useCallback, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import { GameIcon } from "@/components/dashboard/game-icon";
@@ -59,8 +59,9 @@ interface ConnectedGame {
   thumbnail_url?: string | null;
 }
 
-export default function GamePage() {
+function GamePageContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   
   // User plan
   const [userPlan, setUserPlan] = useState<string>("free");
@@ -92,6 +93,18 @@ export default function GamePage() {
   const planLimit = getPlanGameLimit(userPlan);
   const gamesUsed = connectedGames.length;
   const isAtLimit = gamesUsed >= planLimit;
+
+  // Handle reset success message from Settings page
+  useEffect(() => {
+    const resetStatus = searchParams.get("reset");
+    if (resetStatus === "success") {
+      toast.success("Test data reset. Reconnect a game to start fresh.", {
+        duration: 5000,
+      });
+      // Clean up the URL
+      router.replace("/dashboard/game", { scroll: false });
+    }
+  }, [searchParams, router]);
 
   // Fetch connected games and user plan using same server actions as dashboard layout
   useEffect(() => {
@@ -892,5 +905,28 @@ print("[RoMonetize] Tracker initialized!")` : "";
         </>
       )}
     </div>
+  );
+}
+
+// Loading fallback
+function GamePageLoading() {
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl font-bold text-foreground">My Game</h1>
+        <p className="text-muted-foreground">Manage connected games and tracking</p>
+      </div>
+      <div className="h-64 rounded-lg bg-card border border-border animate-pulse" />
+      <div className="h-96 rounded-lg bg-card border border-border animate-pulse" />
+    </div>
+  );
+}
+
+// Wrap in Suspense for useSearchParams
+export default function GamePage() {
+  return (
+    <Suspense fallback={<GamePageLoading />}>
+      <GamePageContent />
+    </Suspense>
   );
 }
