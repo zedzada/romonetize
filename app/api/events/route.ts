@@ -18,6 +18,7 @@ const VALID_EVENT_TYPES = [
   // Player events
   "session_start",      // Player joins game
   "session_end",        // Player leaves game
+  "session_duration",   // Session duration tracking
   "checkpoint_reached", // Player reaches a checkpoint/milestone
   
   // Monetization events
@@ -44,6 +45,9 @@ const VALID_EVENT_TYPES = [
   "purchase_prompt",    // Alias for gamepass_prompt/devproduct_prompt
   "purchase_success",   // Alias for gamepass_purchase/devproduct_purchase
   "purchase_failed",    // Purchase failed
+  
+  // Custom events
+  "custom_event",       // User-defined custom event
 ] as const;
 
 type EventType = (typeof VALID_EVENT_TYPES)[number];
@@ -51,6 +55,7 @@ type EventType = (typeof VALID_EVENT_TYPES)[number];
 interface TrackingEvent {
   event_type: EventType;
   player_id?: string;
+  session_id?: string;
   product_id?: string;
   product_name?: string;
   product_type?: "gamepass" | "devproduct" | "subscription";
@@ -77,6 +82,7 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   const productId = raw.product_id ?? raw.productId ?? metadata.product_id ?? metadata.productId;
   const productName = raw.product_name ?? raw.productName ?? metadata.product_name ?? metadata.productName;
   const robux = raw.robux ?? metadata.robux;
+  const sessionId = raw.session_id ?? raw.sessionId ?? metadata.session_id ?? metadata.sessionId;
   
   // Normalize legacy purchase_success based on product_type
   let normalizedEventType = eventType;
@@ -89,6 +95,7 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   const normalized: Record<string, unknown> = {
     event_type: normalizedEventType,
     player_id: raw.player_id ?? raw.playerId,
+    session_id: sessionId,
     product_id: productId,
     product_name: productName,
     product_type: productType,
@@ -265,6 +272,12 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
+      // Store session_id in metadata since the column may not exist yet
+      const eventMetadata = {
+        ...(event.metadata || {}),
+        ...(event.session_id ? { session_id: event.session_id } : {}),
+      };
+      
       validatedEvents.push({
         game_id: game.id,
         event_type: event.event_type,
@@ -273,7 +286,7 @@ export async function POST(request: NextRequest) {
         product_name: event.product_name || null,
         product_type: event.product_type || null,
         robux: event.robux || 0,
-        metadata: event.metadata || {},
+        metadata: eventMetadata,
       });
     }
 
@@ -449,6 +462,7 @@ export async function GET() {
       note: "Both camelCase and snake_case are accepted",
       event_type_or_eventType: "Required. One of the valid event types",
       player_id_or_playerId: "Optional. Roblox player ID",
+      session_id_or_sessionId: "Optional. Session identifier for tracking player sessions",
       product_id_or_productId: "Optional. Product identifier",
       product_name_or_productName: "Optional. Product display name",
       product_type_or_productType: "Optional. gamepass, devproduct, or subscription",
