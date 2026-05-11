@@ -94,14 +94,20 @@ function GamePageContent() {
   const gamesUsed = connectedGames.length;
   const isAtLimit = gamesUsed >= planLimit;
 
-  // Handle reset success message from Settings page
+  // Handle success messages from query params
   useEffect(() => {
     const resetStatus = searchParams.get("reset");
+    const robloxStatus = searchParams.get("roblox");
+    
     if (resetStatus === "success") {
       toast.success("Test data reset. Reconnect a game to start fresh.", {
         duration: 5000,
       });
-      // Clean up the URL
+      router.replace("/dashboard/game", { scroll: false });
+    } else if (robloxStatus === "connected") {
+      toast.success("Roblox account connected! Select a game below to start tracking.", {
+        duration: 5000,
+      });
       router.replace("/dashboard/game", { scroll: false });
     }
   }, [searchParams, router]);
