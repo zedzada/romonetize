@@ -194,10 +194,16 @@ export default function DashboardPage() {
             <p className="text-muted-foreground mb-6 text-lg">
               Connect your Roblox account, choose a game, then install the RoMonetize tracker to start seeing live analytics.
             </p>
-            <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex flex-col sm:flex-row items-center gap-3">
               <Button size="lg" className="gap-2 shadow-lg shadow-primary/20" asChild>
-                <Link href="/dashboard/game">
+                <a href="/api/auth/roblox">
                   <Gamepad2 className="w-5 h-5" />
+                  Connect Roblox Account
+                </a>
+              </Button>
+              <Button size="lg" variant="outline" className="gap-2" asChild>
+                <Link href="/dashboard/game">
+                  <ArrowRight className="w-4 h-4" />
                   Go to My Game
                 </Link>
               </Button>
@@ -243,8 +249,14 @@ export default function DashboardPage() {
               </div>
             </div>
             
-            <div className="pt-4 border-t border-border">
-              <Button className="w-full gap-2" asChild>
+            <div className="pt-4 border-t border-border flex flex-col sm:flex-row gap-3">
+              <Button className="flex-1 gap-2" asChild>
+                <a href="/api/auth/roblox">
+                  <Gamepad2 className="w-4 h-4" />
+                  Connect Roblox Account
+                </a>
+              </Button>
+              <Button variant="outline" className="flex-1 gap-2" asChild>
                 <Link href="/dashboard/game">
                   <ArrowRight className="w-4 h-4" />
                   Go to My Game

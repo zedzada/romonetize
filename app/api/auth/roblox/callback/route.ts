@@ -142,9 +142,9 @@ export async function GET(request: NextRequest) {
     // Fetch user's universes and update games
     await updateUserGames(supabase, user.id, tokenData.access_token);
 
-    // Clear the OAuth cookies and redirect to settings with success
+    // Clear the OAuth cookies and redirect to game page with success
     const response = NextResponse.redirect(
-      new URL("/dashboard/settings?roblox=connected", request.url)
+      new URL("/dashboard/game?roblox=connected", request.url)
     );
     
     response.cookies.delete("roblox_state");
