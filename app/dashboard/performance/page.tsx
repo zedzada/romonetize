@@ -439,7 +439,8 @@ export default function PerformancePage() {
               <div className="flex items-center gap-3">
                 <GameIcon 
                   name={game.name} 
-                  thumbnailUrl={game.thumbnail_url} 
+                  thumbnailUrl={game.thumbnail_url}
+                  robloxGameId={game.roblox_game_id}
                   size="md"
                 />
                 <div>
@@ -593,7 +594,7 @@ export default function PerformancePage() {
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 mb-2">
                 <Activity className="w-4 h-4 text-indigo-500" />
-                <span className="text-xs text-muted-foreground">Tracker Events</span>
+                <span className="text-xs text-muted-foreground">Tracked Actions</span>
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
@@ -934,7 +935,7 @@ export default function PerformancePage() {
               summary={performanceCharts?.playersOverTime?.length ? `Total: ${performanceCharts.playersOverTime.reduce((sum, d) => sum + (d.players ?? 0), 0).toLocaleString()}` : undefined}
               isEmpty={!performanceCharts?.playersOverTime?.length}
               emptyTitle="No player data yet"
-              emptyMessage="Player joins will appear after session_start events are tracked."
+              emptyMessage="Player joins will appear after players start sessions in your game."
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={performanceCharts?.playersOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
@@ -981,7 +982,7 @@ export default function PerformancePage() {
               summary={performanceCharts?.purchasesOverTime?.length ? `Total: ${performanceCharts.purchasesOverTime.reduce((sum, d) => sum + (d.purchases ?? 0), 0).toLocaleString()}` : undefined}
               isEmpty={!performanceCharts?.purchasesOverTime?.length}
               emptyTitle="No purchases yet"
-              emptyMessage="Purchases will appear after purchase_success events are tracked."
+              emptyMessage="Purchases will appear after players make purchases in your game."
             >
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={performanceCharts?.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
@@ -1031,7 +1032,7 @@ export default function PerformancePage() {
               <TrendingUp className="w-10 h-10 mx-auto mb-3 text-muted-foreground" />
               <h4 className="font-medium text-foreground mb-2">Charts require tracking data</h4>
               <p className="text-sm text-muted-foreground mb-4">
-                Install the RoMonetize tracking script to see events, players, and purchase charts.
+                Install the RoMonetize tracking script to see activity, players, and purchase charts.
               </p>
               <Button variant="outline" asChild>
                 <Link href="/dashboard/game/tracking-setup">

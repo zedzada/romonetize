@@ -35,13 +35,13 @@ const tutorialSteps = [
   },
   {
     title: "Install the tracker",
-    description: "Copy the Roblox Lua script and paste it into your game's ServerScriptService. This enables event tracking.",
+    description: "Copy the Roblox Lua script and paste it into your game's ServerScriptService. This enables activity tracking.",
     icon: Code,
     highlight: "/dashboard/game",
   },
   {
-    title: "Track monetization events",
-    description: "RoMonetize automatically tracks shop opens, gamepass clicks, purchase prompts, and completed purchases.",
+    title: "Track monetization activity",
+    description: "RoMonetize automatically tracks player sessions, purchase prompts, and completed purchases.",
     icon: MousePointerClick,
     highlight: "/dashboard/monetization",
   },

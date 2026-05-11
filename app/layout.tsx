@@ -9,7 +9,7 @@ const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: 'RoMonetize - Find Where Your Roblox Game Loses Robux',
-  description: 'Track gamepass clicks, purchases, conversion funnels, and monetization leaks in your Roblox games.',
+  description: 'Track purchases, revenue, conversion funnels, and monetization performance in your Roblox games.',
   generator: 'v0.app',
   icons: {
     icon: [

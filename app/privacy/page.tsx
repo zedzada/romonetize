@@ -53,10 +53,10 @@ export default function PrivacyPage() {
           </section>
 
           <section>
-            <h2 className="text-xl font-semibold text-foreground mb-4">3. Game Analytics and Events</h2>
+            <h2 className="text-xl font-semibold text-foreground mb-4">3. Game Analytics and Tracked Activity</h2>
             <p className="text-muted-foreground leading-relaxed">
-              When you integrate RoMonetize tracking into your Roblox games, we collect analytics events including 
-              player interactions, gamepass clicks, purchases, and other monetization-related data. This data is 
+              When you integrate RoMonetize tracking into your Roblox games, we collect analytics activity including 
+              player sessions, purchases, and other monetization-related data. This data is 
               associated with your game ID and used to generate analytics dashboards and insights. Player data is 
               anonymized and aggregated for analytics purposes.
             </p>

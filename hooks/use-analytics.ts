@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import useSWR from "swr";
 import { useRealtimeStats } from "./use-realtime-stats";
 import { useStatsRefresh } from "./use-stats-refresh";
@@ -270,6 +270,10 @@ const fetcher = async (url: string) => {
 export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [currentSelectedGameId, setCurrentSelectedGameId] = useState<string | null>(selectedGameId || null);
+  // Track pending game change to show loading state immediately
+  const [isPendingGameChange, setIsPendingGameChange] = useState(false);
+  // Track request ID to ignore stale responses
+  const requestIdRef = useRef(0);
   
   // Build API URL - include selectedGameId to ensure fresh data for correct game
   const apiUrl = enabled
@@ -288,6 +292,9 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
       refreshInterval: 60000, // Auto-refresh every 60 seconds for Roblox stats
     }
   );
+  
+  // Validate response matches current selected game - ignore stale responses
+  const isResponseStale = data && currentSelectedGameId && data.selectedGameId !== currentSelectedGameId;
 
   // Get game IDs for realtime subscription
   const gameIds = data?.game?.id ? [data.game.id] : [];
@@ -305,21 +312,40 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   // Listen for selected game changes and refresh analytics
   useEffect(() => {
     const handleGameChange = (event: CustomEvent<{ gameId: string; robloxGameId: string }>) => {
+      // Increment request ID to invalidate any in-flight requests
+      requestIdRef.current += 1;
+      const thisRequestId = requestIdRef.current;
+      
       // Debug in development
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Selected game changed, clearing stale data and refreshing", event.detail);
+        console.log("[v0] Overview stats scope debug", {
+          currentSelectedGameId: currentSelectedGameId,
+          responseSelectedGameId: event.detail.gameId,
+          action: "game_changed_clearing_stale_data",
+          requestId: thisRequestId,
+        });
       }
+      
+      // Show loading state immediately
+      setIsPendingGameChange(true);
+      
       // Update current selected game ID to invalidate cache key
       setCurrentSelectedGameId(event.detail.gameId);
+      
       // Clear stale data immediately and refetch
-      mutate(undefined, { revalidate: true });
+      mutate(undefined, { revalidate: true }).finally(() => {
+        // Only clear pending state if this is still the current request
+        if (requestIdRef.current === thisRequestId) {
+          setIsPendingGameChange(false);
+        }
+      });
     };
 
     window.addEventListener("selected-game-changed", handleGameChange as EventListener);
     return () => {
       window.removeEventListener("selected-game-changed", handleGameChange as EventListener);
     };
-  }, [mutate]);
+  }, [mutate, currentSelectedGameId]);
 
   // Manual refresh function
   const refresh = useCallback(async () => {
@@ -366,36 +392,60 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   const hasRobloxData = data?.dataHealth?.hasRobloxApiData ?? false;
   const hasTrackerData = data?.dataHealth?.hasTrackerEvents ?? false;
   const hasSyncedProducts = data?.dataHealth?.hasSyncedProducts ?? false;
+  
+  // Use safe data that ignores stale responses
+  const safeData = isResponseStale ? null : data;
+  
+  // Debug in development when data arrives
+  useEffect(() => {
+    if (process.env.NODE_ENV === "development" && data && !isResponseStale) {
+      console.log("[v0] Overview stats scope debug", {
+        currentSelectedGameId,
+        responseSelectedGameId: data.selectedGameId,
+        selectedGameName: data.selectedGameName,
+        trackedActions: data.trackerStats?.totalEvents ?? 0,
+        estimatedRevenue: data.revenueStats?.estimatedRevenue ?? 0,
+        purchases: data.revenueStats?.totalPurchases ?? 0,
+        trackedProducts: data.productStats?.products?.length ?? 0,
+        topProductsCount: data.monetizationCharts?.topProducts?.length ?? 0,
+        recentActivityCount: data.trackerStats?.totalEvents ?? 0,
+      });
+    }
+  }, [data, isResponseStale, currentSelectedGameId]);
 
   return {
-    // Data
-    data,
-    game: data?.game ?? null,
-    dataHealth: data?.dataHealth ?? null,
-    robloxStats: data?.robloxStats ?? null,
-    overview: data?.overview ?? null,
-    trackerStats: data?.trackerStats ?? null,
-    revenueStats: data?.revenueStats ?? null,
-    productStats: data?.productStats ?? null,
-    syncedProducts: data?.syncedProducts ?? null,
-  retentionStats: data?.retentionStats ?? null,
-  ccuStats: data?.ccuStats ?? null,
-  ccuHistory: data?.ccuHistory ?? null,
-  charts: data?.charts ?? null,
-    performanceCharts: data?.performanceCharts ?? null,
-    monetizationCharts: data?.monetizationCharts ?? null,
-    productAnalytics: data?.productAnalytics ?? null,
-    sectionErrors: data?.sectionErrors ?? {},
-    lastUpdated: data?.lastUpdated ?? null,
+    // Data - return null if response is stale or pending game change
+    data: safeData,
+    game: safeData?.game ?? null,
+    dataHealth: safeData?.dataHealth ?? null,
+    robloxStats: safeData?.robloxStats ?? null,
+    overview: safeData?.overview ?? null,
+    trackerStats: safeData?.trackerStats ?? null,
+    revenueStats: safeData?.revenueStats ?? null,
+    productStats: safeData?.productStats ?? null,
+    syncedProducts: safeData?.syncedProducts ?? null,
+    retentionStats: safeData?.retentionStats ?? null,
+    ccuStats: safeData?.ccuStats ?? null,
+    ccuHistory: safeData?.ccuHistory ?? null,
+    charts: safeData?.charts ?? null,
+    performanceCharts: safeData?.performanceCharts ?? null,
+    monetizationCharts: safeData?.monetizationCharts ?? null,
+    productAnalytics: safeData?.productAnalytics ?? null,
+    sectionErrors: safeData?.sectionErrors ?? {},
+    lastUpdated: safeData?.lastUpdated ?? null,
+    
+    // Selected game identity - for UI to verify data matches selection
+    selectedGameId: safeData?.selectedGameId ?? null,
+    selectedGameName: safeData?.selectedGameName ?? null,
 
     // Data health helpers
-    needsTrackingScript,
-    hasRobloxData,
-    hasTrackerData,
-    hasSyncedProducts,
+    needsTrackingScript: safeData ? needsTrackingScript : false,
+    hasRobloxData: safeData ? hasRobloxData : false,
+    hasTrackerData: safeData ? hasTrackerData : false,
+    hasSyncedProducts: safeData ? hasSyncedProducts : false,
 
-    // State
-    isLoading,
+    // State - show loading during game change or stale data
+    isLoading: isLoading || isPendingGameChange || isResponseStale,
     isRefreshing: manualRefreshing,
     error: error?.message ?? null,
     isLive,

@@ -718,7 +718,7 @@ function SettingsPageContent() {
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />
-                  Unlimited tracked events
+                  Unlimited tracking
                 </li>
                 <li className="flex items-center gap-2 text-muted-foreground">
                   <Check className="w-4 h-4 text-green-500" />

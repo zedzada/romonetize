@@ -23,7 +23,7 @@ const features = [
   {
     icon: Target,
     title: "Conversion Tracking",
-    description: "Measure click-to-purchase rates for every product. Identify which gamepasses convert and which need work.",
+    description: "Measure conversion rates for every product. Identify which gamepasses drive revenue and which need optimization.",
     metric: "Per-product metrics"
   },
   {

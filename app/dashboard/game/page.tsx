@@ -580,11 +580,12 @@ print("[RoMonetize] Tracker initialized!")` : "";
                       >
                         <div className="flex items-center justify-between gap-4">
                           <div className="flex items-center gap-3 min-w-0">
-                            <GameIcon 
-                              name={game.name} 
-                              thumbnailUrl={game.thumbnail_url} 
-                              size="md"
-                            />
+                                            <GameIcon 
+                                              name={game.name} 
+                                              thumbnailUrl={game.thumbnail_url}
+                                              robloxGameId={game.roblox_game_id}
+                                              size="md"
+                                            />
                             <div className="min-w-0">
                               <div className="font-medium text-foreground truncate">{game.name}</div>
                               <div className="text-xs text-muted-foreground">ID: {game.roblox_game_id}</div>
@@ -678,7 +679,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                           <li>Create a new Script in <code className="bg-secondary px-1 rounded">ServerScriptService</code></li>
                                           <li>Paste the code (API key and Game ID are already filled in)</li>
                                           <li>Enable HTTP Requests in Game Settings &gt; Security</li>
-                                          <li>Test your game - events will appear in the dashboard!</li>
+                                          <li>Test your game - activity will appear in the dashboard!</li>
                                         </ol>
                                       </div>
 
@@ -823,7 +824,8 @@ print("[RoMonetize] Tracker initialized!")` : "";
                           <div className="flex items-start gap-3">
                             <GameIcon 
                               name={robloxGame.name} 
-                              thumbnailUrl={robloxGame.iconUrl} 
+                              thumbnailUrl={robloxGame.iconUrl}
+                              robloxGameId={String(robloxGame.id)}
                               size="lg"
                               className="shrink-0"
                             />

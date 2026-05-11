@@ -108,7 +108,7 @@ export function ChartCard({
   isEmpty = false,
   emptyIcon,
   emptyTitle = "No data yet",
-  emptyMessage = "Data will appear once events are tracked.",
+  emptyMessage = "Data will appear once activity is tracked.",
   className = "",
   isExpandable = true,
   range,
@@ -291,7 +291,7 @@ export const CHART_COLORS = {
   green: "#22C55E",       // Dev products, purchases success
   pink: "#EC4899",        // Game passes
   amber: "#F59E0B",       // Purchases, warnings
-  violet: "#8B5CF6",      // Events, sessions
+  violet: "#8B5CF6",      // Activity, sessions
   cyan: "#06B6D4",        // Player joins
   rose: "#F43F5E",        // Errors/negative
   

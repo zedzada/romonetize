@@ -392,14 +392,14 @@ export default function TrackingSetupPage() {
             <div>
               <p className="text-xs text-muted-foreground mb-1">Tracking Status</p>
               {hasTracking ? (
-                <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/20">
+                  <Badge variant="default" className="bg-green-500/10 text-green-600 border-green-500/20">
                   <CheckCircle2 className="w-3 h-3 mr-1" />
-                  Active ({eventCount} events)
+                  Active ({eventCount} tracked)
                 </Badge>
               ) : (
                 <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20">
                   <AlertCircle className="w-3 h-3 mr-1" />
-                  Waiting for first event
+                  Waiting for first activity
                 </Badge>
               )}
             </div>
@@ -408,11 +408,11 @@ export default function TrackingSetupPage() {
           {/* Event Info */}
           <div className="bg-muted/30 rounded-lg p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Events received:</span>
+              <span className="text-sm text-muted-foreground">Activity tracked:</span>
               <span className="font-mono text-sm">{eventCount}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-sm text-muted-foreground">Last event:</span>
+              <span className="text-sm text-muted-foreground">Last activity:</span>
               <span className="font-mono text-sm">
                 {lastEvent ? (
                   <>
@@ -617,7 +617,7 @@ export default function TrackingSetupPage() {
           <div className="flex gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              <strong className="text-foreground">Events tracked:</strong> script_started, player_join, session_end, gamepass_purchase, devproduct_purchase
+              <strong className="text-foreground">Activity tracked:</strong> player_join, session_end, purchase_success
             </p>
           </div>
           <div className="flex gap-3">

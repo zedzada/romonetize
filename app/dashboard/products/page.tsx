@@ -70,6 +70,7 @@ export default function ProductsPage() {
     productStats,
     syncedProducts,
     productAnalytics,
+    selectedGameName,
     refresh,
   } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
 
@@ -161,7 +162,11 @@ export default function ProductsPage() {
       <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Products</h1>
-          <p className="text-muted-foreground">Track Roblox products, gamepasses, and monetization performance</p>
+          <p className="text-muted-foreground">
+            {selectedGameName
+              ? `Showing data for: ${selectedGameName}`
+              : "Track Roblox products, gamepasses, and monetization performance"}
+          </p>
         </div>
         <div className="flex items-center gap-3">
           <RangeControls
@@ -293,13 +298,13 @@ export default function ProductsPage() {
         </Card>
       </div>
 
-      {/* Products from Tracker (purchase_success events) */}
+      {/* Products from Tracker (purchases) */}
       {hasTrackerEvents && hasTrackerProducts && (
         <Card className="border-border bg-card shadow-sm">
           <CardHeader className="flex flex-row items-center justify-between pb-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">Product Performance</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Based on purchase_success events from your tracking script</p>
+              <p className="text-sm text-muted-foreground mt-1">Based on tracked purchases from your game</p>
             </div>
             <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-[10px]">
               RoMonetize Tracker

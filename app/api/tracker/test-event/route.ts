@@ -66,7 +66,6 @@ export async function POST() {
       .single();
 
     if (insertError) {
-      console.error("[api/tracker/test-event] Insert error:", insertError);
       return NextResponse.json(
         { success: false, step: "insert", error: "Failed to insert test event", details: insertError.message },
         { status: 500 }
@@ -78,8 +77,6 @@ export async function POST() {
       .from("games")
       .update({ last_event_at: new Date().toISOString() })
       .eq("id", selectedGame.id);
-
-    console.log(`[api/tracker/test-event] Test event inserted: game_id=${selectedGame.id}, event_id=${insertedEvent.id}`);
 
     return NextResponse.json({
       success: true,
@@ -97,7 +94,6 @@ export async function POST() {
       },
     });
   } catch (error) {
-    console.error("[api/tracker/test-event] Error:", error);
     return NextResponse.json(
       { success: false, step: "unknown", error: "Internal server error", details: error instanceof Error ? error.message : String(error) },
       { status: 500 }

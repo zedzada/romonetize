@@ -187,10 +187,10 @@ export function DataStatusBanner({
                 Some analytics data is missing
               </h3>
               <p className="text-sm text-muted-foreground mb-3">
-                {missing.includes("no_purchase_events") && "No purchase events tracked yet. "}
-                {missing.includes("no_session_duration_events") && "No session events tracked yet. "}
-                {missing.includes("no_product_view_events") && "No product click events tracked yet. "}
-                Make sure your tracking script is sending the appropriate events.
+                {missing.includes("no_purchase_events") && "No purchases tracked yet. "}
+                {missing.includes("no_session_duration_events") && "No sessions tracked yet. "}
+                {missing.includes("no_product_view_events") && "No product activity tracked yet. "}
+                Make sure your tracking script is properly installed.
               </p>
               <div className="flex flex-wrap items-center gap-2">
                 <Button asChild size="sm" variant="outline">
@@ -212,7 +212,7 @@ export function DataStatusBanner({
               <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
             )}
             <span className="text-muted-foreground">
-              Tracker: {dataHealth.hasTrackerEvents ? `${dataHealth.trackerEventsCount} events` : "Not installed"}
+              Tracker: {dataHealth.hasTrackerEvents ? `${dataHealth.trackerEventsCount} tracked` : "Not installed"}
             </span>
           </div>
           <div className="flex items-center gap-1.5">

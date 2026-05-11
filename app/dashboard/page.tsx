@@ -46,7 +46,7 @@ export default function DashboardPage() {
   
   const [aiMessage, setAiMessage] = useState("");
   const [aiResponse, setAiResponse] = useState(
-    "Connect a game and start tracking events to get AI-powered monetization insights."
+    "Connect a game and start tracking activity to get AI-powered monetization insights."
   );
   const [isConnecting, setIsConnecting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -168,7 +168,7 @@ export default function DashboardPage() {
       );
     } else {
       setAiResponse(
-        `I can help answer "${aiMessage}" once you have some tracking data. Connect a game and send events to get personalized insights.`
+        `I can help answer "${aiMessage}" once you have some tracking data. Connect a game and start tracking to get personalized insights.`
       );
     }
     setAiMessage("");
@@ -798,7 +798,7 @@ export default function DashboardPage() {
                 </div>
                 <p className="text-sm font-medium text-foreground mb-1">No products tracked</p>
                 <p className="text-xs text-muted-foreground max-w-[200px]">
-                  Products appear automatically after purchase events are received
+                  Products appear automatically after purchases are tracked
                 </p>
               </div>
             ) : (

@@ -41,6 +41,8 @@ export default function OverviewPage() {
     hasTrackerData,
     hasRobloxData,
     needsTrackingScript,
+    selectedGameId,
+    selectedGameName,
     refresh,
   } = useAnalytics({ enabled: true, range: "7d" });
 
@@ -115,7 +117,9 @@ export default function OverviewPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Overview</h1>
           <p className="text-muted-foreground">
-            {dataHealth?.gameName ? `Analytics for ${dataHealth.gameName}` : "Your game analytics at a glance"}
+            {selectedGameName 
+              ? `Showing data for: ${selectedGameName}` 
+              : "Your game analytics at a glance"}
           </p>
         </div>
         <Button 
