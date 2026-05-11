@@ -8,11 +8,27 @@ function generateApiKey(): string {
 }
 
 export async function POST(request: NextRequest) {
+  let body: Record<string, unknown> = {};
+  
   try {
     // Parse request body - accept both camelCase and snake_case
-    const body = await request.json();
-    const roblox_game_id = body.roblox_game_id;
-    const name = body.name;
+    try {
+      body = await request.json();
+    } catch (parseError) {
+      return NextResponse.json(
+        { 
+          success: false,
+          step: "parse_body",
+          error: "Failed to parse request body",
+          details: parseError instanceof Error ? parseError.message : "Unknown parse error",
+        },
+        { status: 400 }
+      );
+    }
+    
+    // Accept multiple ID formats for compatibility
+    const roblox_game_id = body.roblox_game_id || body.robloxGameId || body.universeId || body.id;
+    const name = body.name || body.gameName;
     const rootPlaceId = body.rootPlaceId || body.root_place_id;
     const source = body.source;
     const groupId = body.groupId || body.group_id;
@@ -36,7 +52,12 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!roblox_game_id || !name) {
       return NextResponse.json(
-        { error: "Missing required fields: roblox_game_id, name" },
+        { 
+          success: false,
+          step: "validate_payload",
+          error: "Missing robloxGameId or name",
+          receivedBody: body,
+        },
         { status: 400 }
       );
     }
@@ -48,7 +69,12 @@ export async function POST(request: NextRequest) {
     if (authError || !user) {
       console.log("[API] Auth error:", authError);
       return NextResponse.json(
-        { error: "Unauthorized" },
+        { 
+          success: false,
+          step: "auth",
+          error: "Unauthorized - not logged in",
+          details: authError?.message || "No user session",
+        },
         { status: 401 }
       );
     }
@@ -104,6 +130,8 @@ export async function POST(request: NextRequest) {
       if (currentCount >= limit) {
         return NextResponse.json(
           { 
+            success: false,
+            step: "plan_limit",
             error: "Plan limit reached",
             message: `You've reached your plan limit of ${limit} game${limit > 1 ? "s" : ""}. Upgrade your plan to connect more games.`,
             limit,
@@ -201,7 +229,12 @@ export async function POST(request: NextRequest) {
 
           if (fallbackError) {
             return NextResponse.json(
-              { error: `Failed to select game: ${fallbackError.message}` },
+              { 
+                success: false,
+                step: "select_game",
+                error: `Failed to select game: ${fallbackError.message}`,
+                supabaseError: fallbackError,
+              },
               { status: 500 }
             );
           }
@@ -216,7 +249,12 @@ export async function POST(request: NextRequest) {
         }
 
         return NextResponse.json(
-          { error: `Failed to select game: ${updateError.message}` },
+          { 
+            success: false,
+            step: "select_game",
+            error: `Failed to select game: ${updateError.message}`,
+            supabaseError: updateError,
+          },
           { status: 500 }
         );
       }
@@ -298,7 +336,12 @@ export async function POST(request: NextRequest) {
             hint: fallbackError.hint,
           });
           return NextResponse.json(
-            { error: `Failed to create game: ${fallbackError.message}` },
+            { 
+              success: false,
+              step: "upsert_game",
+              error: `Failed to create game: ${fallbackError.message}`,
+              supabaseError: fallbackError,
+            },
             { status: 500 }
           );
         }
@@ -313,7 +356,12 @@ export async function POST(request: NextRequest) {
       }
 
       return NextResponse.json(
-        { error: `Failed to create game: ${insertError.message}` },
+        { 
+          success: false,
+          step: "upsert_game",
+          error: `Failed to create game: ${insertError.message}`,
+          supabaseError: insertError,
+        },
         { status: 500 }
       );
     }
@@ -330,7 +378,12 @@ export async function POST(request: NextRequest) {
     console.error("[API] /api/roblox/select-game unexpected error:", error);
     const errorMessage = error instanceof Error ? error.message : "Unknown error";
     return NextResponse.json(
-      { error: `Internal server error: ${errorMessage}` },
+      { 
+        success: false,
+        step: "unknown",
+        error: `Internal server error: ${errorMessage}`,
+        receivedBody: body,
+      },
       { status: 500 }
     );
   }
