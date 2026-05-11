@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getDashboardStats, getAnalyticsAlerts, getUserGameIds, type DashboardStats, type AnalyticsAlert } from "@/lib/actions/analytics";
 import { useRealtimeStats } from "@/hooks/use-realtime-stats";
