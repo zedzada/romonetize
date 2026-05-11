@@ -22,6 +22,8 @@ import {
   AlertCircle,
   CheckCircle,
   Send,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
@@ -29,6 +31,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface RobloxProfile {
   roblox_user_id: string | null;
@@ -62,6 +72,10 @@ function SettingsPageContent() {
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
   const [isOAuthUser, setIsOAuthUser] = useState(false);
   const [userPlan, setUserPlan] = useState("free");
+  const [resetModalOpen, setResetModalOpen] = useState(false);
+  const [resetConfirmText, setResetConfirmText] = useState("");
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
   const [profile, setProfile] = useState({
     name: "",
     email: "",
@@ -327,6 +341,40 @@ function SettingsPageContent() {
       console.error("[v0] Logout error:", error);
       router.push("/");
       router.refresh();
+    }
+  };
+
+  const handleResetTestData = async () => {
+    if (resetConfirmText !== "RESET") return;
+    
+    setResetting(true);
+    setResetError(null);
+    
+    try {
+      const res = await fetch("/api/admin/reset-my-test-data", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      });
+      
+      const data = await res.json();
+      
+      if (!res.ok) {
+        setResetError(data.error || "Failed to reset data");
+        return;
+      }
+      
+      // Success - close modal and redirect
+      setResetModalOpen(false);
+      setResetConfirmText("");
+      
+      // Show success toast by redirecting with query param
+      router.push("/dashboard/game?reset=success");
+      router.refresh();
+    } catch (error) {
+      console.error("[v0] Reset error:", error);
+      setResetError("An unexpected error occurred");
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -763,6 +811,30 @@ function SettingsPageContent() {
               </Button>
             </CardContent>
           </Card>
+
+          {/* Danger Zone - Reset Test Data */}
+          <Card className="border-border bg-card border-destructive/50">
+            <CardHeader>
+              <CardTitle className="text-lg flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-destructive" />
+                Danger Zone
+              </CardTitle>
+              <CardDescription>Destructive actions for testing</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Reset all connected games and tracking data. Your account, billing, and AI credits will remain unchanged.
+              </p>
+              <Button 
+                variant="outline"
+                className="w-full border-destructive/50 text-destructive hover:bg-destructive hover:text-destructive-foreground"
+                onClick={() => setResetModalOpen(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Reset My Test Data
+              </Button>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -787,6 +859,100 @@ function SettingsPageContent() {
           )}
         </Button>
       </div>
+
+      {/* Reset Test Data Confirmation Modal */}
+      <Dialog open={resetModalOpen} onOpenChange={setResetModalOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" />
+              Reset Test Data
+            </DialogTitle>
+            <DialogDescription>
+              This will permanently delete all your connected games and tracking data. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <Alert variant="destructive" className="border-destructive/50">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                <strong>What will be deleted:</strong>
+                <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                  <li>All connected games</li>
+                  <li>All tracking events</li>
+                  <li>All CCU snapshots</li>
+                  <li>All game analytics history</li>
+                  <li>All synced products</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+            
+            <Alert className="border-green-500/50 bg-green-500/10">
+              <CheckCircle className="h-4 w-4 text-green-500" />
+              <AlertDescription className="text-green-700 dark:text-green-400">
+                <strong>What will NOT be deleted:</strong>
+                <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
+                  <li>Your account</li>
+                  <li>Billing & subscription</li>
+                  <li>AI credits</li>
+                  <li>Roblox account connection</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-foreground">
+                Type <span className="font-mono text-destructive">RESET</span> to confirm:
+              </label>
+              <Input
+                value={resetConfirmText}
+                onChange={(e) => setResetConfirmText(e.target.value.toUpperCase())}
+                placeholder="Type RESET"
+                className="font-mono"
+              />
+            </div>
+
+            {resetError && (
+              <Alert variant="destructive">
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>{resetError}</AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setResetModalOpen(false);
+                setResetConfirmText("");
+                setResetError(null);
+              }}
+              disabled={resetting}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleResetTestData}
+              disabled={resetConfirmText !== "RESET" || resetting}
+            >
+              {resetting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Resetting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Reset All Data
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
