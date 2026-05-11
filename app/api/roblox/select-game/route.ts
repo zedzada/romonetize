@@ -9,9 +9,17 @@ function generateApiKey(): string {
 
 export async function POST(request: NextRequest) {
   try {
-    // Parse request body
+    // Parse request body - accept both camelCase and snake_case
     const body = await request.json();
-    const { roblox_game_id, name, rootPlaceId, source, groupId, groupName, roleName, roleRank, iconUrl } = body;
+    const roblox_game_id = body.roblox_game_id;
+    const name = body.name;
+    const rootPlaceId = body.rootPlaceId || body.root_place_id;
+    const source = body.source;
+    const groupId = body.groupId || body.group_id;
+    const groupName = body.groupName || body.group_name;
+    const roleName = body.roleName || body.role_name;
+    const roleRank = body.roleRank ?? body.role_rank;
+    const iconUrl = body.iconUrl || body.icon_url;
 
     console.log("[API] /api/roblox/select-game called with:", {
       roblox_game_id,
