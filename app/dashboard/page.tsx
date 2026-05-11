@@ -52,11 +52,6 @@ export default function DashboardPage() {
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [gameIds, setGameIds] = useState<string[]>([]);
   
-  // Connect game form state
-  const [gameId, setGameId] = useState("");
-  const [gameName, setGameName] = useState("");
-  const [isConnecting, setIsConnecting] = useState(false);
-
   // Use central analytics hook for Roblox stats
   const { robloxStats, refresh: refreshAnalytics } = useAnalytics({ enabled: gameIds.length > 0 });
 
@@ -135,46 +130,6 @@ export default function DashboardPage() {
       refreshAnalytics(),
     ]);
     setIsRefreshing(false);
-  };
-
-  // Connect a new game
-  const handleConnectGame = async () => {
-    if (!gameId.trim() || !gameName.trim()) return;
-    
-    setIsConnecting(true);
-    setError(null);
-    
-    try {
-      const response = await fetch("/api/roblox/select-game", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          roblox_game_id: gameId.trim(),
-          name: gameName.trim(),
-        }),
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        setError(data.error || data.message || "Failed to connect game");
-        return;
-      }
-      
-      // Success - clear form and refresh stats
-      setGameId("");
-      setGameName("");
-      await fetchStats(false);
-      
-      // Dispatch event for header game selector to update
-      window.dispatchEvent(new CustomEvent("selected-game-changed", {
-        detail: { gameId: data.game?.id, robloxGameId: data.game?.roblox_game_id }
-      }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to connect game");
-    } finally {
-      setIsConnecting(false);
-    }
   };
 
   const handleAskAI = () => {
@@ -591,41 +546,20 @@ export default function DashboardPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Gamepad2 className="w-4 h-4 text-primary" />
-              Connect another game
+              Connect Your Games
             </CardTitle>
-            <CardDescription>Add more Roblox games to track</CardDescription>
+            <CardDescription>Link your Roblox account to track your games</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {error && (
-              <div className="text-sm text-destructive bg-destructive/10 p-2 rounded">
-                {error}
-              </div>
-            )}
-            <Input
-              placeholder="Roblox Game ID (e.g., 123456789)"
-              value={gameId}
-              onChange={(e) => setGameId(e.target.value)}
-              className="bg-secondary/30"
-            />
-            <Input
-              placeholder="Game Name"
-              value={gameName}
-              onChange={(e) => setGameName(e.target.value)}
-              className="bg-secondary/30"
-            />
-            <Button 
-              className="w-full gap-2" 
-              onClick={handleConnectGame}
-              disabled={isConnecting || !gameId.trim() || !gameName.trim()}
-            >
-              {isConnecting ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  Connecting...
-                </>
-              ) : (
-                "Connect Game"
-              )}
+            <p className="text-sm text-muted-foreground">
+              Connect your Roblox account to automatically discover and track all your games.
+            </p>
+            <Button asChild className="w-full gap-2">
+              <Link href="/dashboard/game">
+                <Gamepad2 className="w-4 h-4" />
+                Go to My Game
+                <ArrowRight className="w-4 h-4 ml-auto" />
+              </Link>
             </Button>
           </CardContent>
         </Card>
