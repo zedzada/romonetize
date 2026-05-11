@@ -165,26 +165,40 @@
 
 /* Premium grid background utilities */
 @layer utilities {
-  /* Dotted grid - for hero and landing sections (visible) */
+  /* Dotted grid - for hero and landing sections (visible in both themes) */
   .bg-dot-grid {
-    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.22) 1px, transparent 1px);
+    background-image: radial-gradient(circle, rgba(100, 116, 139, 0.25) 1px, transparent 1px);
     background-size: 18px 18px;
+  }
+  
+  .dark .bg-dot-grid {
+    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.18) 1px, transparent 1px);
   }
 
   /* Dotted grid with radial mask - hero primary grid */
   .bg-dot-grid-masked {
-    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.20) 1.2px, transparent 1.2px);
+    background-image: radial-gradient(circle, rgba(100, 116, 139, 0.22) 1.2px, transparent 1.2px);
     background-size: 18px 18px;
     -webkit-mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, black 0%, black 40%, transparent 80%);
     mask-image: radial-gradient(ellipse 90% 70% at 50% 40%, black 0%, black 40%, transparent 80%);
   }
+  
+  .dark .bg-dot-grid-masked {
+    background-image: radial-gradient(circle, rgba(56, 189, 248, 0.16) 1.2px, transparent 1.2px);
+  }
 
-  /* Square grid - for subtle backgrounds */
+  /* Square grid - for subtle backgrounds (visible in both themes) */
   .bg-square-grid {
     background-image:
-      linear-gradient(rgba(56, 189, 248, 0.10) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(56, 189, 248, 0.10) 1px, transparent 1px);
+      linear-gradient(rgba(100, 116, 139, 0.12) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(100, 116, 139, 0.12) 1px, transparent 1px);
     background-size: 32px 32px;
+  }
+  
+  .dark .bg-square-grid {
+    background-image:
+      linear-gradient(rgba(56, 189, 248, 0.08) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(56, 189, 248, 0.08) 1px, transparent 1px);
   }
 
   /* Dashboard grid - extremely subtle for authenticated pages */

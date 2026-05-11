@@ -130,9 +130,9 @@ export function Pricing() {
               <div className={cn(
                 "absolute -inset-px rounded-2xl transition-all duration-300",
                 plan.variant === "pro" 
-                  ? "bg-primary/60 dark:bg-primary/70 shadow-[0_0_30px_-5px] shadow-primary/25 dark:shadow-primary/30"
+                  ? "bg-gradient-to-b from-primary/50 via-primary/30 to-primary/50 shadow-[0_0_40px_-10px] shadow-primary/30"
                   : plan.variant === "studio"
-                    ? "bg-border group-hover:bg-amber-500/50 dark:group-hover:bg-amber-500/60 group-hover:shadow-[0_0_25px_-5px] group-hover:shadow-amber-500/20"
+                    ? "bg-border group-hover:bg-gradient-to-b group-hover:from-amber-400/40 group-hover:via-amber-500/30 group-hover:to-amber-400/40 group-hover:shadow-[0_0_30px_-8px] group-hover:shadow-amber-500/25"
                     : "bg-border group-hover:bg-border/80"
               )} />
               
@@ -142,7 +142,7 @@ export function Pricing() {
                 plan.variant === "pro" 
                   ? "bg-card"
                   : plan.variant === "studio"
-                    ? "bg-card group-hover:bg-amber-50/30 dark:group-hover:bg-amber-950/10"
+                    ? "bg-card group-hover:bg-amber-50/20 dark:group-hover:bg-amber-950/5"
                     : "bg-card"
               )}>
                 {/* Badge - enhanced styling */}
@@ -226,7 +226,7 @@ export function Pricing() {
                     plan.variant === "pro" 
                       ? "bg-primary hover:bg-primary/90 text-primary-foreground shadow-md shadow-primary/20 hover:shadow-lg hover:shadow-primary/30 hover:scale-[1.02]" 
                       : plan.variant === "studio"
-                        ? "bg-secondary hover:bg-amber-100 dark:hover:bg-amber-950/30 text-foreground border border-border hover:border-amber-400/50 hover:shadow-md"
+                        ? "bg-secondary hover:bg-amber-50 dark:hover:bg-amber-950/20 text-foreground border border-border hover:border-amber-400/40 hover:shadow-sm"
                         : "bg-secondary hover:bg-secondary/80 text-foreground border border-border"
                   )}
                 >
