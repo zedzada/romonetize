@@ -7,10 +7,10 @@ import { gateway } from "@ai-sdk/gateway";
 
 // Lazy init for service role client
 function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return createClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
 // Consume credits

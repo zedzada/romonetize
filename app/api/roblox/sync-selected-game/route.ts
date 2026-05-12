@@ -11,10 +11,10 @@ import { getSelectedGameForUser, getAllGamesForUser } from "@/lib/server/selecte
 
 // Lazy init for service role client (for inserts that bypass RLS)
 function getSupabaseAdmin() {
-  return createAdminClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
 const ROBLOX_DEVELOP_API = "https://develop.roblox.com/v1";
