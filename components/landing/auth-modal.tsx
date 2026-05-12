@@ -13,9 +13,6 @@ interface AuthModalProps {
 
 type AuthView = "login" | "signup" | "forgot-password";
 
-// Check if email auth is enabled via env var (defaults to false for MVP launch)
-const enableEmailAuth = process.env.NEXT_PUBLIC_ENABLE_EMAIL_AUTH === "true";
-
 export function AuthModal({ isOpen, onClose }: AuthModalProps) {
   const router = useRouter();
   const [view, setView] = useState<AuthView>("login");
@@ -77,7 +74,10 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         if (error) {
           // Handle rate limit errors
           if (error.message.toLowerCase().includes("rate limit")) {
-            setError("Email login is temporarily rate limited. Please try Google login or wait a few minutes.");
+            setError("Email sending is temporarily rate limited. Please wait a few minutes and try again.");
+          // Handle already registered error
+          } else if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already exists")) {
+            setError("An account already exists for this email. Try logging in or resetting your password.");
           } else {
             setError(error.message);
           }
@@ -85,7 +85,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
           return;
         }
         
-        setMessage("Check your email for a confirmation link!");
+        setMessage("Check your inbox to confirm your email before logging in.");
         setIsSubmitting(false);
       } else if (view === "forgot-password") {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -95,7 +95,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         if (error) {
           // Handle rate limit errors
           if (error.message.toLowerCase().includes("rate limit")) {
-            setError("Email login is temporarily rate limited. Please try Google login or wait a few minutes.");
+            setError("Email sending is temporarily rate limited. Please wait a few minutes and try again.");
           } else {
             setError(error.message);
           }
@@ -103,11 +103,10 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
           return;
         }
         
-        setMessage("Check your email for a password reset link!");
+        setMessage("Password reset email sent. Check your inbox.");
         setIsSubmitting(false);
       }
     } catch (err: unknown) {
-      console.error('[v0] Auth error:', err);
       // Extract the actual error message
       if (err instanceof Error) {
         setError(err.message);
@@ -116,6 +115,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       } else {
         setError("An unexpected error occurred. Please try again.");
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -154,7 +154,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         window.location.href = data.url;
       }
     } catch (err: unknown) {
-      console.error('[v0] Google OAuth error - Full error object:', err);
       // Extract the actual error message from various error shapes
       if (err instanceof Error) {
         setError(err.message);
@@ -165,6 +164,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       } else {
         setError("An unexpected error occurred. Please try again.");
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -251,25 +251,15 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 Continue with Google
               </Button>
 
-              {/* Email auth coming soon message - shown when email auth is disabled */}
-              {!enableEmailAuth && (
-                <p className="text-sm text-muted-foreground text-center">
-                  Email login coming soon
-                </p>
-              )}
-
-              {/* Email auth forms - only shown when enabled */}
-              {enableEmailAuth && (
-                <>
-                  {/* Divider */}
-                  <div className="relative mb-6 mt-6">
-                    <div className="absolute inset-0 flex items-center">
-                      <div className="w-full border-t border-border" />
-                    </div>
-                    <div className="relative flex justify-center text-xs">
-                      <span className="px-4 bg-card text-muted-foreground">or continue with email</span>
-                    </div>
-                  </div>
+              {/* Divider */}
+              <div className="relative mb-6 mt-6">
+                <div className="absolute inset-0 flex items-center">
+                  <div className="w-full border-t border-border" />
+                </div>
+                <div className="relative flex justify-center text-xs">
+                  <span className="px-4 bg-card text-muted-foreground">or continue with email</span>
+                </div>
+              </div>
 
                   {/* Google OAuth helper text */}
                   {view === "login" && (
@@ -378,17 +368,15 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                           className="text-primary hover:text-primary/80 font-medium transition-colors"
                         >
                           Log in
-                        </button>
-                      </>
-                    )}
-                  </p>
-                </>
-              )}
+                    </button>
+                  </>
+                )}
+              </p>
             </>
           )}
 
-          {/* Forgot Password Form - only shown when email auth is enabled */}
-          {view === "forgot-password" && enableEmailAuth && (
+          {/* Forgot Password Form */}
+          {view === "forgot-password" && (
             <>
               {/* Error/Success Messages */}
               {error && (
@@ -444,23 +432,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 </button>
               </p>
             </>
-          )}
-
-          {/* Forgot Password - redirect to login when email auth is disabled */}
-          {view === "forgot-password" && !enableEmailAuth && (
-            <div className="text-center">
-              <p className="text-sm text-muted-foreground mb-4">
-                Email password reset is not available yet. Please use Google login.
-              </p>
-              <Button
-                type="button"
-                onClick={() => setView("login")}
-                variant="outline"
-                className="w-full"
-              >
-                Back to login
-              </Button>
-            </div>
           )}
         </div>
       </div>
