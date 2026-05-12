@@ -789,17 +789,17 @@ export default function MonetizationPage() {
           {!hasTrackerData ? (
             <div className="h-[350px] flex flex-col items-center justify-center text-center">
               <Activity className="w-12 h-12 text-muted-foreground mb-4" />
-              <p className="text-base font-medium text-foreground mb-1">Not enough purchase data yet</p>
+              <p className="text-base font-medium text-foreground mb-1">No purchases tracked yet</p>
               <p className="text-sm text-muted-foreground max-w-md">
-                Make a few purchases in your game to populate the revenue chart. Revenue tracking requires the tracking script.
+                Install the tracking script and make a purchase to see revenue data here.
               </p>
             </div>
           ) : !hasChartData ? (
             <div className="h-[350px] flex flex-col items-center justify-center text-center">
               <Activity className="w-12 h-12 text-muted-foreground mb-4" />
-              <p className="text-base font-medium text-foreground mb-1">No revenue in selected period</p>
+              <p className="text-base font-medium text-foreground mb-1">No purchases tracked yet</p>
               <p className="text-sm text-muted-foreground max-w-md">
-                No purchases have been tracked in the {chartRange === "24h" ? "last 24 hours" : chartRange === "72h" ? "last 72 hours" : chartRange === "7d" ? "last 7 days" : chartRange === "28d" ? "last 28 days" : "last 90 days"}. Try selecting a different time range.
+                No purchases in the selected period. Try a different time range or wait for new purchases.
               </p>
             </div>
           ) : (
@@ -1018,17 +1018,23 @@ export default function MonetizationPage() {
       {/* Supporting Charts Grid */}
       {hasTrackerData && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Daily Revenue Chart */}
+          {/* Est. Daily Revenue Chart */}
           <Card className="border-border bg-card shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground">Daily Revenue</CardTitle>
-              <p className="text-xs text-muted-foreground">Revenue grouped by day</p>
+              <CardTitle className="text-base font-semibold text-foreground">Est. Daily Revenue</CardTitle>
+              <p className="text-xs text-muted-foreground">Estimated revenue grouped by day (after 30% fee)</p>
             </CardHeader>
             <CardContent className="pt-2">
-              {monetizationCharts?.revenueOverTime?.length ? (
+              {monetizationCharts?.revenueOverTime?.length ? (() => {
+                // Transform to estimated revenue (70%)
+                const estimatedDailyData = monetizationCharts.revenueOverTime.map(item => ({
+                  ...item,
+                  revenue: Math.round(item.revenue * CREATOR_REVENUE_RATE)
+                }));
+                return (
                 <div className="h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={monetizationCharts.revenueOverTime} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <BarChart data={estimatedDailyData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="dailyRevenueGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={1}/>
@@ -1050,7 +1056,7 @@ export default function MonetizationPage() {
                       />
                       <Tooltip
                         {...tooltipStyle}
-                        formatter={(value: number) => [`R$${value.toLocaleString()}`, "Revenue"]}
+                        formatter={(value: number) => [`R$${value.toLocaleString()}`, "Est. Revenue"]}
                       />
                       <Bar 
                         dataKey="revenue" 
@@ -1061,9 +1067,10 @@ export default function MonetizationPage() {
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
-              ) : (
+                );
+              })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No daily revenue data</p>
+                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
                 </div>
               )}
             </CardContent>
@@ -1117,7 +1124,7 @@ export default function MonetizationPage() {
                 </div>
               ) : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No purchase data</p>
+                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
                 </div>
               )}
             </CardContent>
@@ -1194,7 +1201,7 @@ export default function MonetizationPage() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No revenue breakdown</p>
+                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
                 </div>
               )}
             </CardContent>
@@ -1267,7 +1274,7 @@ export default function MonetizationPage() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No product data</p>
+                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
                 </div>
               )}
             </CardContent>

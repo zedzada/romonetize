@@ -899,8 +899,8 @@ export async function GET(request: NextRequest) {
       return robloxProduct.name;
     }
     
-    // Fallback to Product {product_id}
-    return `Product ${productId}`;
+    // Fallback to Unknown Product #{product_id}
+    return `Unknown Product #${productId}`;
   }
   
   // Helper: resolve product type with priority

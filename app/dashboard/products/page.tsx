@@ -328,7 +328,13 @@ export default function ProductsPage() {
                   {trackerProducts.map((product) => {
                     // Normalize product shape for both productAnalytics and productStats formats
                     const productId = product.productId ?? product.id ?? "unknown";
-                    const productName = product.productName ?? product.name ?? productId;
+                    // Resolve product name - show "Unknown Product #ID" for unknown products with IDs
+                    const rawName = product.productName ?? product.name;
+                    const productName = rawName && rawName !== "Unknown Product" && rawName !== "Unknown Gamepass"
+                      ? rawName
+                      : productId !== "unknown" 
+                        ? `Unknown Product #${productId}`
+                        : "Unknown Product";
                     const productType = product.productType ?? product.type ?? "unknown";
                     // Use estimated values (70% of gross) if available, otherwise calculate from gross
                     const grossRevenue = product.grossRevenue ?? product.revenue ?? 0;

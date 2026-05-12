@@ -45,7 +45,12 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         });
         
         if (error) {
-          setError(error.message);
+          // Provide helpful message for invalid credentials (covers Google OAuth users without passwords)
+          if (error.message.toLowerCase().includes("invalid") || error.message.toLowerCase().includes("credentials")) {
+            setError("Invalid email or password. If you signed up with Google, use Google login or reset your password first.");
+          } else {
+            setError(error.message);
+          }
           setIsSubmitting(false);
           return;
         }
@@ -73,7 +78,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         setIsSubmitting(false);
       } else if (view === "forgot-password") {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-          redirectTo: `${window.location.origin}/auth/callback`,
+          redirectTo: `${window.location.origin}/auth/reset-password`,
         });
         
         if (error) {
@@ -240,6 +245,13 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                   <span className="px-4 bg-card text-muted-foreground">or continue with email</span>
                 </div>
               </div>
+
+              {/* Google OAuth helper text */}
+              {view === "login" && (
+                <p className="text-xs text-muted-foreground text-center mb-4">
+                  Signed up with Google? Use Google login, or reset your password to create an email login password.
+                </p>
+              )}
 
               {/* Error/Success Messages */}
               {error && (
