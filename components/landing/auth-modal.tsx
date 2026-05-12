@@ -45,8 +45,11 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         });
         
         if (error) {
+          // Handle rate limit errors
+          if (error.message.toLowerCase().includes("rate limit")) {
+            setError("Email login is temporarily rate limited. Please try Google login or wait a few minutes.");
           // Provide helpful message for invalid credentials (covers Google OAuth users without passwords)
-          if (error.message.toLowerCase().includes("invalid") || error.message.toLowerCase().includes("credentials")) {
+          } else if (error.message.toLowerCase().includes("invalid") || error.message.toLowerCase().includes("credentials")) {
             setError("Invalid email or password. If you signed up with Google, use Google login or reset your password first.");
           } else {
             setError(error.message);
@@ -69,12 +72,20 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         });
         
         if (error) {
-          setError(error.message);
+          // Handle rate limit errors
+          if (error.message.toLowerCase().includes("rate limit")) {
+            setError("Email sending is temporarily rate limited. Please wait a few minutes and try again.");
+          // Handle already registered error
+          } else if (error.message.toLowerCase().includes("already registered") || error.message.toLowerCase().includes("already exists")) {
+            setError("An account already exists for this email. Try logging in or resetting your password.");
+          } else {
+            setError(error.message);
+          }
           setIsSubmitting(false);
           return;
         }
         
-        setMessage("Check your email for a confirmation link!");
+        setMessage("Check your inbox to confirm your email before logging in.");
         setIsSubmitting(false);
       } else if (view === "forgot-password") {
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -82,16 +93,20 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         });
         
         if (error) {
-          setError(error.message);
+          // Handle rate limit errors
+          if (error.message.toLowerCase().includes("rate limit")) {
+            setError("Email sending is temporarily rate limited. Please wait a few minutes and try again.");
+          } else {
+            setError(error.message);
+          }
           setIsSubmitting(false);
           return;
         }
         
-        setMessage("Check your email for a password reset link!");
+        setMessage("Password reset email sent. Check your inbox.");
         setIsSubmitting(false);
       }
     } catch (err: unknown) {
-      console.error('[v0] Auth error:', err);
       // Extract the actual error message
       if (err instanceof Error) {
         setError(err.message);
@@ -100,6 +115,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       } else {
         setError("An unexpected error occurred. Please try again.");
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -138,7 +154,6 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
         window.location.href = data.url;
       }
     } catch (err: unknown) {
-      console.error('[v0] Google OAuth error - Full error object:', err);
       // Extract the actual error message from various error shapes
       if (err instanceof Error) {
         setError(err.message);
@@ -149,6 +164,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
       } else {
         setError("An unexpected error occurred. Please try again.");
       }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -207,13 +223,12 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
           {/* Login/Signup Form */}
           {(view === "login" || view === "signup") && (
             <>
-              {/* Google Sign In */}
+              {/* Google Sign In - Primary button */}
               <Button
                 type="button"
-                variant="outline"
                 onClick={handleGoogleSignIn}
                 disabled={isSubmitting}
-                className="w-full h-12 mb-6 font-medium border-border hover:bg-secondary hover:border-primary/30 transition-all hover:scale-[1.01] active:scale-[0.99]"
+                className="w-full h-12 mb-4 font-medium bg-primary hover:bg-primary/90 text-primary-foreground transition-all hover:scale-[1.01] active:scale-[0.99]"
               >
                 <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24">
                   <path
@@ -237,7 +252,7 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
               </Button>
 
               {/* Divider */}
-              <div className="relative mb-6">
+              <div className="relative mb-6 mt-6">
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-border" />
                 </div>
@@ -246,113 +261,113 @@ export function AuthModal({ isOpen, onClose }: AuthModalProps) {
                 </div>
               </div>
 
-              {/* Google OAuth helper text */}
-              {view === "login" && (
-                <p className="text-xs text-muted-foreground text-center mb-4">
-                  Signed up with Google? Use Google login, or reset your password to create an email login password.
-                </p>
-              )}
-
-              {/* Error/Success Messages */}
-              {error && (
-                <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
-                  {error}
-                </div>
-              )}
-              {message && (
-                <div className="mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 text-sm">
-                  {message}
-                </div>
-              )}
-
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div>
-                  <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
-                    Email address
-                  </label>
-                  <input
-                    id="email"
-                    type="email"
-                    required
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="you@example.com"
-                    className="w-full h-11 px-4 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
-                  />
-                </div>
-
-                <div>
-                  <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
-                    Password
-                  </label>
-                  <div className="relative">
-                    <input
-                      id="password"
-                      type={showPassword ? "text" : "password"}
-                      required
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="Enter your password"
-                      className="w-full h-11 px-4 pr-12 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors"
-                    >
-                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
-                  </div>
-                </div>
-
-                {view === "login" && (
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => setView("forgot-password")}
-                      className="text-sm text-primary hover:text-primary/80 transition-colors"
-                    >
-                      Forgot password?
-                    </button>
-                  </div>
-                )}
-
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      {view === "login" ? "Logging in..." : "Creating account..."}
-                    </>
-                  ) : (
-                    view === "login" ? "Log In" : "Sign Up"
+                  {/* Google OAuth helper text */}
+                  {view === "login" && (
+                    <p className="text-xs text-muted-foreground text-center mb-4">
+                      Signed up with Google? Use Google login, or reset your password to create an email login password.
+                    </p>
                   )}
-                </Button>
-              </form>
 
-              <p className="text-sm text-muted-foreground text-center mt-6">
-                {view === "login" ? (
-                  <>
-                    Don&apos;t have an account?{" "}
-                    <button
-                      onClick={() => setView("signup")}
-                      className="text-primary hover:text-primary/80 font-medium transition-colors"
+                  {/* Error/Success Messages */}
+                  {error && (
+                    <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-destructive text-sm">
+                      {error}
+                    </div>
+                  )}
+                  {message && (
+                    <div className="mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-green-600 dark:text-green-400 text-sm">
+                      {message}
+                    </div>
+                  )}
+
+                  {/* Form */}
+                  <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                      <label htmlFor="email" className="block text-sm font-medium text-foreground mb-2">
+                        Email address
+                      </label>
+                      <input
+                        id="email"
+                        type="email"
+                        required
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        className="w-full h-11 px-4 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="password" className="block text-sm font-medium text-foreground mb-2">
+                        Password
+                      </label>
+                      <div className="relative">
+                        <input
+                          id="password"
+                          type={showPassword ? "text" : "password"}
+                          required
+                          value={password}
+                          onChange={(e) => setPassword(e.target.value)}
+                          placeholder="Enter your password"
+                          className="w-full h-11 px-4 pr-12 rounded-lg bg-secondary border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowPassword(!showPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                          {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {view === "login" && (
+                      <div className="flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setView("forgot-password")}
+                          className="text-sm text-primary hover:text-primary/80 transition-colors"
+                        >
+                          Forgot password?
+                        </button>
+                      </div>
+                    )}
+
+                    <Button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="w-full h-12 text-base font-semibold bg-primary hover:bg-primary/90 text-primary-foreground transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed disabled:hover:scale-100"
                     >
-                      Sign up
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    Already have an account?{" "}
-                    <button
-                      onClick={() => setView("login")}
-                      className="text-primary hover:text-primary/80 font-medium transition-colors"
-                    >
-                      Log in
+                      {isSubmitting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          {view === "login" ? "Logging in..." : "Creating account..."}
+                        </>
+                      ) : (
+                        view === "login" ? "Log In" : "Sign Up"
+                      )}
+                    </Button>
+                  </form>
+
+                  <p className="text-sm text-muted-foreground text-center mt-6">
+                    {view === "login" ? (
+                      <>
+                        Don&apos;t have an account?{" "}
+                        <button
+                          onClick={() => setView("signup")}
+                          className="text-primary hover:text-primary/80 font-medium transition-colors"
+                        >
+                          Sign up
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        Already have an account?{" "}
+                        <button
+                          onClick={() => setView("login")}
+                          className="text-primary hover:text-primary/80 font-medium transition-colors"
+                        >
+                          Log in
                     </button>
                   </>
                 )}

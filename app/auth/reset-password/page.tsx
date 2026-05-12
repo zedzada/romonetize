@@ -128,7 +128,7 @@ export default function ResetPasswordPage() {
             </div>
             <h1 className="text-2xl font-bold text-foreground mb-2">Invalid or Expired Link</h1>
             <p className="text-muted-foreground mb-6">
-              This password reset link is invalid or has expired. Please request a new one.
+              This reset link is invalid or expired. Request a new password reset email.
             </p>
             <Button
               onClick={() => router.push("/")}
