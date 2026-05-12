@@ -502,10 +502,13 @@ export async function POST(request: Request) {
         .eq("id", selectedGame.id);
 
       // Store CCU snapshot for historical charts
+      // Always insert even if CCU is 0, but not if null (API failed)
       if (stats.currentPlayers !== null) {
         await supabaseAdmin.from("ccu_snapshots").insert({
           game_id: selectedGame.id,
           ccu: stats.currentPlayers,
+          source: "roblox_api",
+          created_at: new Date().toISOString(),
         });
       }
 

@@ -464,13 +464,15 @@ export async function GET(request: NextRequest) {
           synced_at: new Date().toISOString(),
         });
 
-        // Store CCU snapshot for chart history
-        if (stats.currentPlayers !== null) {
-          await supabase.from("ccu_snapshots").insert({
-            game_id: gameId,
-            ccu: stats.currentPlayers,
-          });
-        }
+// Store CCU snapshot for chart history
+    if (stats.currentPlayers !== null) {
+      await supabase.from("ccu_snapshots").insert({
+        game_id: gameId,
+        ccu: stats.currentPlayers,
+        source: "roblox_api",
+        created_at: new Date().toISOString(),
+      });
+    }
       }
     } catch (err) {
       sectionErrors.robloxStats = err instanceof Error ? err.message : "Failed to fetch Roblox stats";
@@ -847,8 +849,34 @@ export async function GET(request: NextRequest) {
     .filter((e) => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
     .reduce((sum, e) => sum + getEventRobux(e), 0);
 
-  const arpdau = uniquePlayers > 0 ? totalRevenue / uniquePlayers : 0;
+  // Calculate Average DAU for ARPDAU
+  // Group all events by day and count distinct players per day
+  const dailyActivePlayers = new Map<string, Set<string>>();
+  allEvents.forEach((e) => {
+    if (!e.player_id || !e.created_at) return;
+    const day = e.created_at.slice(0, 10); // YYYY-MM-DD
+    if (!dailyActivePlayers.has(day)) {
+      dailyActivePlayers.set(day, new Set());
+    }
+    dailyActivePlayers.get(day)!.add(e.player_id);
+  });
+  
+  // Calculate average daily active users
+  const daysWithData = dailyActivePlayers.size;
+  let averageDau = 0;
+  if (daysWithData > 0) {
+    const totalDailyPlayers = Array.from(dailyActivePlayers.values())
+      .reduce((sum, players) => sum + players.size, 0);
+    averageDau = totalDailyPlayers / daysWithData;
+  }
+
+  // ARPPU = Revenue / Paying Users (distinct players who made purchases)
   const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
+  
+  // ARPDAU = Revenue / Average Daily Active Users
+  // For ranges < 24h, use total unique players in the period as DAU proxy
+  const arpdau = averageDau > 0 ? totalRevenue / averageDau : 0;
+  
   const conversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : null;
   const purchaseRate = uniquePlayers > 0 ? (totalPurchases / uniquePlayers) * 100 : null;
 
@@ -1058,7 +1086,7 @@ export async function GET(request: NextRequest) {
     sectionErrors.ccu = err instanceof Error ? err.message : "Failed to fetch CCU";
   }
 
-  // === CCU HISTORY (from roblox_game_syncs - RAW SNAPSHOTS) ===
+// === CCU HISTORY (from ccu_snapshots - RAW SNAPSHOTS) ===
   // Returns raw snapshots for client-side bucketing/filtering (no page reload on range change)
   // Always fetch last 90 days of data - client will filter by selected range
   const ccuHistoryStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
@@ -1067,31 +1095,58 @@ export async function GET(request: NextRequest) {
     currentCcu: number | null;
     // Raw snapshots - client handles bucketing and time formatting
     rawSnapshots: Array<{ time: string; ccu: number }>;
+    // Source tracking for debugging
+    source: "ccu_snapshots" | "roblox_game_syncs" | "none";
   } = {
     currentCcu: robloxStats?.ccu ?? null,
     rawSnapshots: [],
+    source: "none",
   };
   
   try {
-    // Fetch all roblox_game_syncs in last 90 days (raw data)
-    const { data: syncSnapshots } = await supabase
-      .from("roblox_game_syncs")
-      .select("ccu, synced_at")
+    // PRIMARY: Fetch from ccu_snapshots table (populated by cron job and sync)
+    const { data: ccuSnapshotsData } = await supabase
+      .from("ccu_snapshots")
+      .select("ccu, created_at")
       .eq("game_id", gameId)
-      .gte("synced_at", ccuHistoryStart.toISOString())
-      .order("synced_at", { ascending: true });
+      .gte("created_at", ccuHistoryStart.toISOString())
+      .order("created_at", { ascending: true });
     
-    if (syncSnapshots && syncSnapshots.length > 0) {
-      ccuHistory.rawSnapshots = syncSnapshots
+    if (ccuSnapshotsData && ccuSnapshotsData.length > 0) {
+      ccuHistory.rawSnapshots = ccuSnapshotsData
         .filter((snap) => snap.ccu !== null)
         .map((snap) => ({
-          time: snap.synced_at,
+          time: snap.created_at,
           ccu: snap.ccu as number,
         }));
+      ccuHistory.source = "ccu_snapshots";
       
       // Update current CCU from latest snapshot if available
       if (ccuHistory.rawSnapshots.length > 0) {
         ccuHistory.currentCcu = ccuHistory.rawSnapshots[ccuHistory.rawSnapshots.length - 1].ccu;
+      }
+    } else {
+      // FALLBACK: Try roblox_game_syncs (legacy/manual syncs)
+      const { data: syncSnapshots } = await supabase
+        .from("roblox_game_syncs")
+        .select("ccu, synced_at")
+        .eq("game_id", gameId)
+        .gte("synced_at", ccuHistoryStart.toISOString())
+        .order("synced_at", { ascending: true });
+      
+      if (syncSnapshots && syncSnapshots.length > 0) {
+        ccuHistory.rawSnapshots = syncSnapshots
+          .filter((snap) => snap.ccu !== null)
+          .map((snap) => ({
+            time: snap.synced_at,
+            ccu: snap.ccu as number,
+          }));
+        ccuHistory.source = "roblox_game_syncs";
+        
+        // Update current CCU from latest snapshot if available
+        if (ccuHistory.rawSnapshots.length > 0) {
+          ccuHistory.currentCcu = ccuHistory.rawSnapshots[ccuHistory.rawSnapshots.length - 1].ccu;
+        }
       }
     }
   } catch (err) {
@@ -1361,6 +1416,9 @@ export async function GET(request: NextRequest) {
         totalPurchases,
         payingUsers,
         conversionRate,
+        // Additional metrics for transparency
+        averageDau: averageDau > 0 ? Math.round(averageDau) : 0,
+        daysWithData,
       } : null),
       // Product stats (for Products tab)
       // For free users, return locked state
