@@ -9,6 +9,8 @@ import { useAnalytics, formatChartTime, type HourlyMonetizationPoint } from "@/h
 import { CHART_COLORS } from "@/components/dashboard/chart-card";
 import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
+import { RevenueModeToggle } from "@/components/dashboard/revenue-mode-toggle";
+import { useRevenueDisplayMode, type RevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
 import {
   AreaChart,
   Area,
@@ -236,6 +238,9 @@ export default function MonetizationPage() {
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
   
+  // Use shared revenue display mode (persisted to localStorage)
+  const { mode: revenueDisplayMode, setMode: setRevenueDisplayMode } = useRevenueDisplayMode();
+  
   // Check plan access
   const { hasProAccess, loading: planLoading } = usePlanAccess();
   
@@ -279,32 +284,49 @@ export default function MonetizationPage() {
     refresh,
   } = useAnalytics({ enabled: true, range: "7d" });
 
-  // Safe defaults - use estimated (70%) values for user-facing display
+  // Safe defaults - all values from API
   const safeRevenueStats = {
-    // Estimated values (after 30% Roblox fee) - primary display
+    // Gross values (raw tracked sales - matches Roblox dashboard)
+    grossRevenue: revenueStats?.grossRevenue ?? 0,
+    grossRevenue72h: revenueStats?.grossRevenue72h ?? 0,
+    grossArppu: revenueStats?.grossArppu ?? 0,
+    grossArpdau: revenueStats?.grossArpdau ?? 0,
+    // Estimated values (after 30% Roblox fee)
     estimatedRevenue: revenueStats?.estimatedRevenue ?? 0,
     estimatedRevenue72h: revenueStats?.estimatedRevenue72h ?? 0,
     estimatedArppu: revenueStats?.estimatedArppu ?? 0,
     estimatedArpdau: revenueStats?.estimatedArpdau ?? 0,
-    // Gross values (raw tracked) - for tooltips/debug only
-    grossRevenue: revenueStats?.grossRevenue ?? 0,
-    grossRevenue72h: revenueStats?.grossRevenue72h ?? 0,
     // Non-revenue metrics
     totalPurchases: revenueStats?.totalPurchases ?? 0,
     payingUsers: revenueStats?.payingUsers ?? 0,
   };
+  
+  // Display values based on toggle
+  const displayRevenue = revenueDisplayMode === "gross" 
+    ? safeRevenueStats.grossRevenue 
+    : safeRevenueStats.estimatedRevenue;
+  const displayRevenue72h = revenueDisplayMode === "gross" 
+    ? safeRevenueStats.grossRevenue72h 
+    : safeRevenueStats.estimatedRevenue72h;
+  const displayArppu = revenueDisplayMode === "gross" 
+    ? safeRevenueStats.grossArppu 
+    : safeRevenueStats.estimatedArppu;
+  const displayArpdau = revenueDisplayMode === "gross" 
+    ? safeRevenueStats.grossArpdau 
+    : safeRevenueStats.estimatedArpdau;
 
-  // Process chart data based on selected range and interval
+  // Process chart data based on selected range, interval, and display mode
   const processedChartData = useMemo(() => {
     const now = new Date();
+    const revenueMultiplier = revenueDisplayMode === "gross" ? 1 : CREATOR_REVENUE_RATE;
     
-    // Helper to normalize all values to numbers and apply 70% estimated revenue
+    // Helper to normalize all values to numbers and apply revenue multiplier based on display mode
     const normalizePoint = (point: { time: string; totalRevenue: number; devproductRevenue: number; gamepassRevenue: number; purchases: number }) => ({
       time: point.time,
-      // Apply 70% creator revenue rate to all revenue values for display
-      totalRevenue: Math.round(Number(point.totalRevenue ?? 0) * CREATOR_REVENUE_RATE),
-      devproductRevenue: Math.round(Number(point.devproductRevenue ?? 0) * CREATOR_REVENUE_RATE),
-      gamepassRevenue: Math.round(Number(point.gamepassRevenue ?? 0) * CREATOR_REVENUE_RATE),
+      // Apply revenue multiplier based on display mode (1 for gross, 0.7 for estimated)
+      totalRevenue: Math.round(Number(point.totalRevenue ?? 0) * revenueMultiplier),
+      devproductRevenue: Math.round(Number(point.devproductRevenue ?? 0) * revenueMultiplier),
+      gamepassRevenue: Math.round(Number(point.gamepassRevenue ?? 0) * revenueMultiplier),
       purchases: Number(point.purchases ?? 0),
     });
 
@@ -353,17 +375,17 @@ export default function MonetizationPage() {
     const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
     let filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
 
-    // If daily interval, aggregate by day (with 70% estimated revenue)
+    // If daily interval, aggregate by day
     if (chartInterval === "daily") {
       const dailyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
       
       filteredData.forEach((d) => {
         const dayKey = d.time.slice(0, 10);
         const existing = dailyBuckets.get(dayKey) || { total: 0, devproduct: 0, gamepass: 0, purchases: 0 };
-        // Apply 70% creator revenue rate
-        existing.total += Math.round(Number(d.totalRevenue ?? 0) * CREATOR_REVENUE_RATE);
-        existing.devproduct += Math.round(Number(d.devproductRevenue ?? 0) * CREATOR_REVENUE_RATE);
-        existing.gamepass += Math.round(Number(d.gamepassRevenue ?? 0) * CREATOR_REVENUE_RATE);
+        // Apply revenue multiplier based on display mode
+        existing.total += Math.round(Number(d.totalRevenue ?? 0) * revenueMultiplier);
+        existing.devproduct += Math.round(Number(d.devproductRevenue ?? 0) * revenueMultiplier);
+        existing.gamepass += Math.round(Number(d.gamepassRevenue ?? 0) * revenueMultiplier);
         existing.purchases += Number(d.purchases ?? 0);
         dailyBuckets.set(dayKey, existing);
       });
@@ -381,7 +403,7 @@ export default function MonetizationPage() {
 
     // Normalize all data points to ensure numeric values
     return filteredData.map(normalizePoint);
-  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval]);
+  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode]);
 
   // Calculate totals for current view
   const chartTotals = useMemo(() => {
@@ -440,11 +462,12 @@ export default function MonetizationPage() {
     return yMax;
   }, [processedChartData, chartMode]);
 
-  // Get current mode display info (all revenue labels now indicate estimated)
+  // Get current mode display info (labels depend on display mode)
   const modeConfig = useMemo(() => {
+    const prefix = revenueDisplayMode === "gross" ? "" : "Est. ";
     if (chartMode === "total") {
       return {
-        label: "Est. Revenue",
+        label: `${prefix}Revenue`,
         color: COLORS.totalRevenue,
         dataKey: "totalRevenue" as const,
         revenue: chartTotals.total,
@@ -453,7 +476,7 @@ export default function MonetizationPage() {
       };
     } else if (chartMode === "gamepasses") {
       return {
-        label: "Est. Gamepasses",
+        label: `${prefix}Gamepasses`,
         color: COLORS.gamepass,
         dataKey: "gamepassRevenue" as const,
         revenue: chartTotals.gamepass,
@@ -462,7 +485,7 @@ export default function MonetizationPage() {
       };
     } else {
       return {
-        label: "Est. Dev Products",
+        label: `${prefix}Dev Products`,
         color: COLORS.devProduct,
         dataKey: "devproductRevenue" as const,
         revenue: chartTotals.devproduct,
@@ -470,7 +493,7 @@ export default function MonetizationPage() {
         purchaseLabel: "Dev Product Purchases",
       };
     }
-  }, [chartMode, chartTotals]);
+  }, [chartMode, chartTotals, revenueDisplayMode]);
 
   const handleRefresh = async () => {
     if (refresh) await refresh();
@@ -563,16 +586,21 @@ export default function MonetizationPage() {
         </Button>
       </div>
 
-      {/* Data source badge */}
-      <div className="flex items-center gap-2">
-        <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">
-          RoMonetize Tracker
-        </Badge>
-        {hasTrackerData && (
-          <span className="text-xs text-muted-foreground">
-            Revenue data from tracked purchases
-          </span>
-        )}
+      {/* Data source badge and revenue toggle */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary" className="bg-emerald-500/15 text-emerald-400 border-emerald-500/30 text-[10px]">
+            RoMonetize Tracker
+          </Badge>
+          {hasTrackerData && (
+            <span className="text-xs text-muted-foreground">
+              Revenue data from tracked purchases
+            </span>
+          )}
+        </div>
+        
+        {/* Shared Gross/Estimated Revenue Toggle */}
+        <RevenueModeToggle showDescription={false} />
       </div>
 
       {/* Tracking script required banner */}
@@ -605,18 +633,23 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs text-muted-foreground">Est. Revenue</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
-                formatRobux(safeRevenueStats.estimatedRevenue ?? 0)
+                formatRobux(displayRevenue)
               )}
             </div>
-            {hasTrackerData && safeRevenueStats.grossRevenue > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-1" title={`Gross: R$${safeRevenueStats.grossRevenue?.toLocaleString()}`}>
-                After 30% Roblox fee
+            {hasTrackerData && displayRevenue > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                {revenueDisplayMode === "gross" 
+                  ? `Est: R$${safeRevenueStats.estimatedRevenue?.toLocaleString()}`
+                  : `Gross: R$${safeRevenueStats.grossRevenue?.toLocaleString()}`
+                }
               </p>
             )}
           </CardContent>
@@ -626,13 +659,15 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-xs text-muted-foreground">Est. 72h Revenue</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "Gross 72h" : "Est. 72h"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
-                formatRobux(safeRevenueStats.estimatedRevenue72h ?? 0)
+                formatRobux(displayRevenue72h)
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">Last 72 hours</p>
@@ -675,16 +710,20 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <Coins className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-muted-foreground">Est. ARPPU</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "ARPPU" : "Est. ARPPU"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData || !safeRevenueStats.estimatedArppu ? (
+              {!hasTrackerData || !displayArppu ? (
                 <span className="text-lg font-medium text-muted-foreground">—</span>
               ) : (
-                formatRobux(safeRevenueStats.estimatedArppu)
+                formatRobux(displayArppu)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Per paying user</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Revenue / Paying Users
+            </p>
           </CardContent>
         </Card>
 
@@ -692,16 +731,20 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-muted-foreground">Est. ARPDAU</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "ARPDAU" : "Est. ARPDAU"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData || !safeRevenueStats.estimatedArpdau ? (
+              {!hasTrackerData || !displayArpdau ? (
                 <span className="text-lg font-medium text-muted-foreground">—</span>
               ) : (
-                formatRobux(safeRevenueStats.estimatedArpdau)
+                formatRobux(displayArpdau)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Per daily active user</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Revenue / Avg. DAU
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -712,7 +755,7 @@ export default function MonetizationPage() {
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">
-                Estimated Revenue & Sales
+                {revenueDisplayMode === "gross" ? "Gross Revenue & Sales" : "Estimated Revenue & Sales"}
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : chartRange === "28d" ? "Last 28 days" : "Last 90 days"}

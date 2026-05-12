@@ -156,58 +156,51 @@ function SettingsPageContent() {
       router.replace("/dashboard/settings", { scroll: false });
       setTimeout(() => setRobloxError(null), 10000);
     }
-    
-    // Load saved username from localStorage
-    const savedUsername = localStorage.getItem("romonetize_username") || "";
-    setUsername(savedUsername);
 
-    // Load saved profile data from localStorage
-    const savedProfile = localStorage.getItem("romonetize_profile");
-    if (savedProfile) {
-      try {
-        setProfile(JSON.parse(savedProfile));
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    // Get user from Supabase and fetch Roblox profile
+    // Get user from Supabase and fetch profile data ONLY from database
+    // Do NOT load from localStorage to prevent stale data from previous sessions
     if (isSupabaseConfigured) {
       const supabase = createClient();
-      supabase.auth.getUser().then(({ data: { user } }) => {
+      supabase.auth.getUser().then(async ({ data: { user } }) => {
         setUser(user);
         if (user) {
           // Check if user logged in via OAuth (Roblox, Google, etc.)
           const provider = user.app_metadata?.provider;
           setIsOAuthUser(provider !== "email" && provider !== undefined);
           
-          setProfile((prev) => ({
-            ...prev,
-            name: prev.name || user.user_metadata?.full_name || user.user_metadata?.name || "",
-            email: prev.email || user.email || "",
-          }));
-          
           // Load notification settings
           loadNotificationSettings(user.id);
           
-          // Fetch Roblox connection status and plan from profiles table
-          supabase
+          // Fetch full profile from profiles table (single source of truth)
+          const { data: profileData, error: profileError } = await supabase
             .from("profiles")
             .select("roblox_user_id, roblox_username, plan")
             .eq("id", user.id)
-            .single()
-            .then(({ data, error }) => {
-              if (!error && data) {
-                setRobloxProfile(data);
-                setUserPlan(data.plan || "free");
-                if (data.roblox_username) {
-                  setProfile((prev) => ({
-                    ...prev,
-                    robloxUsername: data.roblox_username || prev.robloxUsername,
-                  }));
-                }
-              }
+            .single();
+
+          if (!profileError && profileData) {
+            setRobloxProfile(profileData);
+            setUserPlan(profileData.plan || "free");
+            
+            // Set profile with database values (empty string if null)
+            // Display Username defaults to email prefix if not set
+            setUsername("");
+            setProfile({
+              name: user.user_metadata?.full_name || user.user_metadata?.name || "",
+              email: user.email || "",
+              robloxUsername: profileData.roblox_username || "",
+              discordUsername: "",
             });
+          } else {
+            // No profile exists - use empty defaults
+            setUsername("");
+            setProfile({
+              name: user.user_metadata?.full_name || user.user_metadata?.name || "",
+              email: user.email || "",
+              robloxUsername: "",
+              discordUsername: "",
+            });
+          }
         }
       }).catch((error) => {
         console.error("[v0] Error getting user:", error);
@@ -216,24 +209,37 @@ function SettingsPageContent() {
   }, [searchParams, router, loadNotificationSettings]);
 
   const handleSave = async () => {
+    if (!user) return;
+    
     setSaving(true);
     
-    // Save username to localStorage
-    localStorage.setItem("romonetize_username", username);
-    // Save profile to localStorage
-    localStorage.setItem("romonetize_profile", JSON.stringify(profile));
-    
-    // Save notification settings to Supabase
-    if (user) {
+    try {
+      const supabase = createClient();
+      
+      // Update profile timestamp
+      // Note: username, discord_username columns don't exist in current schema
+      // These are display-only fields that come from OAuth or are not stored
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id);
+      
+      if (profileError) {
+        console.error("[v0] Error saving profile:", profileError);
+      }
+      
+      // Save notification settings to Supabase
       await saveNotificationSettings(user.id, notifications);
+      
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (error) {
+      console.error("[v0] Error saving settings:", error);
+    } finally {
+      setSaving(false);
     }
-    
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-    
-    // Trigger storage event for other components to update
-    window.dispatchEvent(new Event("storage"));
   };
 
   const handleToggleNotification = async (key: keyof NotificationSettings) => {
@@ -331,6 +337,21 @@ function SettingsPageContent() {
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
+      // Clear all local state before signing out
+      setUser(null);
+      setUsername("");
+      setProfile({ name: "", email: "", robloxUsername: "", discordUsername: "" });
+      setRobloxProfile(null);
+      setUserPlan("free");
+      
+      // Clear any localStorage keys that might contain user data
+      localStorage.removeItem("romonetize_username");
+      localStorage.removeItem("romonetize_profile");
+      localStorage.removeItem("romonetize_selected_game");
+      
+      // Clear sessionStorage
+      sessionStorage.clear();
+      
       if (isSupabaseConfigured) {
         const supabase = createClient();
         await supabase.auth.signOut();
@@ -420,10 +441,12 @@ function SettingsPageContent() {
                 <Input
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your display name"
+                  placeholder={user?.email?.split("@")[0] || "Enter your display name"}
                   className="bg-secondary/30"
                 />
-                <p className="text-xs text-muted-foreground">This name will be shown in the sidebar and dropdown</p>
+                <p className="text-xs text-muted-foreground">
+                  {username ? "This name will be shown in the sidebar and dropdown" : `Defaults to "${user?.email?.split("@")[0] || "your email prefix"}" if not set`}
+                </p>
               </div>
               <div className="grid sm:grid-cols-2 gap-4">
                 <div className="space-y-2">

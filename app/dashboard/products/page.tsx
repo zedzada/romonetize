@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { useAnalytics, type DateRange } from "@/hooks/use-analytics";
 import { RangeControls, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
+import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
+import { useRevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
 import { 
   RefreshCw, 
   Package, 
@@ -65,6 +67,9 @@ export default function ProductsPage() {
   
   // Check plan access
   const { hasProAccess, loading: planLoading } = usePlanAccess();
+  
+  // Use shared revenue display mode (consistent across all pages)
+  const { mode: revenueDisplayMode } = useRevenueDisplayMode();
   
   const {
     isLoading,
@@ -189,6 +194,7 @@ export default function ProductsPage() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          <RevenueModeToggleCompact />
           <RangeControls
             value={chartRange as ChartDateRange}
             onChange={(r) => setChartRange(r as ProductsRange)}
@@ -258,18 +264,32 @@ export default function ProductsPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-green-500" />
-              <span className="text-xs text-muted-foreground">Est. Revenue</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}
+              </span>
             </div>
-            <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents ? formatRobux(safeProductStats.estimatedTotalRevenue ?? Math.round((safeProductStats.totalRevenue ?? 0) * CREATOR_REVENUE_RATE)) : (
-                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              )}
-            </div>
-            {hasTrackerEvents && safeProductStats.grossTotalRevenue > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-1" title={`Gross: R$${(safeProductStats.grossTotalRevenue ?? safeProductStats.totalRevenue ?? 0).toLocaleString()}`}>
-                After 30% Roblox fee
-              </p>
-            )}
+            {(() => {
+              const grossRevenue = safeProductStats.grossTotalRevenue ?? safeProductStats.totalRevenue ?? 0;
+              const estimatedRevenue = safeProductStats.estimatedTotalRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+              const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
+              const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
+              const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
+              
+              return (
+                <>
+                  <div className="text-2xl font-bold text-foreground">
+                    {hasTrackerEvents ? formatRobux(displayRevenue) : (
+                      <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+                    )}
+                  </div>
+                  {hasTrackerEvents && displayRevenue > 0 && (
+                    <p className="text-[10px] text-muted-foreground mt-1" title={`${altLabel}: R$${altRevenue.toLocaleString()}`}>
+                      {revenueDisplayMode === "gross" ? `Est: R$${estimatedRevenue.toLocaleString()}` : `Gross: R$${grossRevenue.toLocaleString()}`}
+                    </p>
+                  )}
+                </>
+              );
+            })()}
           </CardContent>
         </Card>
 
@@ -337,11 +357,15 @@ export default function ProductsPage() {
                   <tr className="border-b border-border bg-muted/50">
                     <th className="text-left py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Product</th>
                     <th className="text-left py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Revenue</th>
+                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+                      {revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}
+                    </th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Purchases</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Buyers</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Conv.</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
+                    <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">
+                      {revenueDisplayMode === "gross" ? "Rev/Buyer" : "Est. Rev/Buyer"}
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -359,11 +383,15 @@ export default function ProductsPage() {
                     // Use estimated values (70% of gross) if available, otherwise calculate from gross
                     const grossRevenue = product.grossRevenue ?? product.revenue ?? 0;
                     const estimatedRevenue = product.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+                    const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
+                    const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
+                    const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
                     const purchases = product.purchases ?? 0;
                     const buyers = product.buyers ?? product.uniqueBuyers ?? 0;
                     const conversionRate = product.conversionRate ?? null;
                     const grossRevPerBuyer = product.grossRevenuePerBuyer ?? product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? grossRevenue / buyers : 0);
                     const estimatedRevPerBuyer = product.estimatedRevenuePerBuyer ?? Math.round(grossRevPerBuyer * CREATOR_REVENUE_RATE);
+                    const displayRevPerBuyer = revenueDisplayMode === "gross" ? grossRevPerBuyer : estimatedRevPerBuyer;
                     
                     return (
                       <tr key={productId} className="border-b border-border hover:bg-muted/50 transition-colors">
@@ -382,8 +410,8 @@ export default function ProductsPage() {
                             {productType === "gamepass" ? "Game Pass" : productType === "devproduct" ? "Dev Product" : productType}
                           </Badge>
                         </td>
-                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-400" title={`Gross: R$${grossRevenue.toLocaleString()}`}>
-                          {formatRobux(estimatedRevenue)}
+                        <td className="py-4 px-3 text-right font-mono font-semibold text-emerald-400" title={`${altLabel}: R$${altRevenue.toLocaleString()}`}>
+                          {formatRobux(displayRevenue)}
                         </td>
                         <td className="py-4 px-3 text-right font-medium text-foreground">
                           {formatNumber(purchases)}
@@ -399,7 +427,7 @@ export default function ProductsPage() {
                           )}
                         </td>
                         <td className="py-4 px-6 text-right font-mono text-muted-foreground">
-                          {formatRobux(estimatedRevPerBuyer)}
+                          {formatRobux(displayRevPerBuyer)}
                         </td>
                       </tr>
                     );

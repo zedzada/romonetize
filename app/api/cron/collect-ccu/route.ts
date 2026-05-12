@@ -115,6 +115,7 @@ export async function GET(request: NextRequest) {
           .insert({
             game_id: game.id,
             ccu: stats.currentPlayers,
+            source: "cron_job",
             created_at: new Date().toISOString(),
           });
 
