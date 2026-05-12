@@ -42,8 +42,11 @@ export async function POST() {
     }
 
     // Use admin client to insert event (bypasses RLS)
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAdmin = createAdminClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      supabaseUrl!,
       process.env.SUPABASE_SERVICE_ROLE_KEY!
     );
 
