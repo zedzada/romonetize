@@ -69,6 +69,17 @@ export async function GET(request: NextRequest) {
 
     authUserId = user.id;
 
+    // Check user's plan for monetization gating
+    step = "check_plan";
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("plan")
+      .eq("id", user.id)
+      .single();
+    
+    const userPlan = profileData?.plan || "free";
+    const monetizationLocked = userPlan === "free";
+
     // Section errors tracking
     const sectionErrors: Record<string, string> = {};
 
@@ -174,6 +185,9 @@ export async function GET(request: NextRequest) {
           robloxGameId: null,
           game: null,
           range,
+          // Plan-based monetization gating
+          monetizationLocked,
+          userPlan,
           dataHealth: {
             selectedGameId: null,
             robloxGameId: null,
@@ -1272,12 +1286,23 @@ export async function GET(request: NextRequest) {
         universe_id: universeId || selectedGame.universe_id,
       },
       range,
+      // Plan-based monetization gating
+      monetizationLocked,
+      userPlan,
       // Data health diagnostics
       dataHealth,
       // Roblox public API stats
       robloxStats,
       // Overview stats (for Overview tab)
-      overview: {
+      // For free users, null out monetization fields
+      overview: monetizationLocked ? {
+        totalRevenue: null,
+        totalPurchases: null,
+        uniquePlayers,
+        playerJoins: totalSessions,
+        conversionRate: null,
+        purchaseRate: null,
+      } : {
         totalRevenue,
         totalPurchases,
         uniquePlayers,
@@ -1287,6 +1312,7 @@ export async function GET(request: NextRequest) {
       },
       // Tracker stats (for Game Performance tab)
       // Always return object with safe values when tracker is active
+      // For free users, null out purchase count
       trackerStats: hasTrackerEvents ? {
         totalEvents: totalEventsCount,
         uniquePlayers: uniquePlayers || 0,
@@ -1301,14 +1327,15 @@ export async function GET(request: NextRequest) {
         hasHistoryBeforeRange,
         rangeStart: startDate.toISOString(),
         rangeEnd: now.toISOString(),
-        totalPurchases: totalPurchases || 0,
+        // For free users, null out purchases
+        totalPurchases: monetizationLocked ? null : (totalPurchases || 0),
         lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
         // Legacy alias for backwards compatibility
         newPlayers: firstSeenPlayers || 0,
       } : null,
       // Revenue stats (for Monetization tab)
-      // All revenue values include both gross (raw tracked) and estimated (70% creator payout)
-      revenueStats: hasTrackerEvents ? {
+      // For free users, return null (locked)
+      revenueStats: monetizationLocked ? null : (hasTrackerEvents ? {
         // Gross values (raw tracked sales)
         grossRevenue: totalRevenue,
         grossRevenue72h: revenue72h,
@@ -1334,9 +1361,21 @@ export async function GET(request: NextRequest) {
         totalPurchases,
         payingUsers,
         conversionRate,
-      } : null,
+      } : null),
       // Product stats (for Products tab)
-      productStats: {
+      // For free users, return locked state
+      productStats: monetizationLocked ? {
+        grossTotalRevenue: null,
+        estimatedTotalRevenue: null,
+        totalRevenue: null,
+        totalPurchases: null,
+        uniqueBuyers: null,
+        avgConversionRate: null,
+        avgConversionNeedsTracking: false,
+        products: [],
+        hasTrackerData: hasTrackerEvents,
+        locked: true,
+      } : {
         // Gross values (raw tracked)
         grossTotalRevenue: totalProductRevenue,
         // Estimated values (after 30% Roblox fee)
@@ -1349,6 +1388,7 @@ export async function GET(request: NextRequest) {
         avgConversionNeedsTracking: productsWithClicks.length === 0 && products.length > 0,
         products: products.slice(0, 50), // Top 50
         hasTrackerData: hasTrackerEvents,
+        locked: false,
       },
       // Synced Roblox products (from OAuth sync)
       syncedProducts: {
@@ -1377,8 +1417,8 @@ export async function GET(request: NextRequest) {
         purchasesOverTime,
         ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
       } : null,
-  // Monetization charts
-  monetizationCharts: hasTrackerEvents ? {
+  // Monetization charts - locked for free users
+  monetizationCharts: monetizationLocked ? null : (hasTrackerEvents ? {
   revenueOverTime: revenueChart.map(r => ({ date: r.time, revenue: r.revenue })),
   purchasesOverTime,
   revenueByProductType,
@@ -1389,31 +1429,32 @@ export async function GET(request: NextRequest) {
   minuteMonetization,
   revenue72h,
   purchaseCount72h: purchases72h.length,
-  } : null,
-      // Product analytics
-      productAnalytics: {
-        products: products.map(p => ({
-          productId: p.id,
-          productName: p.name,
-          productType: p.type,
-          priceRobux: 0, // Would need to be fetched from Roblox API/synced products
-          // Gross values
-          grossRevenue: p.revenue,
-          grossRevenuePerBuyer: p.revPerBuyer,
-          // Estimated values (70% creator payout)
-          estimatedRevenue: Math.round(p.revenue * CREATOR_REVENUE_RATE),
-          estimatedRevenuePerBuyer: p.uniqueBuyers > 0 ? Math.round((p.revenue * CREATOR_REVENUE_RATE) / p.uniqueBuyers) : 0,
-          // Legacy fields for backwards compatibility
-          revenue: p.revenue,
-          revenuePerBuyer: p.revPerBuyer,
-          // Non-revenue metrics unchanged
-          purchases: p.purchases,
-          buyers: p.uniqueBuyers,
-          views: 0, // Future: from product_view events
-          clicks: p.clicks,
-          conversionRate: p.conversionRate,
-        })),
-      },
+  } : null),
+// Product analytics - locked for free users
+  productAnalytics: monetizationLocked ? { products: [], locked: true } : {
+  products: products.map(p => ({
+  productId: p.id,
+  productName: p.name,
+  productType: p.type,
+  priceRobux: 0, // Would need to be fetched from Roblox API/synced products
+  // Gross values
+  grossRevenue: p.revenue,
+  grossRevenuePerBuyer: p.revPerBuyer,
+  // Estimated values (70% creator payout)
+  estimatedRevenue: Math.round(p.revenue * CREATOR_REVENUE_RATE),
+  estimatedRevenuePerBuyer: p.uniqueBuyers > 0 ? Math.round((p.revenue * CREATOR_REVENUE_RATE) / p.uniqueBuyers) : 0,
+  // Legacy fields for backwards compatibility
+  revenue: p.revenue,
+  revenuePerBuyer: p.revPerBuyer,
+  // Non-revenue metrics unchanged
+  purchases: p.purchases,
+  buyers: p.uniqueBuyers,
+  views: 0, // Future: from product_view events
+  clicks: p.clicks,
+  conversionRate: p.conversionRate,
+  })),
+  locked: false,
+  },
       sectionErrors,
       lastUpdated: new Date().toISOString(),
     },

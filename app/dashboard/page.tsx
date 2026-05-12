@@ -35,6 +35,7 @@ import { Users, Heart, ThumbsUp } from "lucide-react";
 import { RobuxValue } from "@/components/ui/robux-icon";
 import { useToast } from "@/hooks/use-toast";
 import { triggerStatsRefresh, useStatsRefresh } from "@/hooks/use-stats-refresh";
+import { LockedStatCard } from "@/components/dashboard/locked-stat-card";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -57,8 +58,8 @@ export default function DashboardPage() {
   const [gameName, setGameName] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
 
-  // Use central analytics hook for Roblox stats
-  const { robloxStats, refresh: refreshAnalytics } = useAnalytics({ enabled: gameIds.length > 0 });
+  // Use central analytics hook for Roblox stats and plan gating
+  const { robloxStats, refresh: refreshAnalytics, monetizationLocked } = useAnalytics({ enabled: gameIds.length > 0 });
 
   // Fetch dashboard stats and alerts (fresh from Supabase)
   const fetchStats = useCallback(async (showLoadingState = true) => {
@@ -404,55 +405,85 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-green-500/20 bg-gradient-to-br from-card to-green-500/5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full blur-2xl" />
-          <CardContent className="pt-5 pb-4 relative">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
-                <DollarSign className="w-5 h-5 text-green-500" />
+        {/* Est. Revenue - Locked for free users */}
+        {monetizationLocked ? (
+          <LockedStatCard 
+            label="Est. Revenue"
+            icon={<DollarSign className="w-5 h-5 text-green-500" />}
+            iconBgClassName="bg-green-500/10"
+            gradientClassName="from-card to-green-500/5"
+          />
+        ) : (
+          <Card className="border-green-500/20 bg-gradient-to-br from-card to-green-500/5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full blur-2xl" />
+            <CardContent className="pt-5 pb-4 relative">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
+                  <DollarSign className="w-5 h-5 text-green-500" />
+                </div>
+                {(stats.estimatedRevenue ?? stats.totalRevenue) > 0 && (
+                  <span className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                    <TrendingUp className="w-3 h-3" />
+                    Revenue
+                  </span>
+                )}
               </div>
-              {(stats.estimatedRevenue ?? stats.totalRevenue) > 0 && (
-                <span className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                  <TrendingUp className="w-3 h-3" />
-                  Revenue
-                </span>
-              )}
-            </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">
-              <RobuxValue value={(stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7)).toLocaleString()} iconSize="sm" />
-            </div>
-            <div className="text-xs text-muted-foreground mt-1" title={`Gross: R$${stats.totalRevenue.toLocaleString()}`}>Est. Revenue</div>
-          </CardContent>
-        </Card>
+              <div className="text-3xl font-bold text-foreground tracking-tight">
+                <RobuxValue value={(stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7)).toLocaleString()} iconSize="sm" />
+              </div>
+              <div className="text-xs text-muted-foreground mt-1" title={`Gross: R$${stats.totalRevenue.toLocaleString()}`}>Est. Revenue</div>
+            </CardContent>
+          </Card>
+        )}
 
-        <Card className="border-border/50 bg-gradient-to-br from-card to-pink-500/5 shadow-sm hover:shadow-md transition-shadow">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 rounded-xl bg-pink-500/10 flex items-center justify-center">
-                <ShoppingCart className="w-5 h-5 text-pink-500" />
+        {/* Total Purchases - Locked for free users */}
+        {monetizationLocked ? (
+          <LockedStatCard 
+            label="Total Purchases"
+            icon={<ShoppingCart className="w-5 h-5 text-pink-500" />}
+            iconBgClassName="bg-pink-500/10"
+            gradientClassName="from-card to-pink-500/5"
+          />
+        ) : (
+          <Card className="border-border/50 bg-gradient-to-br from-card to-pink-500/5 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-pink-500/10 flex items-center justify-center">
+                  <ShoppingCart className="w-5 h-5 text-pink-500" />
+                </div>
+                {stats.totalPurchases > 10 && (
+                  <span className="text-[10px] font-semibold text-pink-500 bg-pink-500/10 px-2 py-0.5 rounded-full">
+                    {stats.totalPurchases > 100 ? "Hot" : "Growing"}
+                  </span>
+                )}
               </div>
-              {stats.totalPurchases > 10 && (
-                <span className="text-[10px] font-semibold text-pink-500 bg-pink-500/10 px-2 py-0.5 rounded-full">
-                  {stats.totalPurchases > 100 ? "Hot" : "Growing"}
-                </span>
-              )}
-            </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalPurchases.toLocaleString()}</div>
-            <div className="text-xs text-muted-foreground mt-1">Total Purchases</div>
-          </CardContent>
-        </Card>
+              <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalPurchases.toLocaleString()}</div>
+              <div className="text-xs text-muted-foreground mt-1">Total Purchases</div>
+            </CardContent>
+          </Card>
+        )}
 
-        <Card className="border-border/50 bg-gradient-to-br from-card to-amber-500/5 shadow-sm hover:shadow-md transition-shadow">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
-                <Eye className="w-5 h-5 text-amber-500" />
+        {/* Tracked Products - Locked for free users */}
+        {monetizationLocked ? (
+          <LockedStatCard 
+            label="Tracked Products"
+            icon={<Eye className="w-5 h-5 text-amber-500" />}
+            iconBgClassName="bg-amber-500/10"
+            gradientClassName="from-card to-amber-500/5"
+          />
+        ) : (
+          <Card className="border-border/50 bg-gradient-to-br from-card to-amber-500/5 shadow-sm hover:shadow-md transition-shadow">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center">
+                  <Eye className="w-5 h-5 text-amber-500" />
+                </div>
               </div>
-            </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalProducts}</div>
-            <div className="text-xs text-muted-foreground mt-1">Tracked Products</div>
-          </CardContent>
-        </Card>
+              <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalProducts}</div>
+              <div className="text-xs text-muted-foreground mt-1">Tracked Products</div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Roblox Public Stats */}

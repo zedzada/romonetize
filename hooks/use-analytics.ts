@@ -226,6 +226,9 @@ export interface AnalyticsData {
     universe_id: string | null;
   } | null;
   range: DateRange;
+  // Plan-based monetization gating
+  monetizationLocked: boolean;
+  userPlan: string;
   dataHealth: DataHealth | null;
   robloxStats: RobloxStats | null;
   overview: OverviewStats | null;
@@ -443,6 +446,10 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
     hasRobloxData: safeData ? hasRobloxData : false,
     hasTrackerData: safeData ? hasTrackerData : false,
     hasSyncedProducts: safeData ? hasSyncedProducts : false,
+    
+    // Plan-based monetization gating
+    monetizationLocked: safeData?.monetizationLocked ?? false,
+    userPlan: safeData?.userPlan ?? "free",
 
     // State - show loading during game change or stale data
     isLoading: isLoading || isPendingGameChange || isResponseStale,
