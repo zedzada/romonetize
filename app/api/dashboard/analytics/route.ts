@@ -682,81 +682,98 @@ export async function GET(request: NextRequest) {
   // === FIRST SEEN VS RETURNING PLAYERS ===
   // Get unique player joins in range (player_join events only for this game)
   const joinEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
-  const uniqueJoinPlayerIds = new Set(joinEvents.filter((e) => e.player_id).map((e) => e.player_id));
+  // === NEW vs RETURNING PLAYERS CALCULATION ===
+  // Definition:
+  // - activePlayersInRange = all unique players with ANY event in range (already computed as uniquePlayers)
+  // - newPlayers = players whose first-ever event for THIS game is within the range
+  // - returningPlayers = players who have events BEFORE the range AND are active in range
+  // - Invariant: newPlayers + returningPlayers = uniquePlayers
   
-  let firstSeenPlayers = 0;
+  let newPlayers = 0;
   let returningPlayers = 0;
   let hasHistoryBeforeRange = false;
+  let returningPlayersStatus: "ok" | "no_players" | "no_returning_yet" | "needs_history" = "needs_history";
   const playerFirstSeen = new Map<string, Date>();
 
+  // Get all unique player IDs active in the selected range (from ALL events, not just joins)
+  const activePlayerIdsInRange = new Set(allEvents.filter((e) => e.player_id).map((e) => e.player_id));
+
   try {
-    // Get all-time first seen dates for players who joined in this range
-    // IMPORTANT: Only query events for THIS selected game (gameId)
-    if (uniqueJoinPlayerIds.size > 0) {
-      const { data: allTimeJoins } = await supabase
+    if (activePlayerIdsInRange.size > 0) {
+      // Query all-time first seen for each active player in range
+      // Get the earliest event for each player for THIS game
+      const { data: allTimeEvents } = await supabase
         .from("events")
         .select("player_id, created_at")
         .eq("game_id", gameId) // Filter by selected game only
-        .in("event_type", sessionStartTypes)
         .order("created_at", { ascending: true });
 
-      (allTimeJoins || []).forEach((e) => {
+      // Build first-seen map (earliest event per player)
+      (allTimeEvents || []).forEach((e) => {
         if (e.player_id && !playerFirstSeen.has(e.player_id)) {
           playerFirstSeen.set(e.player_id, new Date(e.created_at));
         }
       });
 
       // Check if we have any historical data before the range start
-      // This determines if returning = 0 is meaningful or just "unknown"
       playerFirstSeen.forEach((firstSeen) => {
         if (firstSeen < startDate) {
           hasHistoryBeforeRange = true;
         }
       });
 
-      // Count first seen vs returning based on unique join players in range
-      uniqueJoinPlayerIds.forEach((playerId) => {
+      // Classify each active player as new or returning
+      activePlayerIdsInRange.forEach((playerId) => {
         const firstSeen = playerFirstSeen.get(playerId!);
-        if (firstSeen && firstSeen >= startDate) {
-          // First join for THIS game is inside selected range
-          firstSeenPlayers++;
-        } else if (firstSeen && firstSeen < startDate) {
-          // First join for THIS game is before selected range
+        if (firstSeen && firstSeen < startDate) {
+          // Player was seen BEFORE this range - they are returning
           returningPlayers++;
         } else {
-          // No historical data for this player - count as first seen
-          firstSeenPlayers++;
+          // Player's first event is within range OR no history - they are new
+          newPlayers++;
         }
       });
       
-      // Debug in development only
+      // Determine status for UI
+      if (uniquePlayers === 0) {
+        returningPlayersStatus = "no_players";
+      } else if (returningPlayers > 0) {
+        returningPlayersStatus = "ok";
+      } else if (hasHistoryBeforeRange || newPlayers > 0) {
+        // We have data (either before range or in range) but no returning players
+        returningPlayersStatus = "no_returning_yet";
+      } else {
+        returningPlayersStatus = "needs_history";
+      }
+      
+      // Debug logging
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Tracker stats by selected game", {
+        console.log("[v0] New/Returning calculation", {
           selectedGameId: gameId,
-          selectedGameName: selectedGame.name,
-          totalEvents: allEvents.length,
-          playerJoinEvents: joinEvents.length,
           uniquePlayers,
-          firstSeenPlayers,
+          newPlayers,
           returningPlayers,
+          sum: newPlayers + returningPlayers,
           hasHistoryBeforeRange,
+          returningPlayersStatus,
           rangeStart: startDate.toISOString(),
         });
       }
     } else {
-      // No join events in range
-      // If we have other events but no joins, players are "unknown"
-      if (uniquePlayers > 0) {
-        firstSeenPlayers = uniquePlayers;
-      }
+      // No players active in range
+      returningPlayersStatus = "no_players";
     }
   } catch (err) {
     sectionErrors.newReturning = err instanceof Error ? err.message : "Failed to calculate";
-    // Fallback: if calculation fails, use unique players as first seen
-    if (uniquePlayers > 0 && firstSeenPlayers === 0) {
-      firstSeenPlayers = uniquePlayers;
+    // Fallback: treat all players as new
+    if (uniquePlayers > 0) {
+      newPlayers = uniquePlayers;
+      returningPlayersStatus = "no_returning_yet";
     }
   }
+  
+  // Alias for backwards compatibility (firstSeenPlayers = newPlayers)
+  const firstSeenPlayers = newPlayers;
 
   // === RETENTION STATS (cohort-based) ===
   const retentionStats = {
@@ -1374,19 +1391,22 @@ export async function GET(request: NextRequest) {
         totalSessions: totalSessions || 0,
         avgSessionDuration: avgSessionDuration || null,
         avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
-        // First seen = players whose first join for THIS game is in selected range
+        // New players = players whose first event for THIS game is within the range
+        newPlayers: newPlayers || 0,
+        // Legacy alias for backwards compatibility
         firstSeenPlayers: firstSeenPlayers || 0,
-        // Returning = players active in range whose first join for THIS game is before range
+        // Returning = players who were seen BEFORE range AND are active in range
         returningPlayers: returningPlayers || 0,
-        // Flag to indicate if returning = 0 is meaningful or just "no history"
+        // Invariant check: newPlayers + returningPlayers should equal uniquePlayers
+        // hasHistoryBeforeRange indicates if we have data before range to determine returning
         hasHistoryBeforeRange,
+        // Status for UI rendering: "ok" | "no_players" | "no_returning_yet" | "needs_history"
+        returningPlayersStatus,
         rangeStart: startDate.toISOString(),
         rangeEnd: now.toISOString(),
         // For free users, null out purchases
         totalPurchases: monetizationLocked ? null : (totalPurchases || 0),
         lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
-        // Legacy alias for backwards compatibility
-        newPlayers: firstSeenPlayers || 0,
       } : null,
       // Revenue stats (for Monetization tab)
       // For free users, return null (locked)

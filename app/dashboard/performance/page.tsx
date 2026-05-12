@@ -187,9 +187,13 @@ export default function PerformancePage() {
     }
     
     const now = new Date();
-    const snapshots = rawCcuHistory.rawSnapshots;
     
-    // Calculate cutoff time based on selected range
+    // Sort snapshots by timestamp ascending (oldest first) before processing
+    const sortedSnapshots = [...rawCcuHistory.rawSnapshots].sort((a, b) => 
+      new Date(a.time).getTime() - new Date(b.time).getTime()
+    );
+    
+    // Calculate cutoff time based on selected range (in real UTC time)
     const getRangeMs = (range: CCUHistoryRange): number => {
       switch (range) {
         case "1h": return 60 * 60 * 1000;
@@ -201,99 +205,93 @@ export default function PerformancePage() {
       }
     };
     
-    const cutoffTime = new Date(now.getTime() - getRangeMs(ccuRange));
+    const rangeMs = getRangeMs(ccuRange);
+    const cutoffTime = new Date(now.getTime() - rangeMs);
     
-    // Filter snapshots by selected range
-    const filteredSnapshots = snapshots.filter((s) => new Date(s.time) >= cutoffTime);
+    // Filter snapshots by selected range using UTC timestamps
+    const filteredSnapshots = sortedSnapshots.filter((s) => new Date(s.time).getTime() >= cutoffTime.getTime());
     
     if (filteredSnapshots.length === 0) {
       return { data: [], currentCcu: rawCcuHistory.currentCcu, peakCcu: null, avgCcu: null };
     }
     
-    // Bucket the data based on interval
-    const buckets = new Map<string, { ccu: number; latestTime: string }>();
+    // Bucket the data based on interval - use timestamp as bucket key for proper sorting
+    const buckets = new Map<number, { ccu: number; timestamp: number; latestTime: string }>();
     
     filteredSnapshots.forEach((snap) => {
       const snapTime = new Date(snap.time);
-      let bucketKey: string;
+      const snapMs = snapTime.getTime();
+      let bucketStart: number;
       
       if (ccuInterval === "1m") {
-        // Per-minute buckets: round to start of minute
-        bucketKey = snapTime.toISOString().slice(0, 16); // YYYY-MM-DDTHH:mm
+        // Per-minute buckets: round down to start of minute
+        bucketStart = Math.floor(snapMs / (60 * 1000)) * (60 * 1000);
       } else if (ccuInterval === "hourly") {
-        // Hourly buckets: round to start of hour
-        bucketKey = snapTime.toISOString().slice(0, 13); // YYYY-MM-DDTHH
+        // Hourly buckets: round down to start of hour
+        bucketStart = Math.floor(snapMs / (60 * 60 * 1000)) * (60 * 60 * 1000);
       } else {
-        // Daily buckets: round to start of day (in local timezone)
-        const localDate = new Date(snapTime.getTime() - snapTime.getTimezoneOffset() * 60 * 1000);
-        bucketKey = localDate.toISOString().slice(0, 10); // YYYY-MM-DD
+        // Daily buckets: round down to start of day in local timezone
+        const localMidnight = new Date(snapTime);
+        localMidnight.setHours(0, 0, 0, 0);
+        bucketStart = localMidnight.getTime();
       }
       
-      const existing = buckets.get(bucketKey);
+      const existing = buckets.get(bucketStart);
       if (existing) {
         // Use latest CCU in the bucket
-        if (snap.time > existing.latestTime) {
+        if (snapMs > existing.timestamp) {
           existing.ccu = snap.ccu;
+          existing.timestamp = snapMs;
           existing.latestTime = snap.time;
         }
       } else {
-        buckets.set(bucketKey, { ccu: snap.ccu, latestTime: snap.time });
+        buckets.set(bucketStart, { ccu: snap.ccu, timestamp: snapMs, latestTime: snap.time });
       }
     });
     
-    // Convert to sorted array and format time labels
-    const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+    // Convert to sorted array by bucket timestamp (ascending = oldest to newest)
+    const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]);
     
-    const data = sortedBuckets.map(([bucketKey, bucket]) => {
-      // Parse bucket key back to date for formatting
-      let date: Date;
-      if (ccuInterval === "1m") {
-        date = new Date(bucketKey + ":00.000Z");
-      } else if (ccuInterval === "hourly") {
-        date = new Date(bucketKey + ":00:00.000Z");
-      } else {
-        date = new Date(bucketKey + "T12:00:00.000Z"); // noon to avoid timezone issues
-      }
+    // Format function for time labels in user's local timezone
+    const formatTimeLabel = (bucketStart: number): string => {
+      const date = new Date(bucketStart);
       
-      // Format time label based on interval and range (client-side, user's timezone)
-      let timeLabel: string;
       if (ccuInterval === "1m") {
-        // 1H + 1m: "2:05 PM" format
-        timeLabel = date.toLocaleTimeString(undefined, { 
+        // 1H + 1m: "2:05 PM" format in local time
+        return new Intl.DateTimeFormat(undefined, { 
           hour: "numeric", 
-          minute: "2-digit", 
-          hour12: true 
-        });
+          minute: "2-digit",
+        }).format(date);
       } else if (ccuInterval === "hourly") {
         if (ccuRange === "24h") {
-          // 24H + Hourly: "3 PM" format
-          timeLabel = date.toLocaleTimeString(undefined, { 
-            hour: "numeric", 
-            hour12: true 
-          });
+          // 24H + Hourly: "3 PM" format in local time
+          return new Intl.DateTimeFormat(undefined, { 
+            hour: "numeric",
+          }).format(date);
         } else {
-          // 7D + Hourly: "May 9 3 PM" format (sparse labels with date context)
-          timeLabel = date.toLocaleDateString(undefined, { 
+          // 7D + Hourly: "May 9 3 PM" format (with date context)
+          return new Intl.DateTimeFormat(undefined, { 
             month: "short", 
             day: "numeric",
             hour: "numeric",
-            hour12: true 
-          });
+          }).format(date);
         }
       } else {
         // Daily (28D/90D): "May 9" format
-        timeLabel = date.toLocaleDateString(undefined, { 
+        return new Intl.DateTimeFormat(undefined, { 
           month: "short", 
           day: "numeric" 
-        });
+        }).format(date);
       }
-      
-      return {
-        time: bucketKey,
-        timeLabel,
-        ccu: bucket.ccu,
-      };
-    });
+    };
+    
+    const data = sortedBuckets.map(([bucketStart, bucket]) => ({
+      time: new Date(bucketStart).toISOString(),
+      timeLabel: formatTimeLabel(bucketStart),
+      ccu: bucket.ccu,
+      // Include original timestamp for tooltip
+      capturedAt: bucket.latestTime,
+    }));
     
     // Calculate stats
     const ccuValues = data.map((d) => d.ccu);
@@ -361,9 +359,11 @@ export default function PerformancePage() {
     uniquePlayers: 0,
     totalSessions: 0,
     avgSessionDuration: null,
-    firstSeenPlayers: 0,
+    newPlayers: 0,
+    firstSeenPlayers: 0, // Legacy alias
     returningPlayers: 0,
     hasHistoryBeforeRange: false,
+    returningPlayersStatus: "needs_history" as const,
     rangeStart: new Date().toISOString(),
     rangeEnd: new Date().toISOString(),
     totalPurchases: 0,
@@ -665,21 +665,21 @@ export default function PerformancePage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/50">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <UserPlus className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs text-muted-foreground">First Seen</span>
+<Card className="border-border/50">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <UserPlus className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs text-muted-foreground">New Players</span>
+            </div>
+            {safeDataHealth.hasTrackerEvents ? (
+              <div className="text-2xl font-bold text-foreground">
+                {formatNumber(safeTrackerStats.newPlayers)}
               </div>
-              {safeDataHealth.hasTrackerEvents ? (
-                <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.firstSeenPlayers)}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">Requires tracking script</div>
-              )}
-            </CardContent>
-          </Card>
+            ) : (
+              <div className="text-xs text-muted-foreground">Requires tracking script</div>
+            )}
+          </CardContent>
+        </Card>
 
           <Card className="border-border/50">
             <CardContent className="pt-5 pb-4">
@@ -687,19 +687,26 @@ export default function PerformancePage() {
                 <UserCheck className="w-4 h-4 text-teal-500" />
                 <span className="text-xs text-muted-foreground">Returning</span>
               </div>
-              {safeDataHealth.hasTrackerEvents ? (
-                safeTrackerStats.hasHistoryBeforeRange ? (
-                  <div className="text-2xl font-bold text-foreground">
-                    {formatNumber(safeTrackerStats.returningPlayers)}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">—</div>
-                )
-              ) : (
+              {!safeDataHealth.hasTrackerEvents ? (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
-              )}
-              {safeDataHealth.hasTrackerEvents && !safeTrackerStats.hasHistoryBeforeRange && (
-                <p className="text-[10px] text-muted-foreground mt-1">Not enough history</p>
+              ) : safeTrackerStats.returningPlayersStatus === "no_players" ? (
+                <>
+                  <div className="text-sm text-muted-foreground">No players yet</div>
+                </>
+              ) : safeTrackerStats.returningPlayersStatus === "no_returning_yet" ? (
+                <>
+                  <div className="text-2xl font-bold text-foreground">0</div>
+                  <p className="text-[10px] text-muted-foreground mt-1">No returning players yet</p>
+                </>
+              ) : safeTrackerStats.returningPlayersStatus === "needs_history" ? (
+                <>
+                  <div className="text-sm text-muted-foreground">—</div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Needs more history</p>
+                </>
+              ) : (
+                <div className="text-2xl font-bold text-foreground">
+                  {formatNumber(safeTrackerStats.returningPlayers)}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -855,7 +862,19 @@ export default function PerformancePage() {
                       <Tooltip
                         {...tooltipStyle}
                         formatter={(value: number | null) => [value !== null ? value.toLocaleString() : "—", "CCU"]}
-                        labelFormatter={(label) => `${label}`}
+                        labelFormatter={(label, payload) => {
+                          // Show exact captured time in user's local timezone
+                          const dataPoint = payload?.[0]?.payload;
+                          if (dataPoint?.capturedAt) {
+                            return new Intl.DateTimeFormat(undefined, {
+                              month: "short",
+                              day: "numeric",
+                              hour: "numeric",
+                              minute: "2-digit",
+                            }).format(new Date(dataPoint.capturedAt));
+                          }
+                          return `${label}`;
+                        }}
                       />
                       <Area 
                         type="monotone" 
