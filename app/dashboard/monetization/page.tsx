@@ -9,6 +9,8 @@ import { useAnalytics, formatChartTime, type HourlyMonetizationPoint } from "@/h
 import { CHART_COLORS } from "@/components/dashboard/chart-card";
 import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
+import { RevenueModeToggle } from "@/components/dashboard/revenue-mode-toggle";
+import { useRevenueDisplayMode, type RevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
 import {
   AreaChart,
   Area,
@@ -61,7 +63,6 @@ function formatRobux(value: number | null | undefined): string {
 type ChartRange = "1h" | "6h" | "24h" | "72h" | "7d" | "28d" | "90d";
 type ChartInterval = "1m" | "hourly" | "daily";
 type ChartMode = "total" | "gamepasses" | "devproducts";
-type RevenueDisplayMode = "estimated" | "gross";
 
 // Ranges that support 1m interval (max 24h of minute data)
 const MINUTE_COMPATIBLE_RANGES: ChartRange[] = ["1h", "6h", "24h"];
@@ -236,7 +237,9 @@ export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
-  const [revenueDisplayMode, setRevenueDisplayMode] = useState<RevenueDisplayMode>("estimated");
+  
+  // Use shared revenue display mode (persisted to localStorage)
+  const { mode: revenueDisplayMode, setMode: setRevenueDisplayMode } = useRevenueDisplayMode();
   
   // Check plan access
   const { hasProAccess, loading: planLoading } = usePlanAccess();
@@ -596,45 +599,9 @@ export default function MonetizationPage() {
           )}
         </div>
         
-        {/* Gross/Estimated Revenue Toggle */}
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Show:</span>
-          <div className="inline-flex items-center rounded-lg bg-muted/50 p-0.5">
-            <button
-              type="button"
-              onClick={() => setRevenueDisplayMode("estimated")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                revenueDisplayMode === "estimated"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Shows 70% of gross sales (estimated creator payout after Roblox 30% fee)"
-            >
-              Est. Revenue
-            </button>
-            <button
-              type="button"
-              onClick={() => setRevenueDisplayMode("gross")}
-              className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                revenueDisplayMode === "gross"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
-              title="Shows 100% of tracked sales (matches Roblox dashboard)"
-            >
-              Gross Sales
-            </button>
-          </div>
-        </div>
+        {/* Shared Gross/Estimated Revenue Toggle */}
+        <RevenueModeToggle showDescription={false} />
       </div>
-      
-      {/* Revenue display mode tooltip */}
-      <p className="text-[10px] text-muted-foreground -mt-4">
-        {revenueDisplayMode === "gross" 
-          ? "Gross Sales matches Roblox dashboard values. Est. Revenue applies the 70% creator payout estimate."
-          : "Est. Revenue shows your estimated payout (70%) after Roblox's 30% platform fee."
-        }
-      </p>
 
       {/* Tracking script required banner */}
       {needsTrackingScript && (

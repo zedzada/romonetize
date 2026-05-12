@@ -36,6 +36,8 @@ import { RobuxValue } from "@/components/ui/robux-icon";
 import { useToast } from "@/hooks/use-toast";
 import { triggerStatsRefresh, useStatsRefresh } from "@/hooks/use-stats-refresh";
 import { LockedStatCard } from "@/components/dashboard/locked-stat-card";
+import { useRevenueDisplayMode, getRevenueModeShortLabel } from "@/hooks/use-revenue-display-mode";
+import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -59,7 +61,10 @@ export default function DashboardPage() {
   const [isConnecting, setIsConnecting] = useState(false);
 
   // Use central analytics hook for Roblox stats and plan gating
-  const { robloxStats, refresh: refreshAnalytics, monetizationLocked } = useAnalytics({ enabled: gameIds.length > 0 });
+  const { robloxStats, revenueStats, refresh: refreshAnalytics, monetizationLocked } = useAnalytics({ enabled: gameIds.length > 0 });
+  
+  // Use shared revenue display mode (consistent with Monetization/Products pages)
+  const { mode: revenueDisplayMode } = useRevenueDisplayMode();
 
   // Fetch dashboard stats and alerts (fresh from Supabase)
   const fetchStats = useCallback(async (showLoadingState = true) => {
@@ -351,7 +356,9 @@ export default function DashboardPage() {
             </span>
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          {/* Revenue mode toggle - affects all pages */}
+          {!monetizationLocked && <RevenueModeToggleCompact />}
           <Button
             variant="outline"
             onClick={handleRefresh}
@@ -405,36 +412,48 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
 
-        {/* Est. Revenue - Locked for free users */}
+        {/* Revenue - Locked for free users, uses shared display mode */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label="Est. Revenue"
+            label={revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}
             icon={<DollarSign className="w-5 h-5 text-green-500" />}
             iconBgClassName="bg-green-500/10"
             gradientClassName="from-card to-green-500/5"
           />
-        ) : (
-          <Card className="border-green-500/20 bg-gradient-to-br from-card to-green-500/5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full blur-2xl" />
-            <CardContent className="pt-5 pb-4 relative">
-              <div className="flex items-center justify-between mb-3">
-                <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
-                  <DollarSign className="w-5 h-5 text-green-500" />
+        ) : (() => {
+          // Use unified values from analytics hook when available, fall back to stats
+          const grossRevenue = revenueStats?.grossRevenue ?? stats.totalRevenue;
+          const estimatedRevenue = revenueStats?.estimatedRevenue ?? stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7);
+          const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
+          const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
+          const revenueLabel = revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue";
+          const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
+          
+          return (
+            <Card className="border-green-500/20 bg-gradient-to-br from-card to-green-500/5 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-20 h-20 bg-green-500/10 rounded-full blur-2xl" />
+              <CardContent className="pt-5 pb-4 relative">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center">
+                    <DollarSign className="w-5 h-5 text-green-500" />
+                  </div>
+                  {displayRevenue > 0 && (
+                    <span className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                      <TrendingUp className="w-3 h-3" />
+                      Revenue
+                    </span>
+                  )}
                 </div>
-                {(stats.estimatedRevenue ?? stats.totalRevenue) > 0 && (
-                  <span className="text-[10px] font-semibold text-green-500 bg-green-500/10 px-2 py-0.5 rounded-full flex items-center gap-1">
-                    <TrendingUp className="w-3 h-3" />
-                    Revenue
-                  </span>
-                )}
-              </div>
-              <div className="text-3xl font-bold text-foreground tracking-tight">
-                <RobuxValue value={(stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7)).toLocaleString()} iconSize="sm" />
-              </div>
-              <div className="text-xs text-muted-foreground mt-1" title={`Gross: R$${stats.totalRevenue.toLocaleString()}`}>Est. Revenue</div>
-            </CardContent>
-          </Card>
-        )}
+                <div className="text-3xl font-bold text-foreground tracking-tight">
+                  <RobuxValue value={displayRevenue.toLocaleString()} iconSize="sm" />
+                </div>
+                <div className="text-xs text-muted-foreground mt-1" title={`${altLabel}: R$${altRevenue.toLocaleString()}`}>
+                  {revenueLabel}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Total Purchases - Locked for free users */}
         {monetizationLocked ? (

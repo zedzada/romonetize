@@ -48,6 +48,7 @@ import {
 import Link from "next/link";
 import { GameIcon } from "@/components/dashboard/game-icon";
 import { LockedStatCard } from "@/components/dashboard/locked-stat-card";
+import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 
 // Safe number formatter - never crashes
 function formatNumber(value: number | null | undefined): string {
@@ -422,15 +423,19 @@ export default function PerformancePage() {
           <h1 className="text-2xl font-bold text-foreground">Game Performance</h1>
           <p className="text-muted-foreground">Monitor your game&apos;s analytics and metrics</p>
         </div>
-        <Button 
-          onClick={handleSyncAndRefresh} 
-          variant="outline" 
-          disabled={isRefreshing || isSyncing}
-          className="w-fit"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing || isSyncing ? "animate-spin" : ""}`} />
-          {isSyncing ? "Syncing..." : "Refresh Data"}
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Revenue mode toggle - affects monetization metrics across all pages */}
+          <RevenueModeToggleCompact />
+          <Button 
+            onClick={handleSyncAndRefresh} 
+            variant="outline" 
+            disabled={isRefreshing || isSyncing}
+            className="w-fit"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${isRefreshing || isSyncing ? "animate-spin" : ""}`} />
+            {isSyncing ? "Syncing..." : "Refresh Data"}
+          </Button>
+        </div>
       </div>
 
       {/* Selected Game Card */}
