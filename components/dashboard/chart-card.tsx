@@ -16,7 +16,8 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { Activity, Maximize2, X } from "lucide-react";
+import { Activity, Lock, Maximize2, X } from "lucide-react";
+import Link from "next/link";
 
 // Standard date range type used across analytics
 export type ChartDateRange = "24h" | "72h" | "7d" | "28d" | "90d";
@@ -90,6 +91,8 @@ interface ChartCardProps {
   emptyMessage?: string;
   className?: string;
   isExpandable?: boolean;
+  // Plan-based locking
+  isLocked?: boolean;
   // Range controls
   range?: ChartDateRange;
   onRangeChange?: (range: ChartDateRange) => void;
@@ -111,6 +114,7 @@ export function ChartCard({
   emptyMessage = "Data will appear once activity is tracked.",
   className = "",
   isExpandable = true,
+  isLocked = false,
   range,
   onRangeChange,
   availableRanges,
@@ -133,7 +137,20 @@ export function ChartCard({
 
   const renderChart = (height: string, content: ReactNode) => (
     <div className={height}>
-      {isEmpty ? (
+      {isLocked ? (
+        <Link href="/dashboard/billing" className="block h-full">
+          <div className="h-full flex flex-col items-center justify-center text-center px-6 cursor-pointer group">
+            <div className="text-muted-foreground/40 mb-4 group-hover:text-primary/60 transition-colors">
+              <Lock className="w-12 h-12" />
+            </div>
+            <p className="text-sm font-medium text-foreground mb-1">Locked</p>
+            <p className="text-xs text-muted-foreground max-w-[240px] mb-3">
+              Upgrade to Pro to unlock this chart
+            </p>
+            <span className="text-xs text-primary group-hover:underline">Upgrade Now</span>
+          </div>
+        </Link>
+      ) : isEmpty ? (
         <div className="h-full flex flex-col items-center justify-center text-center px-6">
           <div className="text-muted-foreground/40 mb-4">
             {emptyIcon || <Activity className="w-12 h-12" />}

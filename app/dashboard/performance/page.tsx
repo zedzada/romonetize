@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { GameIcon } from "@/components/dashboard/game-icon";
+import { LockedStatCard } from "@/components/dashboard/locked-stat-card";
 
 // Safe number formatter - never crashes
 function formatNumber(value: number | null | undefined): string {
@@ -149,6 +150,7 @@ export default function PerformancePage() {
     needsTrackingScript,
     hasTrackerData,
     hasRobloxData,
+    monetizationLocked,
   } = useAnalytics({ 
     enabled: true, 
     range: toAnalyticsRange(chartRange),
@@ -697,21 +699,31 @@ export default function PerformancePage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/50">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <ShoppingCart className="w-4 h-4 text-rose-500" />
-                <span className="text-xs text-muted-foreground">Purchases</span>
-              </div>
-              {safeDataHealth.hasTrackerEvents ? (
-                <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.totalPurchases)}
+          {/* Purchases - Locked for free users */}
+          {monetizationLocked ? (
+            <LockedStatCard 
+              label="Purchases"
+              icon={<ShoppingCart className="w-4 h-4 text-rose-500" />}
+              iconBgClassName="bg-rose-500/10"
+              gradientClassName="from-card to-rose-500/5"
+            />
+          ) : (
+            <Card className="border-border/50">
+              <CardContent className="pt-5 pb-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <ShoppingCart className="w-4 h-4 text-rose-500" />
+                  <span className="text-xs text-muted-foreground">Purchases</span>
                 </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">Requires tracking script</div>
-              )}
-            </CardContent>
-          </Card>
+                {safeDataHealth.hasTrackerEvents ? (
+                  <div className="text-2xl font-bold text-foreground">
+                    {formatNumber(safeTrackerStats.totalPurchases)}
+                  </div>
+                ) : (
+                  <div className="text-xs text-muted-foreground">Requires tracking script</div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -974,52 +986,66 @@ export default function PerformancePage() {
               </ResponsiveContainer>
             </ChartCard>
 
-            {/* Purchases Over Time */}
-            <ChartCard
-              title="Purchases Over Time"
-              subtitle="Successful product purchases"
-              source="tracker"
-              summary={performanceCharts?.purchasesOverTime?.length ? `Total: ${performanceCharts.purchasesOverTime.reduce((sum, d) => sum + (d.purchases ?? 0), 0).toLocaleString()}` : undefined}
-              isEmpty={!performanceCharts?.purchasesOverTime?.length}
-              emptyTitle="No purchases yet"
-              emptyMessage="Purchases will appear after players make purchases in your game."
-            >
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={performanceCharts?.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="purchasesBarGradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART_COLORS.green} stopOpacity={1}/>
-                      <stop offset="100%" stopColor={CHART_COLORS.green} stopOpacity={0.7}/>
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid {...gridProps} />
-                  <XAxis 
-                    dataKey="date" 
-                    tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
-                    {...axisProps}
-                  />
-                  <YAxis 
-                    allowDecimals={false}
-                    {...axisProps}
-                  />
-                  <Tooltip
-                    {...tooltipStyle}
-                    formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
-                    labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
-                  />
-                  <Bar 
-                    dataKey="purchases" 
-                    fill="url(#purchasesBarGradient)"
-                    radius={[6, 6, 0, 0]}
-                    maxBarSize={50}
-                  >
-                    {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="purchases" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
-                    )}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartCard>
+            {/* Purchases Over Time - Locked for free users */}
+            {monetizationLocked ? (
+              <ChartCard
+                title="Purchases Over Time"
+                subtitle="Upgrade to Pro to unlock purchase analytics"
+                source="tracker"
+                isEmpty={true}
+                emptyTitle="Locked"
+                emptyMessage="Upgrade to Pro to unlock purchase analytics"
+                isLocked={true}
+              >
+                <div />
+              </ChartCard>
+            ) : (
+              <ChartCard
+                title="Purchases Over Time"
+                subtitle="Successful product purchases"
+                source="tracker"
+                summary={performanceCharts?.purchasesOverTime?.length ? `Total: ${performanceCharts.purchasesOverTime.reduce((sum, d) => sum + (d.purchases ?? 0), 0).toLocaleString()}` : undefined}
+                isEmpty={!performanceCharts?.purchasesOverTime?.length}
+                emptyTitle="No purchases yet"
+                emptyMessage="Purchases will appear after players make purchases in your game."
+              >
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={performanceCharts?.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="purchasesBarGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={CHART_COLORS.green} stopOpacity={1}/>
+                        <stop offset="100%" stopColor={CHART_COLORS.green} stopOpacity={0.7}/>
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid {...gridProps} />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
+                      {...axisProps}
+                    />
+                    <YAxis 
+                      allowDecimals={false}
+                      {...axisProps}
+                    />
+                    <Tooltip
+                      {...tooltipStyle}
+                      formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
+                      labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
+                    />
+                    <Bar 
+                      dataKey="purchases" 
+                      fill="url(#purchasesBarGradient)"
+                      radius={[6, 6, 0, 0]}
+                      maxBarSize={50}
+                    >
+                      {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
+                        <LabelList dataKey="purchases" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
+                      )}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartCard>
+            )}
           </div>
         </div>
       )}
