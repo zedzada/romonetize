@@ -359,7 +359,8 @@ export default function PerformancePage() {
     uniquePlayers: 0,
     totalSessions: 0,
     avgSessionDuration: null,
-    firstSeenPlayers: 0,
+    newPlayers: 0,
+    firstSeenPlayers: 0, // Legacy alias
     returningPlayers: 0,
     hasHistoryBeforeRange: false,
     returningPlayersStatus: "needs_history" as const,
@@ -664,21 +665,21 @@ export default function PerformancePage() {
             </CardContent>
           </Card>
 
-          <Card className="border-border/50">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <UserPlus className="w-4 h-4 text-emerald-500" />
-                <span className="text-xs text-muted-foreground">First Seen</span>
+<Card className="border-border/50">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <UserPlus className="w-4 h-4 text-emerald-500" />
+              <span className="text-xs text-muted-foreground">New Players</span>
+            </div>
+            {safeDataHealth.hasTrackerEvents ? (
+              <div className="text-2xl font-bold text-foreground">
+                {formatNumber(safeTrackerStats.newPlayers)}
               </div>
-              {safeDataHealth.hasTrackerEvents ? (
-                <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.firstSeenPlayers)}
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground">Requires tracking script</div>
-              )}
-            </CardContent>
-          </Card>
+            ) : (
+              <div className="text-xs text-muted-foreground">Requires tracking script</div>
+            )}
+          </CardContent>
+        </Card>
 
           <Card className="border-border/50">
             <CardContent className="pt-5 pb-4">

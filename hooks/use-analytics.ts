@@ -57,7 +57,12 @@ export interface TrackerStats {
   totalSessions: number;
   avgSessionDuration: number | null;
   avgSessionFormatted: string | null;
+  // New players = players whose first event for this game is within the selected range
+  newPlayers: number;
+  // Legacy alias (same as newPlayers)
   firstSeenPlayers: number;
+  // Returning players = players who were seen BEFORE range AND are active in range
+  // Invariant: newPlayers + returningPlayers = uniquePlayers
   returningPlayers: number;
   hasHistoryBeforeRange: boolean;
   // Status for returning players UI: "ok" | "no_players" | "no_returning_yet" | "needs_history"
@@ -66,8 +71,6 @@ export interface TrackerStats {
   rangeEnd: string;
   totalPurchases: number;
   lastEventTime: string | null;
-  // Legacy alias for backwards compatibility
-  newPlayers?: number;
 }
 
 export interface RevenueStats {
