@@ -1,6 +1,31 @@
 import { createClient, isSupabaseConfigured } from '@/lib/supabase/server'
 import { NextRequest, NextResponse } from 'next/server'
 
+// Ensure a profile exists for new users with default free plan
+async function ensureProfileExists(supabase: Awaited<ReturnType<typeof createClient>>, userId: string, email?: string) {
+  // Check if profile exists
+  const { data: existingProfile } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("id", userId)
+    .single();
+
+  if (!existingProfile) {
+    // Create profile with default free plan
+    const { error } = await supabase.from("profiles").insert({
+      id: userId,
+      email: email || null,
+      plan: "free",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    });
+    
+    if (error) {
+      console.error('[v0] Error creating profile:', error);
+    }
+  }
+}
+
 export async function GET(request: NextRequest) {
   const { searchParams, origin, hash } = request.nextUrl
   const code = searchParams.get('code')
@@ -36,6 +61,9 @@ export async function GET(request: NextRequest) {
           // This is a password recovery - redirect to reset password page
           return NextResponse.redirect(`${origin}/auth/reset-password`)
         }
+        
+        // Ensure profile exists for new users with default free plan
+        await ensureProfileExists(supabase, data.session.user.id, data.session.user.email)
         
         return NextResponse.redirect(`${origin}${next}`)
       }

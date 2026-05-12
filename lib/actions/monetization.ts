@@ -79,6 +79,29 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     };
   }
 
+  // Check plan access - monetization is Pro+ only
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("plan")
+    .eq("id", user.id)
+    .single();
+
+  const userPlan = profile?.plan || "free";
+  if (userPlan === "free") {
+    return {
+      stats: null,
+      hourlyRevenue: [],
+      dailyRevenue: [],
+      revenueSources: [],
+      payingUsersOverTime: [],
+      conversionOverTime: [],
+      arppuOverTime: [],
+      arpdauOverTime: [],
+      topProducts: [],
+      error: "Monetization analytics requires Pro or Studio plan",
+    };
+  }
+
   // Get the selected game (use passed gameId or get from DB)
   let targetGameId = gameId;
   if (!targetGameId) {

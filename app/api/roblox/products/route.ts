@@ -180,12 +180,25 @@ export async function GET() {
       );
     }
 
-    // Get user's Roblox access token from profile
+    // Get user's profile including plan
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("roblox_access_token, roblox_user_id, roblox_token_expires_at")
+      .select("roblox_access_token, roblox_user_id, roblox_token_expires_at, plan")
       .eq("id", user.id)
       .single();
+
+    // Check plan access - products analytics is Pro+ only
+    const userPlan = profile?.plan || "free";
+    if (userPlan === "free") {
+      return NextResponse.json(
+        { 
+          error: "Products analytics requires Pro or Studio plan",
+          upgradeRequired: true,
+          currentPlan: "free"
+        },
+        { status: 403 }
+      );
+    }
 
     if (profileError || !profile?.roblox_access_token) {
       return NextResponse.json(

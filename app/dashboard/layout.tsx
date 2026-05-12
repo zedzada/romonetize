@@ -23,6 +23,7 @@ import {
   Menu,
   X,
   CreditCard,
+  Lock,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,12 +36,18 @@ import {
 import { Toaster } from "@/components/ui/toaster";
 import { getUserGames, getSelectedGame, selectGame } from "@/lib/actions/games";
 
+// Plan types for feature gating
+type UserPlan = "free" | "pro" | "studio";
+
+// Define which sidebar items are gated for free users
+const PRO_GATED_ITEMS = ["Monetization", "Products"];
+
 const sidebarItems = [
   { name: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { name: "My Game", href: "/dashboard/game", icon: Gamepad2 },
   { name: "Game Performance", href: "/dashboard/performance", icon: BarChart3 },
-  { name: "Monetization", href: "/dashboard/monetization", icon: TrendingUp },
-  { name: "Products", href: "/dashboard/products", icon: Package },
+  { name: "Monetization", href: "/dashboard/monetization", icon: TrendingUp, proOnly: true },
+  { name: "Products", href: "/dashboard/products", icon: Package, proOnly: true },
   { name: "AI Assistant", href: "/dashboard/ai", icon: Bot },
   { name: "Billing", href: "/dashboard/billing", icon: CreditCard },
   { name: "Settings", href: "/dashboard/settings", icon: Settings },
@@ -70,7 +77,12 @@ export default function DashboardLayout({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [username, setUsername] = useState<string>("");
+  const [profile, setProfile] = useState<{
+    username: string | null;
+    full_name: string | null;
+    plan: UserPlan;
+    email: string | null;
+  } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
 
@@ -133,35 +145,61 @@ export default function DashboardLayout({
     setSwitchingGame(false);
   };
 
+  // Fetch profile from Supabase when user changes
   useEffect(() => {
-    // Load username from localStorage
-    const loadUsername = () => {
-      const savedUsername = localStorage.getItem("romonetize_username");
-      setUsername(savedUsername || "");
-    };
-    
-    loadUsername();
+    async function fetchProfile() {
+      if (!user || !isSupabaseConfigured) {
+        setProfile(null);
+        return;
+      }
 
-    // Listen for storage changes (when username is updated in settings)
-    const handleStorageChange = () => {
-      loadUsername();
-    };
-    
-    window.addEventListener("storage", handleStorageChange);
+      const supabase = createClient();
+      const { data: profileData, error } = await supabase
+        .from("profiles")
+        .select("id, email, plan")
+        .eq("id", user.id)
+        .single();
 
+      if (error || !profileData) {
+        // Create profile if it doesn't exist (new user)
+        const newProfile = {
+          id: user.id,
+          email: user.email,
+          plan: "free" as UserPlan,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+        
+        await supabase.from("profiles").insert(newProfile);
+        
+        setProfile({
+          username: null,
+          full_name: null,
+          plan: "free",
+          email: user.email || null,
+        });
+      } else {
+        setProfile({
+          username: null, // username column doesn't exist in profiles table
+          full_name: null, // full_name column doesn't exist in profiles table
+          plan: (profileData.plan as UserPlan) || "free",
+          email: profileData.email || user.email || null,
+        });
+      }
+    }
+
+    fetchProfile();
+  }, [user]);
+
+  useEffect(() => {
     // Check if this is the first visit
     const hasSeenTutorial = localStorage.getItem("romonetize_tutorial_completed");
     if (!hasSeenTutorial) {
       const timer = setTimeout(() => setShowTutorial(true), 500);
       return () => {
         clearTimeout(timer);
-        window.removeEventListener("storage", handleStorageChange);
       };
     }
-    
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-    };
   }, []);
 
   useEffect(() => {
@@ -190,6 +228,20 @@ export default function DashboardLayout({
   const handleLogout = async () => {
     setLoggingOut(true);
     try {
+      // Clear all cached state before signing out
+      setProfile(null);
+      setUser(null);
+      setGames([]);
+      setSelectedGame(null);
+      
+      // Clear localStorage items related to user data
+      localStorage.removeItem("romonetize_username");
+      localStorage.removeItem("romonetize_profile");
+      localStorage.removeItem("romonetize_selected_game");
+      
+      // Clear sessionStorage if used
+      sessionStorage.clear();
+      
       if (isSupabaseConfigured) {
         const supabase = createClient();
         await supabase.auth.signOut();
@@ -203,13 +255,37 @@ export default function DashboardLayout({
     }
   };
 
-  // Get display name: username > user metadata name > email prefix > "User"
+  // Get display name: profile.username > profile.full_name > user_metadata.name > email prefix > "User"
+  // This ensures we always use the CURRENT user's data, never cached/stale data
   const getDisplayName = () => {
-    if (username) return username;
-    if (user?.user_metadata?.full_name) return user.user_metadata.full_name;
+    // 1. Profile username from Supabase (highest priority if set)
+    if (profile?.username) return profile.username;
+    // 2. Profile full_name from Supabase
+    if (profile?.full_name) return profile.full_name;
+    // 3. User metadata name (from OAuth providers like Google)
     if (user?.user_metadata?.name) return user.user_metadata.name;
+    if (user?.user_metadata?.full_name) return user.user_metadata.full_name;
+    // 4. Email prefix (before @)
+    if (profile?.email) return profile.email.split("@")[0];
     if (user?.email) return user.email.split("@")[0];
+    // 5. Fallback
     return "User";
+  };
+
+  // Get plan display text
+  const getPlanDisplayName = () => {
+    const plan = profile?.plan || "free";
+    switch (plan) {
+      case "pro": return "Pro Plan";
+      case "studio": return "Studio Plan";
+      default: return "Free Plan";
+    }
+  };
+
+  // Check if user has pro or higher plan
+  const hasProAccess = () => {
+    const plan = profile?.plan || "free";
+    return plan === "pro" || plan === "studio";
   };
 
   const getInitials = () => {
@@ -239,6 +315,8 @@ export default function DashboardLayout({
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {sidebarItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
+            const isLocked = item.proOnly && !hasProAccess();
+            
             return (
               <Link
                 key={item.name}
@@ -247,10 +325,11 @@ export default function DashboardLayout({
                   isActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-                }`}
+                } ${isLocked ? "opacity-70" : ""}`}
               >
                 <item.icon className="w-5 h-5" />
-                {item.name}
+                <span className="flex-1">{item.name}</span>
+                {isLocked && <Lock className="w-4 h-4 text-muted-foreground" />}
               </Link>
             );
           })}
@@ -271,7 +350,7 @@ export default function DashboardLayout({
                 </div>
                 <div className="flex-1 text-left">
                   <div className="text-sm font-medium text-foreground truncate max-w-[140px]">{getDisplayName()}</div>
-                  <div className="text-xs text-muted-foreground">Pro Plan</div>
+                  <div className="text-xs text-muted-foreground">{getPlanDisplayName()}</div>
                 </div>
                 <ChevronDown className="w-4 h-4 text-muted-foreground" />
               </button>
@@ -457,6 +536,8 @@ export default function DashboardLayout({
               <nav className="p-4 space-y-1">
                 {sidebarItems.map((item) => {
                   const isActive = pathname === item.href;
+                  const isLocked = item.proOnly && !hasProAccess();
+                  
                   return (
                     <Link
                       key={item.name}
@@ -466,10 +547,11 @@ export default function DashboardLayout({
                         isActive
                           ? "bg-primary/10 text-primary"
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary/50"
-                      }`}
+                      } ${isLocked ? "opacity-70" : ""}`}
                     >
                       <item.icon className="w-5 h-5" />
-                      {item.name}
+                      <span className="flex-1">{item.name}</span>
+                      {isLocked && <Lock className="w-4 h-4 text-muted-foreground" />}
                     </Link>
                   );
                 })}
