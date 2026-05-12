@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAnalytics, type DateRange } from "@/hooks/use-analytics";
 import { RangeControls, type ChartDateRange } from "@/components/dashboard/chart-card";
+import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { 
   RefreshCw, 
   Package, 
@@ -62,6 +63,9 @@ function toAnalyticsRange(range: ProductsRange): DateRange {
 export default function ProductsPage() {
   const [chartRange, setChartRange] = useState<ProductsRange>("28d");
   
+  // Check plan access
+  const { hasProAccess, loading: planLoading } = usePlanAccess();
+  
   const {
     isLoading,
     isRefreshing,
@@ -113,8 +117,24 @@ export default function ProductsPage() {
     }
   };
 
+  // Plan gating - show upgrade screen for free users
+  if (!planLoading && !hasProAccess) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Products</h1>
+          <p className="text-muted-foreground">Track Roblox products, gamepasses, and monetization performance</p>
+        </div>
+        <PlanLock 
+          feature="Products Analytics" 
+          description="Unlock product performance tracking, purchase analytics, and conversion insights with a Pro or Studio plan."
+        />
+      </div>
+    );
+  }
+
   // Loading state
-  if (isLoading) {
+  if (isLoading || planLoading) {
     return (
       <div className="space-y-6">
         <div>

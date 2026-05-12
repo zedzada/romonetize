@@ -33,6 +33,18 @@ export async function getProductStats(): Promise<{
     return { products: null, error: "Not authenticated" };
   }
 
+  // Check plan access - products analytics is Pro+ only
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("plan")
+    .eq("id", user.id)
+    .single();
+
+  const userPlan = profile?.plan || "free";
+  if (userPlan === "free") {
+    return { products: null, error: "Products analytics requires Pro or Studio plan" };
+  }
+
   // Get the selected game
   const { gameId: selectedGameId } = await getSelectedGameId();
   

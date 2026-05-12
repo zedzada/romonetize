@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime, type HourlyMonetizationPoint } from "@/hooks/use-analytics";
 import { CHART_COLORS } from "@/components/dashboard/chart-card";
 import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
+import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import {
   AreaChart,
   Area,
@@ -234,6 +235,9 @@ export default function MonetizationPage() {
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
+  
+  // Check plan access
+  const { hasProAccess, loading: planLoading } = usePlanAccess();
   
   // Theme-aware chart colors
   const chartTheme = useChartTheme();
@@ -472,8 +476,24 @@ export default function MonetizationPage() {
     if (refresh) await refresh();
   };
 
+  // Plan gating - show upgrade screen for free users
+  if (!planLoading && !hasProAccess) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Monetization</h1>
+          <p className="text-muted-foreground">Track revenue and purchase metrics</p>
+        </div>
+        <PlanLock 
+          feature="Monetization Analytics" 
+          description="Unlock detailed revenue breakdowns, purchase tracking, and monetization insights with a Pro or Studio plan."
+        />
+      </div>
+    );
+  }
+
   // Loading state
-  if (isLoading) {
+  if (isLoading || planLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">

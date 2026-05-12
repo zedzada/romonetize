@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { User, Mail, AtSign, X } from "lucide-react";
+import { User, Mail, AtSign, X, CreditCard } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
@@ -12,63 +12,89 @@ interface ProfileModalProps {
   onClose: () => void;
 }
 
+interface ProfileData {
+  plan: string;
+  email: string | null;
+}
+
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
   const [user, setUser] = useState<SupabaseUser | null>(null);
-  const [username, setUsername] = useState("");
+  const [profile, setProfile] = useState<ProfileData | null>(null);
   const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isOpen) return;
 
-    // Load saved data from localStorage
-    const savedUsername = localStorage.getItem("romonetize_username") || "";
-    setUsername(savedUsername);
+    setLoading(true);
 
-    const savedProfile = localStorage.getItem("romonetize_profile");
-    if (savedProfile) {
-      try {
-        const parsed = JSON.parse(savedProfile);
-        setDisplayName(parsed.name || "");
-        setEmail(parsed.email || "");
-      } catch {
-        // Ignore parse errors
-      }
-    }
-
-    // Get user from Supabase
+    // Get user from Supabase and fetch profile
     if (isSupabaseConfigured) {
       const supabase = createClient();
-      supabase.auth.getUser().then(({ data: { user } }) => {
+      supabase.auth.getUser().then(async ({ data: { user } }) => {
         setUser(user);
         if (user) {
-          if (!displayName) {
-            setDisplayName(user.user_metadata?.full_name || user.user_metadata?.name || "");
-          }
-          if (!email) {
+          // Fetch profile from Supabase (single source of truth)
+          const { data: profileData } = await supabase
+            .from("profiles")
+            .select("plan, email")
+            .eq("id", user.id)
+            .single();
+
+          if (profileData) {
+            setProfile(profileData);
+            setEmail(profileData.email || user.email || "");
+          } else {
+            // Profile doesn't exist - create one
+            const newProfile = {
+              id: user.id,
+              email: user.email,
+              plan: "free",
+            };
+            await supabase.from("profiles").insert(newProfile);
+            setProfile({ plan: "free", email: user.email || null });
             setEmail(user.email || "");
           }
+          
+          // Use user metadata for display name
+          setDisplayName(user.user_metadata?.full_name || user.user_metadata?.name || "");
         }
+        setLoading(false);
       }).catch((error) => {
         console.error('[v0] Error getting user:', error);
+        setLoading(false);
       });
+    } else {
+      setLoading(false);
     }
   }, [isOpen]);
 
-  const handleSave = () => {
-    // Save to localStorage
-    localStorage.setItem("romonetize_username", username);
-    localStorage.setItem("romonetize_profile", JSON.stringify({
-      name: displayName,
-      email: email,
-    }));
+  // Get display name following the priority order
+  const getDisplayName = () => {
+    if (displayName) return displayName;
+    if (user?.user_metadata?.name) return user.user_metadata.name;
+    if (user?.user_metadata?.full_name) return user.user_metadata.full_name;
+    if (email) return email.split("@")[0];
+    return "User";
+  };
 
+  // Get plan display
+  const getPlanDisplay = () => {
+    const plan = profile?.plan || "free";
+    switch (plan) {
+      case "pro": return "Pro Plan";
+      case "studio": return "Studio Plan";
+      default: return "Free Plan";
+    }
+  };
+
+  const handleSave = () => {
+    // Note: We don't save anything in this modal since profile is managed via auth
+    // and plan is managed via billing. This is just a display modal.
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
-
-    // Trigger storage event for other components
-    window.dispatchEvent(new Event("storage"));
   };
 
   if (!isOpen) return null;
@@ -104,59 +130,56 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
 
         {/* Content */}
         <div className="p-6 space-y-4">
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              <AtSign className="w-4 h-4 text-primary" />
-              Display Username
-            </label>
-            <Input
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter your username"
-              className="bg-secondary/30"
-            />
-            <p className="text-xs text-muted-foreground">This is shown in the sidebar and menus</p>
-          </div>
+          {loading ? (
+            <div className="py-8 flex items-center justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+            </div>
+          ) : (
+            <>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <User className="w-4 h-4 text-primary" />
+                  Display Name
+                </label>
+                <div className="px-3 py-2 rounded-lg bg-secondary/30 border border-border text-foreground">
+                  {getDisplayName()}
+                </div>
+                <p className="text-xs text-muted-foreground">Name from your authentication provider</p>
+              </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              <User className="w-4 h-4 text-primary" />
-              Full Name
-            </label>
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="Your full name"
-              className="bg-secondary/30"
-            />
-          </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-primary" />
+                  Email Address
+                </label>
+                <div className="px-3 py-2 rounded-lg bg-secondary/30 border border-border text-foreground">
+                  {email || "Not provided"}
+                </div>
+                <p className="text-xs text-muted-foreground">Email is managed by your authentication provider</p>
+              </div>
 
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground flex items-center gap-2">
-              <Mail className="w-4 h-4 text-primary" />
-              Email Address
-            </label>
-            <Input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="your@email.com"
-              className="bg-secondary/30"
-              disabled={!!user?.email}
-            />
-            {user?.email && (
-              <p className="text-xs text-muted-foreground">Email is managed by your authentication provider</p>
-            )}
-          </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground flex items-center gap-2">
+                  <CreditCard className="w-4 h-4 text-primary" />
+                  Current Plan
+                </label>
+                <div className="px-3 py-2 rounded-lg bg-secondary/30 border border-border text-foreground flex items-center justify-between">
+                  <span>{getPlanDisplay()}</span>
+                  {profile?.plan === "free" && (
+                    <a href="/dashboard/billing" className="text-xs text-primary hover:underline">
+                      Upgrade
+                    </a>
+                  )}
+                </div>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-3 p-6 border-t border-border bg-secondary/20">
           <Button variant="outline" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={handleSave}>
-            {saved ? "Saved!" : "Save Changes"}
+            Close
           </Button>
         </div>
       </div>
