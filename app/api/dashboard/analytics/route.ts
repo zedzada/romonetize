@@ -687,6 +687,12 @@ export async function GET(request: NextRequest) {
   let firstSeenPlayers = 0;
   let returningPlayers = 0;
   let hasHistoryBeforeRange = false;
+  // Status for returning players metric - determines what UI should show
+  // "ok" - calculation complete, show the number
+  // "no_players" - no active players in range, show "No players yet"
+  // "no_returning_yet" - all players are new, show "0" with "No returning players yet"
+  // "needs_history" - not enough historical data to determine
+  let returningPlayersStatus: "ok" | "no_players" | "no_returning_yet" | "needs_history" = "needs_history";
   const playerFirstSeen = new Map<string, Date>();
 
   try {
@@ -729,6 +735,27 @@ export async function GET(request: NextRequest) {
         }
       });
       
+      // Determine returningPlayersStatus based on the data
+      if (uniquePlayers === 0) {
+        // No players in range at all
+        returningPlayersStatus = "no_players";
+      } else if (hasHistoryBeforeRange) {
+        // We have data before the range, so returning = 0 or count is meaningful
+        if (returningPlayers === 0) {
+          returningPlayersStatus = "no_returning_yet";
+        } else {
+          returningPlayersStatus = "ok";
+        }
+      } else if (firstSeenPlayers > 0 && returningPlayers === 0) {
+        // All players are new (first seen in range)
+        // This could mean: (a) game is brand new, or (b) just not enough history
+        // If we have any data at all, we can say "no returning yet"
+        returningPlayersStatus = "no_returning_yet";
+      } else {
+        // Not enough history to determine
+        returningPlayersStatus = "needs_history";
+      }
+      
       // Debug in development only
       if (process.env.NODE_ENV === "development") {
         console.log("[v0] Tracker stats by selected game", {
@@ -740,6 +767,7 @@ export async function GET(request: NextRequest) {
           firstSeenPlayers,
           returningPlayers,
           hasHistoryBeforeRange,
+          returningPlayersStatus,
           rangeStart: startDate.toISOString(),
         });
       }
@@ -748,6 +776,9 @@ export async function GET(request: NextRequest) {
       // If we have other events but no joins, players are "unknown"
       if (uniquePlayers > 0) {
         firstSeenPlayers = uniquePlayers;
+        returningPlayersStatus = "no_returning_yet";
+      } else {
+        returningPlayersStatus = "no_players";
       }
     }
   } catch (err) {
@@ -1376,10 +1407,12 @@ export async function GET(request: NextRequest) {
         avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
         // First seen = players whose first join for THIS game is in selected range
         firstSeenPlayers: firstSeenPlayers || 0,
-        // Returning = players active in range whose first join for THIS game is before range
-        returningPlayers: returningPlayers || 0,
-        // Flag to indicate if returning = 0 is meaningful or just "no history"
-        hasHistoryBeforeRange,
+// Returning = players active in range whose first join for THIS game is before range
+  returningPlayers: returningPlayers || 0,
+  // Flag to indicate if returning = 0 is meaningful or just "no history"
+  hasHistoryBeforeRange,
+  // Status for UI rendering: "ok" | "no_players" | "no_returning_yet" | "needs_history"
+  returningPlayersStatus,
         rangeStart: startDate.toISOString(),
         rangeEnd: now.toISOString(),
         // For free users, null out purchases

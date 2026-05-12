@@ -362,6 +362,7 @@ export default function PerformancePage() {
     firstSeenPlayers: 0,
     returningPlayers: 0,
     hasHistoryBeforeRange: false,
+    returningPlayersStatus: "needs_history" as const,
     rangeStart: new Date().toISOString(),
     rangeEnd: new Date().toISOString(),
     totalPurchases: 0,
@@ -685,19 +686,26 @@ export default function PerformancePage() {
                 <UserCheck className="w-4 h-4 text-teal-500" />
                 <span className="text-xs text-muted-foreground">Returning</span>
               </div>
-              {safeDataHealth.hasTrackerEvents ? (
-                safeTrackerStats.hasHistoryBeforeRange ? (
-                  <div className="text-2xl font-bold text-foreground">
-                    {formatNumber(safeTrackerStats.returningPlayers)}
-                  </div>
-                ) : (
-                  <div className="text-sm text-muted-foreground">—</div>
-                )
-              ) : (
+              {!safeDataHealth.hasTrackerEvents ? (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
-              )}
-              {safeDataHealth.hasTrackerEvents && !safeTrackerStats.hasHistoryBeforeRange && (
-                <p className="text-[10px] text-muted-foreground mt-1">Not enough history</p>
+              ) : safeTrackerStats.returningPlayersStatus === "no_players" ? (
+                <>
+                  <div className="text-sm text-muted-foreground">No players yet</div>
+                </>
+              ) : safeTrackerStats.returningPlayersStatus === "no_returning_yet" ? (
+                <>
+                  <div className="text-2xl font-bold text-foreground">0</div>
+                  <p className="text-[10px] text-muted-foreground mt-1">No returning players yet</p>
+                </>
+              ) : safeTrackerStats.returningPlayersStatus === "needs_history" ? (
+                <>
+                  <div className="text-sm text-muted-foreground">—</div>
+                  <p className="text-[10px] text-muted-foreground mt-1">Needs more history</p>
+                </>
+              ) : (
+                <div className="text-2xl font-bold text-foreground">
+                  {formatNumber(safeTrackerStats.returningPlayers)}
+                </div>
               )}
             </CardContent>
           </Card>

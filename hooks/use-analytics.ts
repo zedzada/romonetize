@@ -60,6 +60,8 @@ export interface TrackerStats {
   firstSeenPlayers: number;
   returningPlayers: number;
   hasHistoryBeforeRange: boolean;
+  // Status for returning players UI: "ok" | "no_players" | "no_returning_yet" | "needs_history"
+  returningPlayersStatus: "ok" | "no_players" | "no_returning_yet" | "needs_history";
   rangeStart: string;
   rangeEnd: string;
   totalPurchases: number;
