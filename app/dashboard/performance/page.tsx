@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -158,9 +157,13 @@ export default function PerformancePage() {
     range: toAnalyticsRange(chartRange),
   });
   
-  // Debug mode - show when ?debug=true in URL or in development
-  const searchParams = useSearchParams();
-  const isDebugMode = searchParams.get("debug") === "true" || process.env.NODE_ENV === "development";
+  // Debug mode - show when ?debug=true in URL (check via useEffect to avoid SSR issues)
+  const [isDebugMode, setIsDebugMode] = useState(false);
+  useEffect(() => {
+    // Check URL params client-side only
+    const params = new URLSearchParams(window.location.search);
+    setIsDebugMode(params.get("debug") === "true");
+  }, []);
   
   // Auto-polling for CCU snapshots (every 60 seconds while page is open)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
