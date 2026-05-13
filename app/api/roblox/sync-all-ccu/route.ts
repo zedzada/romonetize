@@ -82,17 +82,26 @@ export async function POST() {
 
     // Process games with limited concurrency
     const processGame = async (game: typeof games[0]): Promise<GameCcuResult> => {
+      // Resolve roblox_game_id - never insert without it
+      const robloxGameId = game.roblox_game_id || game.universe_id;
+      
       const result: GameCcuResult = {
         gameId: game.id,
         gameName: game.name,
-        robloxGameId: game.roblox_game_id,
+        robloxGameId: robloxGameId || "MISSING",
         ccu: null,
         success: false,
       };
 
+      // GUARD: Never insert CCU snapshot without roblox_game_id
+      if (!robloxGameId) {
+        result.error = "Skipped: No roblox_game_id";
+        return result;
+      }
+
       try {
         // Fetch current stats from Roblox API
-        const stats = await getRobloxGameStats(game.roblox_game_id);
+        const stats = await getRobloxGameStats(robloxGameId);
         
         if (!stats || stats.currentPlayers === null) {
           result.error = "Roblox API returned no data";
@@ -101,13 +110,13 @@ export async function POST() {
 
         result.ccu = stats.currentPlayers;
 
-        // Insert CCU snapshot (append-only)
+        // Insert CCU snapshot (append-only) - robloxGameId is guaranteed non-null here
         const { error: insertError } = await supabaseAdmin
           .from("ccu_snapshots")
           .insert({
             user_id: user.id,
             game_id: game.id,
-            roblox_game_id: game.roblox_game_id,
+            roblox_game_id: robloxGameId, // Use resolved ID, never null
             ccu: stats.currentPlayers,
             captured_at: capturedAt,
             source: "roblox_api_poll_all",

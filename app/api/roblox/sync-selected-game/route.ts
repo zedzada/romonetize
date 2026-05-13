@@ -504,11 +504,14 @@ export async function POST(request: Request) {
       // Store CCU snapshot for historical charts
       // Always insert even if CCU is 0, but not if null (API failed)
       // This is append-only - never upsert or replace old snapshots
-      if (stats.currentPlayers !== null) {
+      // GUARD: Never insert without roblox_game_id
+      const resolvedRobloxGameId = selectedGame.roblox_game_id || selectedGame.universe_id;
+      
+      if (stats.currentPlayers !== null && resolvedRobloxGameId) {
         const ccuSnapshotData = {
           user_id: user.id,
           game_id: selectedGame.id,
-          roblox_game_id: selectedGame.roblox_game_id,
+          roblox_game_id: resolvedRobloxGameId, // Use resolved ID, never null
           ccu: stats.currentPlayers,
           captured_at: new Date().toISOString(),
           source: "roblox_api",
@@ -523,6 +526,9 @@ export async function POST(request: Request) {
         } else {
           console.log("[Roblox Sync] CCU snapshot inserted:", stats.currentPlayers);
         }
+      } else if (stats.currentPlayers !== null && !resolvedRobloxGameId) {
+        console.warn("[Roblox Sync] Skipped CCU snapshot: No roblox_game_id for game", selectedGame.id);
+        sectionErrors.ccuSnapshot = "Skipped: No roblox_game_id";
       }
 
       gameSync = {
