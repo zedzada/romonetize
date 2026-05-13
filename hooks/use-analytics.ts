@@ -259,6 +259,7 @@ interface UseAnalyticsOptions {
   enabled?: boolean;
 }
 
+// Custom fetcher that includes request timestamp for staleness detection
 const fetcher = async (url: string) => {
   const response = await fetch(url, { cache: "no-store" });
   if (!response.ok) {
@@ -274,34 +275,52 @@ const fetcher = async (url: string) => {
 /**
  * Centralized analytics hook that provides consistent data across all dashboard tabs
  * Uses SWR for caching, deduplication, and revalidation
+ * 
+ * IMPORTANT: Cache key includes selectedGameId to ensure data isolation between games.
+ * When selectedGameId changes, cache is invalidated and fresh data is fetched.
  */
 export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   const [currentSelectedGameId, setCurrentSelectedGameId] = useState<string | null>(selectedGameId || null);
   // Track pending game change to show loading state immediately
   const [isPendingGameChange, setIsPendingGameChange] = useState(false);
-  // Track request ID to ignore stale responses
+  // Track request ID to ignore stale responses from in-flight requests
   const requestIdRef = useRef(0);
+  // Track last fetch timestamp for debug
+  const [lastFetchAt, setLastFetchAt] = useState<string | null>(null);
+  
+  // Build SWR cache key - MUST include selectedGameId for proper cache isolation
+  // This ensures switching games creates a new cache entry and doesn't reuse stale data
+  const swrKey = enabled && currentSelectedGameId
+    ? ["analytics", currentSelectedGameId, range, gameId || "default"]
+    : null;
   
   // Build API URL - include selectedGameId to ensure fresh data for correct game
-  const apiUrl = enabled
-    ? `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${currentSelectedGameId ? `&selectedGameId=${currentSelectedGameId}` : ""}`
-    : null;
+  const apiUrl = `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${currentSelectedGameId ? `&selectedGameId=${currentSelectedGameId}` : ""}`;
+
+  // Custom fetcher that uses the URL and tracks fetch time
+  const swrFetcher = useCallback(async () => {
+    const data = await fetcher(apiUrl);
+    setLastFetchAt(new Date().toISOString());
+    return data;
+  }, [apiUrl]);
 
   // Use SWR for data fetching with caching
   // Auto-refresh every 60 seconds for Roblox public stats (per spec)
   const { data, error, isLoading, mutate } = useSWR<AnalyticsData>(
-    apiUrl,
-    fetcher,
+    swrKey,
+    swrFetcher,
     {
       revalidateOnFocus: false,
       revalidateOnReconnect: true,
       dedupingInterval: 5000, // Dedupe requests within 5 seconds
       refreshInterval: 60000, // Auto-refresh every 60 seconds for Roblox stats
+      // Clear data immediately when key changes (game switch)
+      keepPreviousData: false,
     }
   );
   
-  // Validate response matches current selected game - ignore stale responses
+  // Validate response matches current selected game - ignore stale responses from in-flight requests
   const isResponseStale = data && currentSelectedGameId && data.selectedGameId !== currentSelectedGameId;
 
   // Get game IDs for realtime subscription
@@ -317,36 +336,47 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   // Listen for global stats refresh
   useStatsRefresh(() => mutate());
 
-  // Listen for selected game changes and refresh analytics
+  // Listen for selected game changes and reset analytics state
   useEffect(() => {
     const handleGameChange = (event: CustomEvent<{ gameId: string; robloxGameId: string }>) => {
+      const newGameId = event.detail.gameId;
+      const previousGameId = currentSelectedGameId;
+      
+      // Skip if same game
+      if (newGameId === previousGameId) return;
+      
       // Increment request ID to invalidate any in-flight requests
       requestIdRef.current += 1;
       const thisRequestId = requestIdRef.current;
       
       // Debug in development
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Overview stats scope debug", {
-          currentSelectedGameId: currentSelectedGameId,
-          responseSelectedGameId: event.detail.gameId,
-          action: "game_changed_clearing_stale_data",
+        console.log("[v0] Game switch detected", {
+          previousGameId,
+          newGameId,
+          action: "clearing_cache_and_switching",
           requestId: thisRequestId,
         });
       }
       
-      // Show loading state immediately
+      // Show loading state immediately - clear previous data from view
       setIsPendingGameChange(true);
       
-      // Update current selected game ID to invalidate cache key
-      setCurrentSelectedGameId(event.detail.gameId);
+      // Update current selected game ID - this changes the SWR cache key,
+      // which automatically triggers a new fetch for the new game
+      setCurrentSelectedGameId(newGameId);
       
-      // Clear stale data immediately and refetch
-      mutate(undefined, { revalidate: true }).finally(() => {
-        // Only clear pending state if this is still the current request
+      // Clear the OLD game's cache entry explicitly (SWR key was the old key)
+      // The new key will trigger a fresh fetch automatically
+      mutate(undefined, { revalidate: false });
+      
+      // Clear pending state after a short delay to allow SWR to start new fetch
+      // The isLoading state from SWR will take over
+      setTimeout(() => {
         if (requestIdRef.current === thisRequestId) {
           setIsPendingGameChange(false);
         }
-      });
+      }, 100);
     };
 
     window.addEventListener("selected-game-changed", handleGameChange as EventListener);
@@ -404,22 +434,36 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   // Use safe data that ignores stale responses
   const safeData = isResponseStale ? null : data;
   
+  // Debug info for tracking data scope and cache behavior
+  const debugInfo = {
+    currentSelectedGameId,
+    responseSelectedGameId: data?.selectedGameId ?? null,
+    selectedGameName: data?.selectedGameName ?? null,
+    isResponseStale,
+    isPendingGameChange,
+    isLoading,
+    swrKey: swrKey ? JSON.stringify(swrKey) : null,
+    lastFetchAt,
+    requestId: requestIdRef.current,
+    // CCU data validation
+    ccuPointsCount: data?.ccuHistory?.rawSnapshots?.length ?? 0,
+    ccuCurrentValue: data?.ccuHistory?.currentCcu ?? null,
+    // Tracker events validation
+    trackerEventsCount: data?.trackerStats?.totalEvents ?? 0,
+    lastTrackerEventAt: data?.dataHealth?.lastTrackerEventAt ?? null,
+  };
+
   // Debug in development when data arrives
   useEffect(() => {
     if (process.env.NODE_ENV === "development" && data && !isResponseStale) {
-      console.log("[v0] Overview stats scope debug", {
-        currentSelectedGameId,
-        responseSelectedGameId: data.selectedGameId,
-        selectedGameName: data.selectedGameName,
+      console.log("[v0] Analytics data loaded", {
+        ...debugInfo,
         trackedActions: data.trackerStats?.totalEvents ?? 0,
         estimatedRevenue: data.revenueStats?.estimatedRevenue ?? 0,
         purchases: data.revenueStats?.totalPurchases ?? 0,
-        trackedProducts: data.productStats?.products?.length ?? 0,
-        topProductsCount: data.monetizationCharts?.topProducts?.length ?? 0,
-        recentActivityCount: data.trackerStats?.totalEvents ?? 0,
       });
     }
-  }, [data, isResponseStale, currentSelectedGameId]);
+  }, [data, isResponseStale, currentSelectedGameId, debugInfo]);
 
   return {
     // Data - return null if response is stale or pending game change
@@ -470,6 +514,9 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
     // Utilities
     formatTime,
     formatTimeAgo,
+    
+    // Debug info for troubleshooting game switching issues
+    debugInfo,
   };
 }
 
