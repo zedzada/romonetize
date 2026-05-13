@@ -1114,13 +1114,17 @@ const handleSyncAndRefresh = useCallback(async () => {
                     </>
                   ) : null}
                   
-                  {/* Tracker events */}
+                  {/* Tracker events - KEY DIAGNOSTIC for tracker detection regression */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Tracker Events:</span>
+                    <span className="text-amber-400">Tracker Status (KEY):</span>
                   </div>
-                  <div>eventsCount: <span className="text-foreground">{safeTrackerStats.totalEvents || 0}</span></div>
+                  <div>hasTrackerEvents: <span className={analyticsDebugInfo?.hasTrackerEvents ? "text-green-400" : "text-red-400"}>{analyticsDebugInfo?.hasTrackerEvents ? "YES" : "NO"}</span></div>
+                  <div>eventsCount: <span className="text-foreground">{analyticsDebugInfo?.trackerEventsCount ?? 0}</span></div>
+                  <div>hasTrackerData: <span className={hasTrackerData ? "text-green-400" : "text-red-400"}>{hasTrackerData ? "YES" : "NO"}</span></div>
+                  <div>needsTracking: <span className={needsTrackingScript ? "text-red-400" : "text-green-400"}>{needsTrackingScript ? "YES" : "no"}</span></div>
+                  <div>missing: <span className="text-foreground text-[10px]">{JSON.stringify(analyticsDebugInfo?.missingFlags ?? [])}</span></div>
                   <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
-                  <div>latestEventAt: <span className="text-foreground">{safeTrackerStats.lastEventTime ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(safeTrackerStats.lastEventTime)) : "none"}</span></div>
+                  <div>latestEventAt: <span className="text-foreground">{analyticsDebugInfo?.lastTrackerEventAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(analyticsDebugInfo.lastTrackerEventAt)) : "none"}</span></div>
                   
                   {/* Polling status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
