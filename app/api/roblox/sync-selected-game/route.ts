@@ -503,13 +503,26 @@ export async function POST(request: Request) {
 
       // Store CCU snapshot for historical charts
       // Always insert even if CCU is 0, but not if null (API failed)
+      // This is append-only - never upsert or replace old snapshots
       if (stats.currentPlayers !== null) {
-        await supabaseAdmin.from("ccu_snapshots").insert({
+        const ccuSnapshotData = {
+          user_id: user.id,
           game_id: selectedGame.id,
+          roblox_game_id: selectedGame.roblox_game_id,
           ccu: stats.currentPlayers,
+          captured_at: new Date().toISOString(),
           source: "roblox_api",
           created_at: new Date().toISOString(),
-        });
+        };
+        
+        const { error: ccuError } = await supabaseAdmin.from("ccu_snapshots").insert(ccuSnapshotData);
+        
+        if (ccuError) {
+          console.error("[Roblox Sync] Error inserting CCU snapshot:", ccuError);
+          sectionErrors.ccuSnapshot = ccuError.message;
+        } else {
+          console.log("[Roblox Sync] CCU snapshot inserted:", stats.currentPlayers);
+        }
       }
 
       gameSync = {
