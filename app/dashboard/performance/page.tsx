@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -157,6 +158,15 @@ export default function PerformancePage() {
     range: toAnalyticsRange(chartRange),
   });
   
+  // Debug mode - show when ?debug=true in URL or in development
+  const searchParams = useSearchParams();
+  const isDebugMode = searchParams.get("debug") === "true" || process.env.NODE_ENV === "development";
+  
+  // Auto-polling for CCU snapshots (every 60 seconds while page is open)
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
+  const [pollCount, setPollCount] = useState(0);
+  
   // Sync Roblox data and then refresh analytics
   const [isSyncing, setIsSyncing] = useState(false);
   
@@ -172,12 +182,66 @@ export default function PerformancePage() {
       
       // Refresh analytics data to pick up new snapshot
       await refresh();
+      setLastPollTime(new Date());
+      setPollCount((c) => c + 1);
     } catch (err) {
       console.error("Failed to sync and refresh", err);
     } finally {
       setIsSyncing(false);
     }
   }, [refresh]);
+  
+  // Auto-polling: Every 60 seconds, fetch current Roblox stats and insert a CCU snapshot
+  // This makes 1m interval mode actually useful
+  useEffect(() => {
+    // Start polling after initial load
+    const startPolling = () => {
+      pollingIntervalRef.current = setInterval(async () => {
+        try {
+          // Silent sync - don't show loading state
+          await fetch("/api/roblox/sync-selected-game", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ includeProducts: false }),
+          });
+          await refresh();
+          setLastPollTime(new Date());
+          setPollCount((c) => c + 1);
+        } catch (err) {
+          console.error("Auto-poll failed:", err);
+        }
+      }, 60 * 1000); // Every 60 seconds
+    };
+    
+    // Backfill one snapshot immediately if there are 0 snapshots
+    const backfillIfNeeded = async () => {
+      if (!rawCcuHistory?.rawSnapshots?.length) {
+        try {
+          await fetch("/api/roblox/sync-selected-game", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ includeProducts: false }),
+          });
+          await refresh();
+          setLastPollTime(new Date());
+          setPollCount((c) => c + 1);
+        } catch (err) {
+          console.error("Initial backfill failed:", err);
+        }
+      }
+    };
+    
+    backfillIfNeeded();
+    startPolling();
+    
+    // Cleanup on unmount
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [refresh, rawCcuHistory?.rawSnapshots?.length]);
   
   // Process CCU history data client-side based on selected range and interval
   // This allows instant range/interval switching without API refetch
@@ -836,6 +900,42 @@ export default function PerformancePage() {
                 </div>
               </div>
             </CardHeader>
+            
+            {/* Dev Debug Block - only shown with ?debug=true or in development */}
+            {isDebugMode && (
+              <div className="mx-6 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono">
+                <div className="font-semibold text-amber-500 mb-2">CCU Debug Info</div>
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
+                  <div>selectedGameId: <span className="text-foreground">{selectedGame?.id?.slice(0, 8) || "none"}...</span></div>
+                  <div>robloxGameId: <span className="text-foreground">{selectedGame?.roblox_game_id || "none"}</span></div>
+                  <div>currentCcuFromApi: <span className="text-foreground">{robloxStats?.ccu ?? "null"}</span></div>
+                  <div>snapshotsCount: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
+                  <div>source: <span className="text-foreground">{rawCcuHistory?.source ?? "none"}</span></div>
+                  <div>chartRange: <span className="text-foreground">{ccuRange}</span></div>
+                  <div>chartInterval: <span className="text-foreground">{ccuInterval}</span></div>
+                  <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.data.length}</span></div>
+                  {rawCcuHistory?.rawSnapshots?.length ? (
+                    <>
+                      <div>oldestSnapshot: <span className="text-foreground">
+                        {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(rawCcuHistory.rawSnapshots[0].time))}
+                      </span></div>
+                      <div>latestSnapshot: <span className="text-foreground">
+                        {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1].time))}
+                      </span></div>
+                    </>
+                  ) : null}
+                  {processedCcuHistory.data.length > 0 && (
+                    <>
+                      <div>chartFirstPoint: <span className="text-foreground">{processedCcuHistory.data[0].timeLabel} ({processedCcuHistory.data[0].ccu})</span></div>
+                      <div>chartLastPoint: <span className="text-foreground">{processedCcuHistory.data[processedCcuHistory.data.length - 1].timeLabel} ({processedCcuHistory.data[processedCcuHistory.data.length - 1].ccu})</span></div>
+                    </>
+                  )}
+                  <div>lastPollTime: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
+                  <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
+                </div>
+              </div>
+            )}
+            
             <CardContent>
               <div className="h-[380px]">
                 {processedCcuHistory.data.length > 0 ? (

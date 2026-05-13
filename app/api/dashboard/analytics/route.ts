@@ -1081,16 +1081,17 @@ export async function GET(request: NextRequest) {
   };
 
   try {
+    // Use captured_at for time filtering (preferred), fallback to created_at
     const { data: ccuSnapshots } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, created_at")
+      .select("ccu, captured_at, created_at")
       .eq("game_id", gameId)
-      .gte("created_at", startDate.toISOString())
-      .order("created_at", { ascending: true });
+      .or(`captured_at.gte.${startDate.toISOString()},and(captured_at.is.null,created_at.gte.${startDate.toISOString()})`)
+      .order("captured_at", { ascending: true, nullsFirst: false });
 
     if (ccuSnapshots && ccuSnapshots.length > 0) {
       ccuStats.snapshots = ccuSnapshots.map((s) => ({
-        time: s.created_at,
+        time: s.captured_at || s.created_at,
         ccu: s.ccu,
       }));
       ccuStats.current = ccuSnapshots[ccuSnapshots.length - 1].ccu;
@@ -1121,19 +1122,20 @@ export async function GET(request: NextRequest) {
   };
   
   try {
-    // PRIMARY: Fetch from ccu_snapshots table (populated by cron job and sync)
+    // PRIMARY: Fetch from ccu_snapshots table (populated by sync and auto-polling)
+    // Use captured_at for time filtering (preferred), fallback to created_at for older rows
     const { data: ccuSnapshotsData } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, created_at")
+      .select("ccu, captured_at, created_at")
       .eq("game_id", gameId)
-      .gte("created_at", ccuHistoryStart.toISOString())
-      .order("created_at", { ascending: true });
+      .or(`captured_at.gte.${ccuHistoryStart.toISOString()},and(captured_at.is.null,created_at.gte.${ccuHistoryStart.toISOString()})`)
+      .order("captured_at", { ascending: true, nullsFirst: false });
     
     if (ccuSnapshotsData && ccuSnapshotsData.length > 0) {
       ccuHistory.rawSnapshots = ccuSnapshotsData
         .filter((snap) => snap.ccu !== null)
         .map((snap) => ({
-          time: snap.created_at,
+          time: snap.captured_at || snap.created_at,
           ccu: snap.ccu as number,
         }));
       ccuHistory.source = "ccu_snapshots";

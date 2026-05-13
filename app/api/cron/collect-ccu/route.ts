@@ -109,12 +109,22 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // Insert CCU snapshot
+        // Get user_id for the game (needed for RLS)
+        const { data: gameOwner } = await supabase
+          .from("games")
+          .select("user_id, roblox_game_id")
+          .eq("id", game.id)
+          .single();
+
+        // Insert CCU snapshot with all required fields
         const { error: insertError } = await supabase
           .from("ccu_snapshots")
           .insert({
+            user_id: gameOwner?.user_id,
             game_id: game.id,
+            roblox_game_id: gameOwner?.roblox_game_id || game.roblox_game_id,
             ccu: stats.currentPlayers,
+            captured_at: new Date().toISOString(),
             source: "cron_job",
             created_at: new Date().toISOString(),
           });
@@ -153,14 +163,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    // Cleanup old CCU snapshots (keep last 30 days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-
-    await supabase
-      .from("ccu_snapshots")
-      .delete()
-      .lt("created_at", thirtyDaysAgo.toISOString());
+    // NOTE: CCU snapshots are append-only. No automatic cleanup.
+    // Manual cleanup can be done via admin API if needed.
 
     const successCount = results.filter((r) => r.success).length;
     const failCount = results.filter((r) => !r.success).length;
