@@ -281,6 +281,7 @@ const fetcher = async (url: string) => {
  */
 export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
+  // Track the current selected game ID - starts null, gets populated from API response or game change event
   const [currentSelectedGameId, setCurrentSelectedGameId] = useState<string | null>(selectedGameId || null);
   // Track pending game change to show loading state immediately
   const [isPendingGameChange, setIsPendingGameChange] = useState(false);
@@ -289,13 +290,17 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   // Track last fetch timestamp for debug
   const [lastFetchAt, setLastFetchAt] = useState<string | null>(null);
   
-  // Build SWR cache key - MUST include selectedGameId for proper cache isolation
-  // This ensures switching games creates a new cache entry and doesn't reuse stale data
-  const swrKey = enabled && currentSelectedGameId
-    ? ["analytics", currentSelectedGameId, range, gameId || "default"]
+  // Build SWR cache key
+  // - When currentSelectedGameId is known, include it for proper cache isolation
+  // - On initial load (null), use "auto" to let API determine selected game server-side
+  // This ensures we fetch data on initial load even before knowing the selected game
+  const effectiveGameKey = currentSelectedGameId || "auto";
+  const swrKey = enabled
+    ? ["analytics", effectiveGameKey, range, gameId || "default"]
     : null;
   
-  // Build API URL - include selectedGameId to ensure fresh data for correct game
+  // Build API URL - only include selectedGameId if explicitly set (for game switching)
+  // On initial load, the API uses the server-side is_selected game
   const apiUrl = `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${currentSelectedGameId ? `&selectedGameId=${currentSelectedGameId}` : ""}`;
 
   // Custom fetcher that uses the URL and tracks fetch time
@@ -320,7 +325,16 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
     }
   );
   
+  // On initial load, populate currentSelectedGameId from API response
+  // This ensures subsequent cache keys are game-specific
+  useEffect(() => {
+    if (data?.selectedGameId && !currentSelectedGameId) {
+      setCurrentSelectedGameId(data.selectedGameId);
+    }
+  }, [data?.selectedGameId, currentSelectedGameId]);
+
   // Validate response matches current selected game - ignore stale responses from in-flight requests
+  // Only validate if we have an explicit currentSelectedGameId (not "auto" initial load)
   const isResponseStale = data && currentSelectedGameId && data.selectedGameId !== currentSelectedGameId;
 
   // Get game IDs for realtime subscription
@@ -436,21 +450,31 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   
   // Debug info for tracking data scope and cache behavior
   const debugInfo = {
+    // Game identity
     currentSelectedGameId,
     responseSelectedGameId: data?.selectedGameId ?? null,
     selectedGameName: data?.selectedGameName ?? null,
+    // Cache/fetch state
     isResponseStale,
     isPendingGameChange,
     isLoading,
     swrKey: swrKey ? JSON.stringify(swrKey) : null,
     lastFetchAt,
     requestId: requestIdRef.current,
+    // Tracker status - THE KEY DIAGNOSTIC for this regression
+    hasTrackerEvents: data?.dataHealth?.hasTrackerEvents ?? false,
+    trackerEventsCount: data?.dataHealth?.trackerEventsCount ?? 0,
+    lastTrackerEventAt: data?.dataHealth?.lastTrackerEventAt ?? null,
+    needsTrackingScript,
+    hasTrackerData,
+    // What the missing array says
+    missingFlags: data?.dataHealth?.missing ?? [],
     // CCU data validation
     ccuPointsCount: data?.ccuHistory?.rawSnapshots?.length ?? 0,
     ccuCurrentValue: data?.ccuHistory?.currentCcu ?? null,
-    // Tracker events validation
-    trackerEventsCount: data?.trackerStats?.totalEvents ?? 0,
-    lastTrackerEventAt: data?.dataHealth?.lastTrackerEventAt ?? null,
+    // Plan info
+    userPlan: data?.userPlan ?? "unknown",
+    monetizationLocked: data?.monetizationLocked ?? false,
   };
 
   // Debug in development when data arrives
