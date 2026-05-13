@@ -401,8 +401,10 @@ const handleSyncAndRefresh = useCallback(async () => {
   }, [rawCcuHistory, ccuRange, ccuInterval]);
   
   // Filter chart data based on selected range and fill missing buckets up to NOW
-  const { performanceCharts, ccuStats } = useMemo(() => {
+  const { performanceCharts, ccuStats, chartDebugInfo } = useMemo(() => {
     const now = new Date();
+    const rangeEnd = now; // Always use current time as range end
+    
     const getHoursAgo = (range: PerformanceRange): number => {
       switch (range) {
         case "24h": return 24;
@@ -416,14 +418,14 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     const rangeHours = getHoursAgo(chartRange);
     const rangeMs = rangeHours * 60 * 60 * 1000;
-    const rangeStart = new Date(now.getTime() - rangeMs);
+    const rangeStart = new Date(rangeEnd.getTime() - rangeMs);
     
     // Determine bucket interval based on range
     // 24h/72h = hourly, 7d+ = daily
     const isHourly = chartRange === "24h" || chartRange === "72h";
     const bucketMs = isHourly ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
     
-    // Generate all bucket timestamps from rangeStart to now
+    // Generate all bucket timestamps from rangeStart to rangeEnd (now), including current hour
     const generateBuckets = (): number[] => {
       const buckets: number[] = [];
       // Round rangeStart down to bucket boundary
@@ -437,8 +439,12 @@ const handleSyncAndRefresh = useCallback(async () => {
         bucketTime = startDay.getTime();
       }
       
-      const nowMs = now.getTime();
-      while (bucketTime <= nowMs) {
+      // Include the current bucket (bucket containing rangeEnd/now)
+      const endBucketTime = isHourly 
+        ? Math.floor(rangeEnd.getTime() / bucketMs) * bucketMs
+        : (() => { const d = new Date(rangeEnd); d.setHours(0, 0, 0, 0); return d.getTime(); })();
+      
+      while (bucketTime <= endBucketTime) {
         buckets.push(bucketTime);
         bucketTime += bucketMs;
       }
@@ -447,7 +453,7 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     const allBuckets = generateBuckets();
     
-    // Fill missing buckets for chart data
+    // Fill missing buckets for chart data - buckets with no data get value 0
     const fillBuckets = <T extends { date: string }>(
       data: T[] | undefined,
       valueKey: string,
@@ -455,11 +461,26 @@ const handleSyncAndRefresh = useCallback(async () => {
     ): T[] => {
       if (!data) return [];
       
-      // Create a map of existing data by bucket
+      // Create a map of existing data by bucket timestamp
       const dataMap = new Map<number, T>();
       data.forEach((d) => {
-        const dateMs = new Date(d.date).getTime();
-        // Round to bucket
+        // Parse the API bucket key - could be ISO string or partial ISO
+        // API formats: "2024-01-15T12:00" (hourly), "2024-01-15" (daily)
+        let dateMs: number;
+        if (d.date.length === 10) {
+          // Daily: "2024-01-15" - treat as local midnight
+          const [year, month, day] = d.date.split("-").map(Number);
+          const localDate = new Date(year, month - 1, day, 0, 0, 0, 0);
+          dateMs = localDate.getTime();
+        } else if (d.date.includes("T") && d.date.length <= 16) {
+          // Hourly: "2024-01-15T12:00" - parse as UTC then round to hour
+          dateMs = new Date(d.date + ":00.000Z").getTime();
+        } else {
+          // Full ISO string
+          dateMs = new Date(d.date).getTime();
+        }
+        
+        // Round to bucket boundary
         let bucketKey: number;
         if (isHourly) {
           bucketKey = Math.floor(dateMs / bucketMs) * bucketMs;
@@ -468,24 +489,29 @@ const handleSyncAndRefresh = useCallback(async () => {
           day.setHours(0, 0, 0, 0);
           bucketKey = day.getTime();
         }
-        // Keep the one with higher value if duplicate
+        
+        // Accumulate values for same bucket (sum, not replace)
         const existing = dataMap.get(bucketKey);
-        if (!existing || (d as Record<string, unknown>)[valueKey] as number > (existing as Record<string, unknown>)[valueKey] as number) {
-          dataMap.set(bucketKey, d);
+        if (existing) {
+          const existingValue = (existing as Record<string, unknown>)[valueKey] as number || 0;
+          const newValue = (d as Record<string, unknown>)[valueKey] as number || 0;
+          (existing as Record<string, unknown>)[valueKey] = existingValue + newValue;
+        } else {
+          dataMap.set(bucketKey, { ...d });
         }
       });
       
-      // Fill all buckets
-      return allBuckets.map((bucketMs) => {
-        const existing = dataMap.get(bucketMs);
+      // Fill all buckets from rangeStart to now
+      return allBuckets.map((bucketTimestamp) => {
+        const existing = dataMap.get(bucketTimestamp);
         if (existing) return existing;
         
-        // Create empty bucket
+        // Create empty bucket with value 0
         return {
-          date: new Date(bucketMs).toISOString(),
+          date: new Date(bucketTimestamp).toISOString(),
           [valueKey]: defaultValue,
         } as T;
-      }).filter((d) => new Date(d.date).getTime() >= rangeStart.getTime());
+      });
     };
     
     // Filter CCU snapshots
@@ -493,10 +519,35 @@ const handleSyncAndRefresh = useCallback(async () => {
       (s) => new Date(s.time) >= rangeStart
     ) ?? [];
     
+    // Build debug info for development
+    const eventsData = rawPerformanceCharts?.eventsOverTime || [];
+    const filledEvents = fillBuckets(eventsData, "events");
+    
+    const debugInfo = {
+      chartName: "eventsOverTime",
+      rangeStart: rangeStart.toISOString(),
+      rangeEnd: rangeEnd.toISOString(),
+      rawEventsCount: eventsData.length,
+      firstEventAt: eventsData[0]?.date || null,
+      lastEventAt: eventsData[eventsData.length - 1]?.date || null,
+      bucketCount: allBuckets.length,
+      firstBucket: allBuckets[0] ? new Date(allBuckets[0]).toISOString() : null,
+      lastBucket: allBuckets[allBuckets.length - 1] ? new Date(allBuckets[allBuckets.length - 1]).toISOString() : null,
+      lastThreeBuckets: allBuckets.slice(-3).map(b => ({
+        timestamp: new Date(b).toISOString(),
+        hasData: eventsData.some(e => {
+          const eMs = new Date(e.date).getTime();
+          return Math.floor(eMs / bucketMs) * bucketMs === b;
+        }),
+      })),
+      filledBucketCount: filledEvents.length,
+      lastThreeFilledBuckets: filledEvents.slice(-3),
+    };
+    
     return {
       performanceCharts: rawPerformanceCharts ? {
         ...rawPerformanceCharts,
-        eventsOverTime: fillBuckets(rawPerformanceCharts.eventsOverTime, "events"),
+        eventsOverTime: filledEvents,
         playersOverTime: fillBuckets(rawPerformanceCharts.playersOverTime, "players"),
         sessionsOverTime: fillBuckets(rawPerformanceCharts.sessionsOverTime, "sessions"),
         purchasesOverTime: fillBuckets(rawPerformanceCharts.purchasesOverTime, "purchases"),
@@ -505,6 +556,7 @@ const handleSyncAndRefresh = useCallback(async () => {
         ...rawCcuStats,
         snapshots: filteredCcuSnapshots,
       } : null,
+      chartDebugInfo: debugInfo,
     };
   }, [rawPerformanceCharts, rawCcuStats, chartRange]);
 
@@ -1112,6 +1164,42 @@ const handleSyncAndRefresh = useCallback(async () => {
               ranges={["24h", "72h", "7d", "28d", "90d"]}
             />
           </div>
+          
+          {/* Chart Aggregation Debug Block - only shown with ?debug=true */}
+          {isDebugMode && chartDebugInfo && (
+            <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-xs font-mono">
+              <div className="font-semibold text-blue-500 mb-2">Chart Aggregation Debug (eventsOverTime)</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
+                <div>rangeStart: <span className="text-foreground">{chartDebugInfo.rangeStart?.slice(0, 16) || "null"}</span></div>
+                <div>rangeEnd: <span className="text-foreground">{chartDebugInfo.rangeEnd?.slice(0, 16) || "null"}</span></div>
+                <div>rawEventsCount: <span className="text-foreground">{chartDebugInfo.rawEventsCount}</span></div>
+                <div>bucketCount: <span className="text-foreground">{chartDebugInfo.bucketCount}</span></div>
+                <div>filledBucketCount: <span className="text-foreground">{chartDebugInfo.filledBucketCount}</span></div>
+                <div>firstEventAt: <span className="text-foreground">{chartDebugInfo.firstEventAt?.slice(0, 16) || "none"}</span></div>
+                <div>lastEventAt: <span className="text-foreground">{chartDebugInfo.lastEventAt?.slice(0, 16) || "none"}</span></div>
+                <div>firstBucket: <span className="text-foreground">{chartDebugInfo.firstBucket?.slice(11, 16) || "none"}</span></div>
+                <div>lastBucket: <span className="text-foreground">{chartDebugInfo.lastBucket?.slice(11, 16) || "none"}</span></div>
+              </div>
+              {chartDebugInfo.lastThreeBuckets && (
+                <div className="mt-2 text-muted-foreground">
+                  lastThreeBuckets: {chartDebugInfo.lastThreeBuckets.map((b: { timestamp: string; hasData: boolean }) => (
+                    <span key={b.timestamp} className={`mr-2 ${b.hasData ? "text-green-500" : "text-red-400"}`}>
+                      {b.timestamp.slice(11, 16)}({b.hasData ? "data" : "empty"})
+                    </span>
+                  ))}
+                </div>
+              )}
+              {chartDebugInfo.lastThreeFilledBuckets && (
+                <div className="mt-1 text-muted-foreground">
+                  lastThreeFilledBuckets: {chartDebugInfo.lastThreeFilledBuckets.map((b: { date: string; events?: number }) => (
+                    <span key={b.date} className="mr-2 text-foreground">
+                      {new Date(b.date).toISOString().slice(11, 16)}:{b.events ?? 0}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Activity Over Time */}
