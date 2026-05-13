@@ -1051,13 +1051,30 @@ const handleSyncAndRefresh = useCallback(async () => {
               </div>
             </CardHeader>
             
-            {/* Dev Debug Block - only shown with ?debug=true or in development */}
+            {/* Dev Debug Block - only shown with ?debug=true */}
             {isDebugMode && (
               <div className="mx-6 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono">
-                <div className="font-semibold text-amber-500 mb-2">CCU Debug Info</div>
+                <div className="font-semibold text-amber-500 mb-2">Game &amp; CCU Debug Info</div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
+                  {/* Game identity */}
                   <div>selectedGameId: <span className="text-foreground">{selectedGame?.id?.slice(0, 8) || "none"}...</span></div>
                   <div>robloxGameId: <span className="text-foreground">{selectedGame?.roblox_game_id || "none"}</span></div>
+                  <div>gameName: <span className="text-foreground">{selectedGame?.name?.slice(0, 20) || "none"}</span></div>
+                  
+                  {/* Tracker events (from Roblox script) */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Tracker Events (Roblox Script):</span>
+                  </div>
+                  <div>eventsCount24h: <span className="text-foreground">{safeTrackerStats.totalEvents || 0}</span></div>
+                  <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
+                  <div>newPlayers: <span className="text-foreground">{safeTrackerStats.newPlayers || 0}</span></div>
+                  <div>returningPlayers: <span className="text-foreground">{safeTrackerStats.returningPlayers || 0}</span></div>
+                  <div>latestEventAt: <span className="text-foreground">{safeTrackerStats.lastEventTime ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(safeTrackerStats.lastEventTime)) : "none"}</span></div>
+                  
+                  {/* CCU snapshots (from Roblox API / cron) */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">CCU Snapshots (Roblox API / Cron):</span>
+                  </div>
                   <div>currentCcuFromApi: <span className="text-foreground">{robloxStats?.ccu ?? "null"}</span></div>
                   <div>snapshotsCount: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
                   <div>source: <span className="text-foreground">{rawCcuHistory?.source ?? "none"}</span></div>
@@ -1080,8 +1097,14 @@ const handleSyncAndRefresh = useCallback(async () => {
                       <div>chartLastPoint: <span className="text-foreground">{processedCcuHistory.data[processedCcuHistory.data.length - 1].timeLabel} ({processedCcuHistory.data[processedCcuHistory.data.length - 1].ccu})</span></div>
                     </>
                   )}
+                  
+                  {/* Polling status */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Browser Polling (backup):</span>
+                  </div>
                   <div>lastPollTime: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
                   <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
+                  <div className="col-span-2 text-amber-300/70">Note: Primary CCU comes from cron (every 5 min). Browser polling is backup only.</div>
                 </div>
               </div>
             )}
