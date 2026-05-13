@@ -173,17 +173,16 @@ export default function PerformancePage() {
   // Sync Roblox data and then refresh analytics
   const [isSyncing, setIsSyncing] = useState(false);
   
-  const handleSyncAndRefresh = useCallback(async () => {
+const handleSyncAndRefresh = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // Call sync endpoint to insert new CCU snapshot
-      await fetch("/api/roblox/sync-selected-game", {
+      // Sync CCU for ALL connected games (not just selected)
+      await fetch("/api/roblox/sync-all-ccu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ includeProducts: false }),
       });
       
-      // Refresh analytics data to pick up new snapshot
+      // Refresh analytics data for the currently selected game
       await refresh();
       setLastPollTime(new Date());
       setPollCount((c) => c + 1);
@@ -194,27 +193,27 @@ export default function PerformancePage() {
     }
   }, [refresh]);
   
-  // Auto-polling: Every 60 seconds, fetch current Roblox stats, insert CCU snapshot, and refresh charts
+  // Auto-polling: Every 60 seconds, sync CCU for ALL connected games, then refresh charts
+  // This ensures all games collect CCU data even when viewing a different game
   // Resilient to failures - one failed poll doesn't stop future polls
   // Handles visibility changes - resumes immediately when tab becomes visible
   useEffect(() => {
     let isMounted = true;
     
-    // Single poll function - fetches stats, inserts CCU, refreshes all data
+    // Single poll function - syncs CCU for ALL games, refreshes selected game data
     const doPoll = async (isVisibilityResume = false) => {
       if (!isMounted) return;
       
       try {
-        // Silent sync - don't show loading state
-        await fetch("/api/roblox/sync-selected-game", {
+        // Sync CCU for ALL connected games (not just selected)
+        await fetch("/api/roblox/sync-all-ccu", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ includeProducts: false }),
         });
         
         if (!isMounted) return;
         
-        // Refresh all analytics data (CCU + performance charts)
+        // Refresh analytics data for the currently selected game
         await refresh();
         
         if (!isMounted) return;
