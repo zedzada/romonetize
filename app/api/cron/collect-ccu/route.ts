@@ -116,13 +116,27 @@ export async function GET(request: NextRequest) {
           .eq("id", game.id)
           .single();
 
+        // Resolve roblox_game_id - never insert without it
+        const resolvedRobloxGameId = gameOwner?.roblox_game_id || game.roblox_game_id || game.universe_id;
+        
+        // GUARD: Never insert CCU snapshot without roblox_game_id
+        if (!resolvedRobloxGameId) {
+          results.push({
+            game_id: game.id,
+            ccu: stats.currentPlayers,
+            success: false,
+            error: "Skipped: No roblox_game_id",
+          });
+          continue;
+        }
+
         // Insert CCU snapshot with all required fields
         const { error: insertError } = await supabase
           .from("ccu_snapshots")
           .insert({
             user_id: gameOwner?.user_id,
             game_id: game.id,
-            roblox_game_id: gameOwner?.roblox_game_id || game.roblox_game_id,
+            roblox_game_id: resolvedRobloxGameId, // Use resolved ID, never null
             ccu: stats.currentPlayers,
             captured_at: new Date().toISOString(),
             source: "cron_job",
