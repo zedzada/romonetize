@@ -182,12 +182,28 @@ export async function GET(request: NextRequest) {
 
     const successCount = results.filter((r) => r.success).length;
     const failCount = results.filter((r) => !r.success).length;
+    
+    // Count unique users processed
+    const userIds = new Set<string>();
+    for (const game of games) {
+      const { data: gameData } = await supabase
+        .from("games")
+        .select("user_id")
+        .eq("id", game.id)
+        .single();
+      if (gameData?.user_id) userIds.add(gameData.user_id);
+    }
 
     return NextResponse.json({
       success: true,
       message: `Collected CCU for ${successCount}/${results.length} games`,
-      collected: successCount,
+      // Stats matching the spec
+      usersProcessed: userIds.size,
+      gamesProcessed: games.length,
+      inserted: successCount,
       failed: failCount,
+      // Legacy fields for backward compatibility
+      collected: successCount,
       results,
       timestamp: new Date().toISOString(),
     });
