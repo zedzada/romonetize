@@ -194,51 +194,81 @@ export default function PerformancePage() {
     }
   }, [refresh]);
   
-  // Auto-polling: Every 60 seconds, fetch current Roblox stats and insert a CCU snapshot
-  // This makes 1m interval mode actually useful
+  // Auto-polling: Every 60 seconds, fetch current Roblox stats, insert CCU snapshot, and refresh charts
+  // Resilient to failures - one failed poll doesn't stop future polls
+  // Handles visibility changes - resumes immediately when tab becomes visible
   useEffect(() => {
-    // Start polling after initial load
-    const startPolling = () => {
-      pollingIntervalRef.current = setInterval(async () => {
-        try {
-          // Silent sync - don't show loading state
-          await fetch("/api/roblox/sync-selected-game", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ includeProducts: false }),
-          });
-          await refresh();
-          setLastPollTime(new Date());
-          setPollCount((c) => c + 1);
-        } catch (err) {
-          console.error("Auto-poll failed:", err);
-        }
-      }, 60 * 1000); // Every 60 seconds
-    };
+    let isMounted = true;
     
-    // Backfill one snapshot immediately if there are 0 snapshots
-    const backfillIfNeeded = async () => {
-      if (!rawCcuHistory?.rawSnapshots?.length) {
-        try {
-          await fetch("/api/roblox/sync-selected-game", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ includeProducts: false }),
-          });
-          await refresh();
-          setLastPollTime(new Date());
-          setPollCount((c) => c + 1);
-        } catch (err) {
-          console.error("Initial backfill failed:", err);
+    // Single poll function - fetches stats, inserts CCU, refreshes all data
+    const doPoll = async (isVisibilityResume = false) => {
+      if (!isMounted) return;
+      
+      try {
+        // Silent sync - don't show loading state
+        await fetch("/api/roblox/sync-selected-game", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ includeProducts: false }),
+        });
+        
+        if (!isMounted) return;
+        
+        // Refresh all analytics data (CCU + performance charts)
+        await refresh();
+        
+        if (!isMounted) return;
+        
+        setLastPollTime(new Date());
+        setPollCount((c) => c + 1);
+      } catch (err) {
+        // Log error but continue polling - one failure shouldn't stop the polling
+        if (process.env.NODE_ENV === "development") {
+          console.error("Auto-poll failed (will retry next interval):", err);
         }
       }
     };
     
-    backfillIfNeeded();
+    // Start polling interval
+    const startPolling = () => {
+      // Clear any existing interval first
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+      
+      pollingIntervalRef.current = setInterval(() => {
+        doPoll(false);
+      }, 60 * 1000); // Every 60 seconds
+    };
+    
+    // Handle visibility change - resume polling when tab becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        // Tab became visible - poll immediately and restart interval
+        doPoll(true);
+        startPolling();
+      } else {
+        // Tab hidden - stop polling to save resources
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+      }
+    };
+    
+    // Initial setup
+    // Backfill one snapshot immediately if there are 0 snapshots
+    if (!rawCcuHistory?.rawSnapshots?.length) {
+      doPoll(false);
+    }
+    
     startPolling();
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     
     // Cleanup on unmount
     return () => {
+      isMounted = false;
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
@@ -371,7 +401,7 @@ export default function PerformancePage() {
     return { data, currentCcu, peakCcu, avgCcu };
   }, [rawCcuHistory, ccuRange, ccuInterval]);
   
-  // Filter chart data based on selected range
+  // Filter chart data based on selected range and fill missing buckets up to NOW
   const { performanceCharts, ccuStats } = useMemo(() => {
     const now = new Date();
     const getHoursAgo = (range: PerformanceRange): number => {
@@ -385,26 +415,92 @@ export default function PerformancePage() {
       }
     };
     
-    const cutoffTime = new Date(now.getTime() - getHoursAgo(chartRange) * 60 * 60 * 1000);
+    const rangeHours = getHoursAgo(chartRange);
+    const rangeMs = rangeHours * 60 * 60 * 1000;
+    const rangeStart = new Date(now.getTime() - rangeMs);
+    
+    // Determine bucket interval based on range
+    // 24h/72h = hourly, 7d+ = daily
+    const isHourly = chartRange === "24h" || chartRange === "72h";
+    const bucketMs = isHourly ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000;
+    
+    // Generate all bucket timestamps from rangeStart to now
+    const generateBuckets = (): number[] => {
+      const buckets: number[] = [];
+      // Round rangeStart down to bucket boundary
+      let bucketTime: number;
+      if (isHourly) {
+        bucketTime = Math.floor(rangeStart.getTime() / bucketMs) * bucketMs;
+      } else {
+        // For daily, use local midnight
+        const startDay = new Date(rangeStart);
+        startDay.setHours(0, 0, 0, 0);
+        bucketTime = startDay.getTime();
+      }
+      
+      const nowMs = now.getTime();
+      while (bucketTime <= nowMs) {
+        buckets.push(bucketTime);
+        bucketTime += bucketMs;
+      }
+      return buckets;
+    };
+    
+    const allBuckets = generateBuckets();
+    
+    // Fill missing buckets for chart data
+    const fillBuckets = <T extends { date: string }>(
+      data: T[] | undefined,
+      valueKey: string,
+      defaultValue: number = 0
+    ): T[] => {
+      if (!data) return [];
+      
+      // Create a map of existing data by bucket
+      const dataMap = new Map<number, T>();
+      data.forEach((d) => {
+        const dateMs = new Date(d.date).getTime();
+        // Round to bucket
+        let bucketKey: number;
+        if (isHourly) {
+          bucketKey = Math.floor(dateMs / bucketMs) * bucketMs;
+        } else {
+          const day = new Date(dateMs);
+          day.setHours(0, 0, 0, 0);
+          bucketKey = day.getTime();
+        }
+        // Keep the one with higher value if duplicate
+        const existing = dataMap.get(bucketKey);
+        if (!existing || (d as Record<string, unknown>)[valueKey] as number > (existing as Record<string, unknown>)[valueKey] as number) {
+          dataMap.set(bucketKey, d);
+        }
+      });
+      
+      // Fill all buckets
+      return allBuckets.map((bucketMs) => {
+        const existing = dataMap.get(bucketMs);
+        if (existing) return existing;
+        
+        // Create empty bucket
+        return {
+          date: new Date(bucketMs).toISOString(),
+          [valueKey]: defaultValue,
+        } as T;
+      }).filter((d) => new Date(d.date).getTime() >= rangeStart.getTime());
+    };
     
     // Filter CCU snapshots
     const filteredCcuSnapshots = rawCcuStats?.snapshots?.filter(
-      (s) => new Date(s.time) >= cutoffTime
+      (s) => new Date(s.time) >= rangeStart
     ) ?? [];
-    
-    // Filter performance chart data
-    const filterByDate = <T extends { date: string }>(data: T[] | undefined): T[] => {
-      if (!data) return [];
-      return data.filter((d) => new Date(d.date) >= cutoffTime);
-    };
     
     return {
       performanceCharts: rawPerformanceCharts ? {
         ...rawPerformanceCharts,
-        eventsOverTime: filterByDate(rawPerformanceCharts.eventsOverTime),
-        playersOverTime: filterByDate(rawPerformanceCharts.playersOverTime),
-        sessionsOverTime: filterByDate(rawPerformanceCharts.sessionsOverTime),
-        purchasesOverTime: filterByDate(rawPerformanceCharts.purchasesOverTime),
+        eventsOverTime: fillBuckets(rawPerformanceCharts.eventsOverTime, "events"),
+        playersOverTime: fillBuckets(rawPerformanceCharts.playersOverTime, "players"),
+        sessionsOverTime: fillBuckets(rawPerformanceCharts.sessionsOverTime, "sessions"),
+        purchasesOverTime: fillBuckets(rawPerformanceCharts.purchasesOverTime, "purchases"),
       } : null,
       ccuStats: rawCcuStats ? {
         ...rawCcuStats,
