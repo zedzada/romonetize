@@ -152,6 +152,9 @@ export default function PerformancePage() {
     hasTrackerData,
     hasRobloxData,
     monetizationLocked,
+    selectedGameId,
+    selectedGameName,
+    debugInfo: analyticsDebugInfo,
   } = useAnalytics({ 
     enabled: true, 
     range: toAnalyticsRange(chartRange),
@@ -197,8 +200,11 @@ const handleSyncAndRefresh = useCallback(async () => {
   // This ensures all games collect CCU data even when viewing a different game
   // Resilient to failures - one failed poll doesn't stop future polls
   // Handles visibility changes - resumes immediately when tab becomes visible
+  // IMPORTANT: Resets when selectedGameId changes to ensure clean state
   useEffect(() => {
     let isMounted = true;
+    // Track which game this polling instance is for
+    const pollingGameId = selectedGameId;
     
     // Single poll function - syncs CCU for ALL games, refreshes selected game data
     const doPoll = async (isVisibilityResume = false) => {
@@ -255,25 +261,42 @@ const handleSyncAndRefresh = useCallback(async () => {
       }
     };
     
+    // Handle game change - reset polling state
+    const handleGameChange = () => {
+      // Reset poll count when game changes
+      setPollCount(0);
+      setLastPollTime(null);
+      
+      if (process.env.NODE_ENV === "development") {
+        console.log("[v0] Polling reset due to game change");
+      }
+    };
+    
     // Initial setup
+    // Reset poll count for new game
+    setPollCount(0);
+    setLastPollTime(null);
+    
     // Backfill one snapshot immediately if there are 0 snapshots
-    if (!rawCcuHistory?.rawSnapshots?.length) {
+    if (!rawCcuHistory?.rawSnapshots?.length && pollingGameId) {
       doPoll(false);
     }
     
     startPolling();
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("selected-game-changed", handleGameChange);
     
-    // Cleanup on unmount
+    // Cleanup on unmount OR when selectedGameId changes
     return () => {
       isMounted = false;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("selected-game-changed", handleGameChange);
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
       }
     };
-  }, [refresh, rawCcuHistory?.rawSnapshots?.length]);
+  }, [refresh, rawCcuHistory?.rawSnapshots?.length, selectedGameId]);
   
   // Process CCU history data client-side based on selected range and interval
   // This allows instant range/interval switching without API refetch
@@ -1054,32 +1077,31 @@ const handleSyncAndRefresh = useCallback(async () => {
             {/* Dev Debug Block - only shown with ?debug=true */}
             {isDebugMode && (
               <div className="mx-6 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono">
-                <div className="font-semibold text-amber-500 mb-2">Game &amp; CCU Debug Info</div>
+                <div className="font-semibold text-amber-500 mb-2">Game Switching &amp; Cache Debug</div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
-                  {/* Game identity */}
-                  <div>selectedGameId: <span className="text-foreground">{selectedGame?.id?.slice(0, 8) || "none"}...</span></div>
-                  <div>robloxGameId: <span className="text-foreground">{selectedGame?.roblox_game_id || "none"}</span></div>
-                  <div>gameName: <span className="text-foreground">{selectedGame?.name?.slice(0, 20) || "none"}</span></div>
+                  {/* Game identity & cache validation */}
+                  <div className="col-span-full text-amber-400">Game Identity (must match):</div>
+                  <div>selectedGameId: <span className={`text-foreground ${selectedGameId !== analyticsDebugInfo?.responseSelectedGameId ? "text-red-400" : ""}`}>{selectedGameId?.slice(0, 8) || "none"}...</span></div>
+                  <div>responseGameId: <span className={`text-foreground ${selectedGameId !== analyticsDebugInfo?.responseSelectedGameId ? "text-red-400" : ""}`}>{analyticsDebugInfo?.responseSelectedGameId?.slice(0, 8) || "none"}...</span></div>
+                  <div>gameName: <span className="text-foreground">{analyticsDebugInfo?.selectedGameName?.slice(0, 20) || selectedGame?.name?.slice(0, 20) || "none"}</span></div>
+                  <div>isStale: <span className={analyticsDebugInfo?.isResponseStale ? "text-red-400" : "text-green-400"}>{analyticsDebugInfo?.isResponseStale ? "YES" : "no"}</span></div>
                   
-                  {/* Tracker events (from Roblox script) */}
+                  {/* SWR Cache state */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Tracker Events (Roblox Script):</span>
+                    <span className="text-amber-400">SWR Cache State:</span>
                   </div>
-                  <div>eventsCount24h: <span className="text-foreground">{safeTrackerStats.totalEvents || 0}</span></div>
-                  <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
-                  <div>newPlayers: <span className="text-foreground">{safeTrackerStats.newPlayers || 0}</span></div>
-                  <div>returningPlayers: <span className="text-foreground">{safeTrackerStats.returningPlayers || 0}</span></div>
-                  <div>latestEventAt: <span className="text-foreground">{safeTrackerStats.lastEventTime ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(safeTrackerStats.lastEventTime)) : "none"}</span></div>
+                  <div>swrKey: <span className="text-foreground text-[10px]">{analyticsDebugInfo?.swrKey?.slice(0, 40) || "null"}...</span></div>
+                  <div>isLoading: <span className={isLoading ? "text-yellow-400" : "text-green-400"}>{isLoading ? "YES" : "no"}</span></div>
+                  <div>isPending: <span className={analyticsDebugInfo?.isPendingGameChange ? "text-yellow-400" : "text-green-400"}>{analyticsDebugInfo?.isPendingGameChange ? "YES" : "no"}</span></div>
+                  <div>lastFetchAt: <span className="text-foreground">{analyticsDebugInfo?.lastFetchAt ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(analyticsDebugInfo.lastFetchAt)) : "none"}</span></div>
                   
                   {/* CCU snapshots (from Roblox API / cron) */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">CCU Snapshots (Roblox API / Cron):</span>
+                    <span className="text-amber-400">CCU Snapshots:</span>
                   </div>
                   <div>currentCcuFromApi: <span className="text-foreground">{robloxStats?.ccu ?? "null"}</span></div>
                   <div>snapshotsCount: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
-                  <div>source: <span className="text-foreground">{rawCcuHistory?.source ?? "none"}</span></div>
                   <div>chartRange: <span className="text-foreground">{ccuRange}</span></div>
-                  <div>chartInterval: <span className="text-foreground">{ccuInterval}</span></div>
                   <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.data.length}</span></div>
                   {rawCcuHistory?.rawSnapshots?.length ? (
                     <>
@@ -1091,20 +1113,21 @@ const handleSyncAndRefresh = useCallback(async () => {
                       </span></div>
                     </>
                   ) : null}
-                  {processedCcuHistory.data.length > 0 && (
-                    <>
-                      <div>chartFirstPoint: <span className="text-foreground">{processedCcuHistory.data[0].timeLabel} ({processedCcuHistory.data[0].ccu})</span></div>
-                      <div>chartLastPoint: <span className="text-foreground">{processedCcuHistory.data[processedCcuHistory.data.length - 1].timeLabel} ({processedCcuHistory.data[processedCcuHistory.data.length - 1].ccu})</span></div>
-                    </>
-                  )}
+                  
+                  {/* Tracker events */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Tracker Events:</span>
+                  </div>
+                  <div>eventsCount: <span className="text-foreground">{safeTrackerStats.totalEvents || 0}</span></div>
+                  <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
+                  <div>latestEventAt: <span className="text-foreground">{safeTrackerStats.lastEventTime ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(safeTrackerStats.lastEventTime)) : "none"}</span></div>
                   
                   {/* Polling status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Browser Polling (backup):</span>
+                    <span className="text-amber-400">Browser Polling:</span>
                   </div>
                   <div>lastPollTime: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
                   <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
-                  <div className="col-span-2 text-amber-300/70">Note: Primary CCU comes from cron (every 5 min). Browser polling is backup only.</div>
                 </div>
               </div>
             )}
