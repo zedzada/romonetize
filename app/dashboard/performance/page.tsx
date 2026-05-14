@@ -1175,6 +1175,17 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
                   <div>latestEventAt: <span className="text-foreground">{analyticsDebugInfo?.lastTrackerEventAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(analyticsDebugInfo.lastTrackerEventAt)) : "none"}</span></div>
                   
+                  {/* Returning Users Debug - KEY for the returning users fix */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Returning Users Debug:</span>
+                  </div>
+                  <div>newPlayers: <span className="text-foreground">{safeTrackerStats.newPlayers ?? 0}</span></div>
+                  <div>returningPlayers: <span className={safeTrackerStats.returningPlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.returningPlayers ?? 0}</span></div>
+                  <div>status: <span className="text-foreground">{safeTrackerStats.returningPlayersStatus || "—"}</span></div>
+                  <div>sum check: <span className={(safeTrackerStats.newPlayers + safeTrackerStats.returningPlayers) === safeTrackerStats.uniquePlayers ? "text-green-400" : "text-red-400"}>{safeTrackerStats.newPlayers + safeTrackerStats.returningPlayers} = {safeTrackerStats.uniquePlayers}</span></div>
+                  <div>distinctPlayersAllTime: <span className="text-foreground">{(safeTrackerStats as Record<string, unknown>)?._debug?.distinctPlayersAllTime ?? "—"}</span></div>
+                  <div>multiSessionPlayers: <span className="text-foreground">{(safeTrackerStats as Record<string, unknown>)?._debug?.playersWithMultipleSessions ?? "—"}</span></div>
+                  
                   {/* Cron Status - KEY for background CCU collection */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
                     <span className="text-amber-400">Vercel Cron Status (Background CCU):</span>

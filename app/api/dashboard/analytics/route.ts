@@ -683,53 +683,68 @@ export async function GET(request: NextRequest) {
   // Get unique player joins in range (player_join events only for this game)
   const joinEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
   // === NEW vs RETURNING PLAYERS CALCULATION ===
-  // Definition:
-  // - activePlayersInRange = all unique players with ANY event in range (already computed as uniquePlayers)
-  // - newPlayers = players whose first-ever event for THIS game is within the range
-  // - returningPlayers = players who have events BEFORE the range AND are active in range
-  // - Invariant: newPlayers + returningPlayers = uniquePlayers
+  // Definition (per spec):
+  // - A "returning" user is a player who has more than one distinct session
+  // - Since we don't have session_id column, use distinct hours as proxy for sessions
+  // - A "new" user is a player who has only one session (one distinct hour of activity)
+  // - We use LIFETIME data to classify, not just the selected range
+  // - Invariant: newPlayers + returningPlayers = uniquePlayers (for active players in range)
   
   let newPlayers = 0;
   let returningPlayers = 0;
-  let hasHistoryBeforeRange = false;
   let returningPlayersStatus: "ok" | "no_players" | "no_returning_yet" | "needs_history" = "needs_history";
   const playerFirstSeen = new Map<string, Date>();
+  // Track distinct hours per player for session counting
+  const playerDistinctHours = new Map<string, Set<string>>();
+  // Debug: track sample returning players
+  const sampleReturningPlayerIds: string[] = [];
 
   // Get all unique player IDs active in the selected range (from ALL events, not just joins)
   const activePlayerIdsInRange = new Set(allEvents.filter((e) => e.player_id).map((e) => e.player_id));
 
   try {
     if (activePlayerIdsInRange.size > 0) {
-      // Query all-time first seen for each active player in range
-      // Get the earliest event for each player for THIS game
+      // Query ALL-TIME events for this game to determine session count per player
+      // This gives us lifetime session history to classify returning vs new
       const { data: allTimeEvents } = await supabase
         .from("events")
         .select("player_id, created_at")
         .eq("game_id", gameId) // Filter by selected game only
         .order("created_at", { ascending: true });
 
-      // Build first-seen map (earliest event per player)
+      // Build player history maps
       (allTimeEvents || []).forEach((e) => {
-        if (e.player_id && !playerFirstSeen.has(e.player_id)) {
+        if (!e.player_id) return;
+        
+        // Track first-seen timestamp
+        if (!playerFirstSeen.has(e.player_id)) {
           playerFirstSeen.set(e.player_id, new Date(e.created_at));
         }
-      });
-
-      // Check if we have any historical data before the range start
-      playerFirstSeen.forEach((firstSeen) => {
-        if (firstSeen < startDate) {
-          hasHistoryBeforeRange = true;
+        
+        // Track distinct hours (proxy for sessions) - use hourly buckets
+        // Format: YYYY-MM-DDTHH (hour-level bucket)
+        const hourBucket = new Date(e.created_at).toISOString().slice(0, 13);
+        if (!playerDistinctHours.has(e.player_id)) {
+          playerDistinctHours.set(e.player_id, new Set());
         }
+        playerDistinctHours.get(e.player_id)!.add(hourBucket);
       });
 
       // Classify each active player as new or returning
+      // A player is RETURNING if they have >= 2 distinct hours of activity (lifetime)
       activePlayerIdsInRange.forEach((playerId) => {
-        const firstSeen = playerFirstSeen.get(playerId!);
-        if (firstSeen && firstSeen < startDate) {
-          // Player was seen BEFORE this range - they are returning
+        if (!playerId) return;
+        const distinctHours = playerDistinctHours.get(playerId)?.size || 0;
+        
+        if (distinctHours >= 2) {
+          // Player has multiple sessions (distinct hours) - they are returning
           returningPlayers++;
+          // Collect sample IDs for debug (up to 5)
+          if (sampleReturningPlayerIds.length < 5) {
+            sampleReturningPlayerIds.push(playerId);
+          }
         } else {
-          // Player's first event is within range OR no history - they are new
+          // Player has only one session - they are new
           newPlayers++;
         }
       });
@@ -739,22 +754,32 @@ export async function GET(request: NextRequest) {
         returningPlayersStatus = "no_players";
       } else if (returningPlayers > 0) {
         returningPlayersStatus = "ok";
-      } else if (hasHistoryBeforeRange || newPlayers > 0) {
-        // We have data (either before range or in range) but no returning players
+      } else if (newPlayers > 0) {
+        // We have active players but none have multiple sessions yet
         returningPlayersStatus = "no_returning_yet";
       } else {
         returningPlayersStatus = "needs_history";
       }
       
-      // Debug logging
+      // Debug logging - includes all required debug fields
       if (process.env.NODE_ENV === "development") {
-        console.log("[v0] New/Returning calculation", {
+        // Count players with multiple hours for debug
+        let playersWithMultipleHours = 0;
+        playerDistinctHours.forEach((hours) => {
+          if (hours.size >= 2) playersWithMultipleHours++;
+        });
+        
+        console.log("[v0] Returning Users Debug", {
           selectedGameId: gameId,
-          uniquePlayers,
-          newPlayers,
-          returningPlayers,
+          totalEvents: allTimeEvents?.length || 0,
+          distinctPlayers: playerDistinctHours.size,
+          playersWithMultipleSessions: playersWithMultipleHours,
+          playersWithMultipleHours,
+          activeInRange: activePlayerIdsInRange.size,
+          returningUsers: returningPlayers,
+          newUsers: newPlayers,
           sum: newPlayers + returningPlayers,
-          hasHistoryBeforeRange,
+          sampleReturningPlayerIds,
           returningPlayersStatus,
           rangeStart: startDate.toISOString(),
         });
@@ -1414,29 +1439,34 @@ let ccuHistory: {
       // Tracker stats (for Game Performance tab)
       // Always return object with safe values when tracker is active
       // For free users, null out purchase count
-      trackerStats: hasTrackerEvents ? {
-        totalEvents: totalEventsCount,
-        uniquePlayers: uniquePlayers || 0,
-        totalSessions: totalSessions || 0,
-        avgSessionDuration: avgSessionDuration || null,
-        avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
-        // New players = players whose first event for THIS game is within the range
-        newPlayers: newPlayers || 0,
-        // Legacy alias for backwards compatibility
-        firstSeenPlayers: firstSeenPlayers || 0,
-        // Returning = players who were seen BEFORE range AND are active in range
-        returningPlayers: returningPlayers || 0,
-        // Invariant check: newPlayers + returningPlayers should equal uniquePlayers
-        // hasHistoryBeforeRange indicates if we have data before range to determine returning
-        hasHistoryBeforeRange,
-        // Status for UI rendering: "ok" | "no_players" | "no_returning_yet" | "needs_history"
-        returningPlayersStatus,
-        rangeStart: startDate.toISOString(),
-        rangeEnd: now.toISOString(),
-        // For free users, null out purchases
-        totalPurchases: monetizationLocked ? null : (totalPurchases || 0),
-        lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
-      } : null,
+trackerStats: hasTrackerEvents ? {
+  totalEvents: totalEventsCount,
+  uniquePlayers: uniquePlayers || 0,
+  totalSessions: totalSessions || 0,
+  avgSessionDuration: avgSessionDuration || null,
+  avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
+  // New players = players with only one session (one distinct hour of activity)
+  newPlayers: newPlayers || 0,
+  // Legacy alias for backwards compatibility
+  firstSeenPlayers: firstSeenPlayers || 0,
+  // Returning = players with >= 2 distinct sessions (hours of activity) - LIFETIME count
+  returningPlayers: returningPlayers || 0,
+  // Invariant: newPlayers + returningPlayers = uniquePlayers (active in range)
+  // Status for UI rendering: "ok" | "no_players" | "no_returning_yet" | "needs_history"
+  returningPlayersStatus,
+  rangeStart: startDate.toISOString(),
+  rangeEnd: now.toISOString(),
+  // For free users, null out purchases
+  totalPurchases: monetizationLocked ? null : (totalPurchases || 0),
+  lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
+  // Debug info for returning users calculation (included in response for debug panel)
+  _debug: {
+    distinctPlayersAllTime: playerDistinctHours.size,
+    playersWithMultipleSessions: Array.from(playerDistinctHours.values()).filter(h => h.size >= 2).length,
+    activeInRange: activePlayerIdsInRange.size,
+    sampleReturningPlayerIds,
+  },
+  } : null,
       // Revenue stats (for Monetization tab)
       // For free users, return null (locked)
       revenueStats: monetizationLocked ? null : (hasTrackerEvents ? {
