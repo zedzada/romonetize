@@ -339,26 +339,10 @@ const handleSyncAndRefresh = useCallback(async () => {
   }, [refresh, rawCcuHistory?.rawSnapshots?.length, selectedGameId]);
   
   // Process CCU history with proper aggregation by interval
-  // Aggregates raw snapshots into buckets: 1m = per minute, hourly = per hour, daily = per day
+  // For 1m interval: creates ALL minute buckets in range (including missing)
+  // For hourly/daily: only creates buckets with data
   const processedCcuHistory = useMemo(() => {
     const now = new Date();
-    
-    if (!rawCcuHistory?.rawSnapshots?.length) {
-      return { 
-        data: [], 
-        currentCcu: rawCcuHistory?.currentCcu ?? null, 
-        peakCcu: null, 
-        avgCcu: null,
-        ccuDebugInfo: {
-          totalSnapshots: 0,
-          snapshotsInRange: 0,
-          bucketsCreated: 0,
-          latestSnapshotAt: null,
-          minutesSinceLatestSnapshot: null,
-          latest10Snapshots: [],
-        },
-      };
-    }
     
     // Calculate cutoff time based on selected range
     const getRangeMs = (range: CCUHistoryRange): number => {
@@ -374,6 +358,75 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     const rangeMs = getRangeMs(ccuRange);
     const cutoffTime = new Date(now.getTime() - rangeMs);
+    
+    // Empty data case
+    if (!rawCcuHistory?.rawSnapshots?.length) {
+      // For 1m interval, still create empty minute buckets
+      if (ccuInterval === "1m" && ccuRange === "1h") {
+        const emptyData: Array<{
+          bucketStart: number;
+          label: string;
+          tooltipLabel: string;
+          ccu: number | null;
+          hasSnapshot: boolean;
+          captured_at: string | null;
+          source: string | null;
+          snapshotsCount: number;
+        }> = [];
+        const bucketMs = 60 * 1000;
+        let bucketTime = Math.floor(cutoffTime.getTime() / bucketMs) * bucketMs;
+        const nowBucket = Math.floor(now.getTime() / bucketMs) * bucketMs;
+        
+        while (bucketTime <= nowBucket) {
+          const date = new Date(bucketTime);
+          emptyData.push({
+            bucketStart: bucketTime,
+            label: new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date),
+            tooltipLabel: new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(date),
+            ccu: null,
+            hasSnapshot: false,
+            captured_at: null,
+            source: null,
+            snapshotsCount: 0,
+          });
+          bucketTime += bucketMs;
+        }
+        
+        return { 
+          data: emptyData, 
+          currentCcu: null, 
+          peakCcu: null, 
+          avgCcu: null,
+          missingMinutes: emptyData.length,
+          ccuDebugInfo: {
+            totalSnapshots: 0,
+            snapshotsInRange: 0,
+            bucketsCreated: emptyData.length,
+            missingBuckets: emptyData.length,
+            latestSnapshotAt: null,
+            minutesSinceLatestSnapshot: null,
+            latest10Snapshots: [],
+          },
+        };
+      }
+      
+      return { 
+        data: [], 
+        currentCcu: rawCcuHistory?.currentCcu ?? null, 
+        peakCcu: null, 
+        avgCcu: null,
+        missingMinutes: 0,
+        ccuDebugInfo: {
+          totalSnapshots: 0,
+          snapshotsInRange: 0,
+          bucketsCreated: 0,
+          missingBuckets: 0,
+          latestSnapshotAt: null,
+          minutesSinceLatestSnapshot: null,
+          latest10Snapshots: [],
+        },
+      };
+    }
     
     // Filter snapshots by range
     const filteredSnapshots = rawCcuHistory.rawSnapshots
@@ -394,15 +447,37 @@ const handleSyncAndRefresh = useCallback(async () => {
       return d.getTime();
     };
     
-    // Aggregate into buckets - use latest snapshot in each bucket
+    // For 1m + 1h: Create ALL minute buckets first, then fill with data
+    // For other intervals: only create buckets with data
     const buckets = new Map<number, {
-      ccu: number;
-      captured_at: string;
-      source: string;
+      ccu: number | null;
+      hasSnapshot: boolean;
+      captured_at: string | null;
+      source: string | null;
       snapshotsCount: number;
       latestTimestamp: number;
     }>();
     
+    // For 1m interval with 1h range: pre-create all minute buckets
+    if (ccuInterval === "1m" && ccuRange === "1h") {
+      const bucketMs = 60 * 1000;
+      let bucketTime = Math.floor(cutoffTime.getTime() / bucketMs) * bucketMs;
+      const nowBucket = Math.floor(now.getTime() / bucketMs) * bucketMs;
+      
+      while (bucketTime <= nowBucket) {
+        buckets.set(bucketTime, {
+          ccu: null,
+          hasSnapshot: false,
+          captured_at: null,
+          source: null,
+          snapshotsCount: 0,
+          latestTimestamp: 0,
+        });
+        bucketTime += bucketMs;
+      }
+    }
+    
+    // Fill buckets with snapshot data
     filteredSnapshots.forEach(snap => {
       const snapTime = new Date(snap.time);
       const snapTimestamp = snapTime.getTime();
@@ -411,6 +486,7 @@ const handleSyncAndRefresh = useCallback(async () => {
       const existing = buckets.get(bucketStart);
       if (existing) {
         existing.snapshotsCount++;
+        existing.hasSnapshot = true;
         // Use latest snapshot in bucket
         if (snapTimestamp > existing.latestTimestamp) {
           existing.ccu = snap.ccu;
@@ -421,6 +497,7 @@ const handleSyncAndRefresh = useCallback(async () => {
       } else {
         buckets.set(bucketStart, {
           ccu: snap.ccu,
+          hasSnapshot: true,
           captured_at: snap.time,
           source: snap.source || "unknown",
           snapshotsCount: 1,
@@ -456,18 +533,19 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     const formatTooltipLabel = (bucketStart: number): string => {
       const date = new Date(bucketStart);
+      if (ccuInterval === "1m") {
+        // For 1m, just show HH:mm
+        return new Intl.DateTimeFormat(undefined, { 
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      }
       return new Intl.DateTimeFormat(undefined, { 
         day: "numeric",
         month: "short",
         hour: "2-digit",
         minute: "2-digit",
       }).format(date);
-    };
-    
-    const getIntervalLabel = (): string => {
-      if (ccuInterval === "1m") return "minute";
-      if (ccuInterval === "hourly") return "hour";
-      return "day";
     };
     
     // Convert buckets to sorted array
@@ -479,19 +557,23 @@ const handleSyncAndRefresh = useCallback(async () => {
       label: formatLabel(bucketStart),
       tooltipLabel: formatTooltipLabel(bucketStart),
       ccu: bucket.ccu,
+      hasSnapshot: bucket.hasSnapshot,
       captured_at: bucket.captured_at,
       source: bucket.source,
       snapshotsCount: bucket.snapshotsCount,
-      intervalLabel: getIntervalLabel(),
     }));
     
-    // Calculate stats
-    const ccuValues = data.map(d => d.ccu);
+    // Calculate stats (only from real snapshots)
+    const realSnapshots = data.filter(d => d.hasSnapshot && d.ccu !== null);
+    const ccuValues = realSnapshots.map(d => d.ccu as number);
     const currentCcu = ccuValues.length > 0 ? ccuValues[ccuValues.length - 1] : null;
     const peakCcu = ccuValues.length > 0 ? Math.max(...ccuValues) : null;
     const avgCcu = ccuValues.length > 0 
       ? Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length) 
       : null;
+    
+    // Count missing minutes
+    const missingMinutes = data.filter(d => !d.hasSnapshot).length;
     
     // Build comprehensive debug info
     const allSnapshotsSorted = rawCcuHistory.rawSnapshots
@@ -512,6 +594,7 @@ const handleSyncAndRefresh = useCallback(async () => {
       totalSnapshots: rawCcuHistory.rawSnapshots.length,
       snapshotsInRange: filteredSnapshots.length,
       bucketsCreated: data.length,
+      missingBuckets: missingMinutes,
       latestSnapshotAt: latestSnapshot?.time || null,
       minutesSinceLatestSnapshot: latestSnapshot?.time 
         ? Math.round((now.getTime() - new Date(latestSnapshot.time).getTime()) / 60000)
@@ -519,7 +602,7 @@ const handleSyncAndRefresh = useCallback(async () => {
       latest10Snapshots,
     };
     
-    return { data, currentCcu, peakCcu, avgCcu, ccuDebugInfo };
+    return { data, currentCcu, peakCcu, avgCcu, missingMinutes, ccuDebugInfo };
   }, [rawCcuHistory, ccuRange, ccuInterval]);
   
   // Filter chart data based on selected range and fill missing buckets up to NOW
@@ -1286,10 +1369,11 @@ const handleSyncAndRefresh = useCallback(async () => {
               {isDebugMode && processedCcuHistory.ccuDebugInfo && (
                 <div className="mb-3 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-xs font-mono">
                   <div className="font-semibold text-cyan-500 mb-2">CCU Snapshot Debug (interval: {ccuInterval})</div>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-muted-foreground mb-3">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-muted-foreground mb-3">
                     <div>totalSnapshots: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.totalSnapshots}</span></div>
                     <div>snapshotsInRange: <span className={processedCcuHistory.ccuDebugInfo.snapshotsInRange > 0 ? "text-green-400" : "text-red-400"}>{processedCcuHistory.ccuDebugInfo.snapshotsInRange}</span></div>
                     <div>bucketsCreated: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.bucketsCreated}</span></div>
+                    <div>missingBuckets: <span className={processedCcuHistory.ccuDebugInfo.missingBuckets > 0 ? "text-yellow-400" : "text-green-400"}>{processedCcuHistory.ccuDebugInfo.missingBuckets}</span></div>
                     <div>latestSnapshotAt: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.latestSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(processedCcuHistory.ccuDebugInfo.latestSnapshotAt)) : "none"}</span></div>
                     <div>minutesSinceLatest: <span className={processedCcuHistory.ccuDebugInfo.minutesSinceLatestSnapshot && processedCcuHistory.ccuDebugInfo.minutesSinceLatestSnapshot > 5 ? "text-yellow-400" : "text-green-400"}>{processedCcuHistory.ccuDebugInfo.minutesSinceLatestSnapshot ?? "—"}</span></div>
                   </div>
@@ -1326,8 +1410,15 @@ const handleSyncAndRefresh = useCallback(async () => {
                       <XAxis 
                         dataKey="label"
                         {...axisProps}
-                        interval="preserveStartEnd"
-                        minTickGap={50}
+                        // For 1m interval: show tick every 5 minutes, always show first and last
+                        interval={ccuInterval === "1m" ? 4 : "preserveStartEnd"}
+                        minTickGap={ccuInterval === "1m" ? 30 : 50}
+                        // Explicit ticks for 1m to ensure proper spacing
+                        ticks={ccuInterval === "1m" && processedCcuHistory.data.length > 0 
+                          ? processedCcuHistory.data
+                              .filter((_, i) => i === 0 || i === processedCcuHistory.data.length - 1 || i % 5 === 0)
+                              .map(d => d.label)
+                          : undefined}
                       />
                       <YAxis 
                         domain={[0, (dataMax: number) => Math.max(Math.ceil(dataMax * 1.2), 10)]}
@@ -1340,23 +1431,30 @@ const handleSyncAndRefresh = useCallback(async () => {
                           if (!active || !payload || payload.length === 0) return null;
                           const dataPoint = payload[0]?.payload as {
                             tooltipLabel?: string;
-                            ccu?: number;
-                            source?: string;
+                            ccu?: number | null;
+                            hasSnapshot?: boolean;
+                            source?: string | null;
                             snapshotsCount?: number;
-                            intervalLabel?: string;
                           };
                           if (!dataPoint) return null;
                           
+                          // Missing minute tooltip
+                          if (!dataPoint.hasSnapshot) {
+                            return (
+                              <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
+                                <p className="text-sm font-medium text-foreground mb-1">{dataPoint.tooltipLabel}</p>
+                                <p className="text-sm text-yellow-500">No snapshot collected</p>
+                              </div>
+                            );
+                          }
+                          
                           return (
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                              <p className="text-sm text-muted-foreground mb-1">{dataPoint.tooltipLabel}</p>
-                              <p className="text-sm font-medium text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
-                              {dataPoint.snapshotsCount && dataPoint.snapshotsCount > 1 && (
-                                <p className="text-xs text-muted-foreground">
-                                  Snapshots in {dataPoint.intervalLabel}: {dataPoint.snapshotsCount}
-                                </p>
+                              <p className="text-sm font-medium text-foreground mb-1">{dataPoint.tooltipLabel}</p>
+                              <p className="text-sm text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
+                              {dataPoint.source && (
+                                <p className="text-xs text-muted-foreground">Source: {dataPoint.source}</p>
                               )}
-                              <p className="text-xs text-muted-foreground">Source: {dataPoint.source}</p>
                             </div>
                           );
                         }}
@@ -1367,9 +1465,15 @@ const handleSyncAndRefresh = useCallback(async () => {
                         stroke="#0ea5e9"
                         strokeWidth={2}
                         fill="url(#liveCcuGradient)"
-                        dot={{ r: 3, fill: "#0ea5e9", strokeWidth: 0 }}
+                        // Show dots only for real snapshots
+                        dot={(props) => {
+                          const { cx, cy, payload } = props as { cx: number; cy: number; payload: { hasSnapshot?: boolean } };
+                          if (!payload?.hasSnapshot || cy === undefined || isNaN(cy)) return <g key={`dot-${cx}`} />;
+                          return <circle key={`dot-${cx}`} cx={cx} cy={cy} r={3} fill="#0ea5e9" strokeWidth={0} />;
+                        }}
                         activeDot={{ r: 6, fill: "#0ea5e9", strokeWidth: 2, stroke: "#0a0a0a" }}
-                        connectNulls={true}
+                        // Do NOT connect nulls - show gaps for missing minutes
+                        connectNulls={false}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -1387,6 +1491,19 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </div>
                 )}
               </div>
+              
+              {/* Missing minutes indicator - only for 1m interval */}
+              {ccuInterval === "1m" && processedCcuHistory.data.length > 0 && (
+                <div className="mt-2 text-xs text-center">
+                  {processedCcuHistory.missingMinutes === 0 ? (
+                    <span className="text-green-500">All minute snapshots collected</span>
+                  ) : (
+                    <span className="text-yellow-500">
+                      {processedCcuHistory.missingMinutes} missing minute snapshot{processedCcuHistory.missingMinutes === 1 ? "" : "s"} in this range
+                    </span>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
           
