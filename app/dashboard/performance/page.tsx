@@ -119,6 +119,10 @@ export default function PerformancePage() {
   const [ccuRange, setCcuRange] = useState<CCUHistoryRange>("24h");
   const [ccuInterval, setCcuInterval] = useState<CCUHistoryInterval>("hourly");
   
+  // Manual cron trigger state (debug mode only)
+  const [isRunningCron, setIsRunningCron] = useState(false);
+  const [cronResult, setCronResult] = useState<{ ok: boolean; message: string } | null>(null);
+  
   // Handle CCU range change with auto-interval switching per requirements:
   // 1H default: 1m, 24H default: Hourly, 7D default: Hourly, 28D/90D default: Daily
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
@@ -193,6 +197,42 @@ const handleSyncAndRefresh = useCallback(async () => {
       console.error("Failed to sync and refresh", err);
     } finally {
       setIsSyncing(false);
+    }
+  }, [refresh]);
+  
+  // Manual cron trigger for debug mode
+  const handleRunCron = useCallback(async () => {
+    setIsRunningCron(true);
+    setCronResult(null);
+    try {
+      const response = await fetch("/api/cron/collect-ccu", {
+        method: "GET",
+        headers: {
+          // In dev, the cron endpoint allows requests without auth
+          // In prod, this will fail unless user has CRON_SECRET - that's expected
+        },
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setCronResult({ 
+          ok: true, 
+          message: `Synced ${data.inserted}/${data.gamesProcessed} games (${data.usersProcessed} users)` 
+        });
+        // Refresh analytics to pick up new snapshots
+        await refresh();
+      } else {
+        setCronResult({ 
+          ok: false, 
+          message: data.error || `HTTP ${response.status}` 
+        });
+      }
+    } catch (err) {
+      setCronResult({ 
+        ok: false, 
+        message: err instanceof Error ? err.message : "Network error" 
+      });
+    } finally {
+      setIsRunningCron(false);
     }
   }, [refresh]);
   
@@ -1135,12 +1175,37 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
                   <div>latestEventAt: <span className="text-foreground">{analyticsDebugInfo?.lastTrackerEventAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(analyticsDebugInfo.lastTrackerEventAt)) : "none"}</span></div>
                   
+                  {/* Cron Status - KEY for background CCU collection */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Vercel Cron Status (Background CCU):</span>
+                  </div>
+                  <div>cronConfigured: <span className={rawCcuHistory?.cronStatus?.cronConfigured ? "text-green-400" : "text-red-400"}>{rawCcuHistory?.cronStatus?.cronConfigured ? "YES" : "NO"}</span></div>
+                  <div>snapshotsLast10Min: <span className="text-foreground">{rawCcuHistory?.cronStatus?.snapshotsLast10Minutes ?? 0}</span></div>
+                  <div>latestCronAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestCronSnapshotAt)) : "none"}</span></div>
+                  <div>latestBrowserAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestBrowserSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestBrowserSnapshotAt)) : "none"}</span></div>
+                  
                   {/* Polling status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
                     <span className="text-amber-400">Browser Polling:</span>
                   </div>
                   <div>lastPollTime: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
                   <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
+                </div>
+                
+                {/* Manual Cron Trigger Button */}
+                <div className="mt-3 pt-3 border-t border-amber-500/20 flex items-center gap-3">
+                  <button
+                    onClick={handleRunCron}
+                    disabled={isRunningCron}
+                    className="px-3 py-1.5 text-xs font-medium bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-md text-amber-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {isRunningCron ? "Running..." : "Run CCU Cron Now"}
+                  </button>
+                  {cronResult && (
+                    <span className={`text-xs ${cronResult.ok ? "text-green-400" : "text-red-400"}`}>
+                      {cronResult.message}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
