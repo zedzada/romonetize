@@ -1137,8 +1137,9 @@ export async function GET(request: NextRequest) {
 let ccuHistory: {
     currentCcu: number | null;
     // Raw snapshots - client handles bucketing and time formatting
-    rawSnapshots: Array<{ time: string; ccu: number }>;
-    // Source tracking for debugging
+    // Each snapshot includes source for tooltip display
+    rawSnapshots: Array<{ time: string; ccu: number; source: string }>;
+    // Overall source tracking for debugging
     source: "ccu_snapshots" | "roblox_game_syncs" | "none";
     // Cron status for debug display
     cronStatus?: {
@@ -1164,10 +1165,11 @@ let ccuHistory: {
   
   try {
     // PRIMARY: Fetch from ccu_snapshots table (populated by sync and auto-polling)
+    // Include source field for tooltip display
     // Use captured_at for time filtering (preferred), fallback to created_at for older rows
     const { data: ccuSnapshotsData } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, captured_at, created_at")
+      .select("ccu, captured_at, created_at, source")
       .eq("game_id", gameId)
       .or(`captured_at.gte.${ccuHistoryStart.toISOString()},and(captured_at.is.null,created_at.gte.${ccuHistoryStart.toISOString()})`)
       .order("captured_at", { ascending: true, nullsFirst: false });
@@ -1178,6 +1180,7 @@ let ccuHistory: {
         .map((snap) => ({
           time: snap.captured_at || snap.created_at,
           ccu: snap.ccu as number,
+          source: snap.source || "unknown",
         }));
       ccuHistory.source = "ccu_snapshots";
       
@@ -1200,6 +1203,7 @@ let ccuHistory: {
           .map((snap) => ({
             time: snap.synced_at,
             ccu: snap.ccu as number,
+            source: "roblox_game_syncs",
           }));
         ccuHistory.source = "roblox_game_syncs";
         
