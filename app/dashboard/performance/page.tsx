@@ -376,35 +376,17 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     // Bucket the data based on interval - use timestamp as bucket key for proper sorting
     // Track source and snapshotsCount for tooltip display
+    // IMPORTANT: Only create buckets for REAL snapshot data - no synthetic empty buckets
+    // This keeps the chart clean (continuous line) instead of showing weird gaps/bars
     const buckets = new Map<number, { 
-      ccu: number | null; 
+      ccu: number; 
       timestamp: number; 
-      latestTime: string | null; 
-      isMissing: boolean;
-      source: string | null;
+      latestTime: string; 
+      source: string;
       snapshotsCount: number;
     }>();
     
-    // First, fill all buckets from rangeStart to now for minute mode (to show gaps)
-    if (ccuInterval === "1m") {
-      const bucketMs = 60 * 1000;
-      let bucketTime = Math.floor(cutoffTime.getTime() / bucketMs) * bucketMs;
-      const nowBucket = Math.floor(now.getTime() / bucketMs) * bucketMs;
-      
-      while (bucketTime <= nowBucket) {
-        buckets.set(bucketTime, { 
-          ccu: null, 
-          timestamp: bucketTime, 
-          latestTime: null, 
-          isMissing: true,
-          source: null,
-          snapshotsCount: 0,
-        });
-        bucketTime += bucketMs;
-      }
-    }
-    
-    // Now fill in actual data from snapshots
+    // Fill buckets ONLY from actual snapshot data
     filteredSnapshots.forEach((snap) => {
       const snapTime = new Date(snap.time);
       const snapMs = snapTime.getTime();
@@ -424,15 +406,7 @@ const handleSyncAndRefresh = useCallback(async () => {
       }
       
       const existing = buckets.get(bucketStart);
-      if (existing && existing.isMissing) {
-        // Fill in the missing bucket with actual data
-        existing.ccu = snap.ccu;
-        existing.timestamp = snapMs;
-        existing.latestTime = snap.time;
-        existing.isMissing = false;
-        existing.source = snap.source || "unknown";
-        existing.snapshotsCount = 1;
-      } else if (existing) {
+      if (existing) {
         // Accumulate snapshots count, use latest CCU
         existing.snapshotsCount++;
         if (snapMs > existing.timestamp) {
@@ -446,7 +420,6 @@ const handleSyncAndRefresh = useCallback(async () => {
           ccu: snap.ccu, 
           timestamp: snapMs, 
           latestTime: snap.time, 
-          isMissing: false,
           source: snap.source || "unknown",
           snapshotsCount: 1,
         });
@@ -496,43 +469,38 @@ const handleSyncAndRefresh = useCallback(async () => {
     };
     
     // Map to output data - ALWAYS include numeric bucketStart for proper sorting
-    // Include all metadata for tooltip display
+    // All points are real snapshot data (no synthetic missing buckets)
     const data = sortedBuckets.map(([bucketStartMs, bucket]) => ({
-      bucketStart: bucketStartMs, // Numeric timestamp for sorting - NEVER sort by labels
+      bucketStart: bucketStartMs,
       time: new Date(bucketStartMs).toISOString(),
       timeLabel: formatTimeLabel(bucketStartMs),
       tooltipLabel: formatTooltipLabel(bucketStartMs),
-      ccu: bucket.ccu, // null for missing buckets
+      ccu: bucket.ccu,
       capturedAt: bucket.latestTime,
-      isMissing: bucket.isMissing,
-      hasSnapshot: !bucket.isMissing,
       source: bucket.source,
       snapshotsCount: bucket.snapshotsCount,
     }));
     
-    // Calculate stats (only from non-null values)
-    const ccuValues = data.filter((d) => d.ccu !== null).map((d) => d.ccu as number);
+    // Calculate stats
+    const ccuValues = data.map((d) => d.ccu);
     const currentCcu = ccuValues.length > 0 ? ccuValues[ccuValues.length - 1] : null;
     const peakCcu = ccuValues.length > 0 ? Math.max(...ccuValues) : null;
     const avgCcu = ccuValues.length > 0 
       ? Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length) 
       : null;
     
-    // Calculate debug info for CCU chart
-    const realSnapshotPoints = data.filter(d => d.hasSnapshot).length;
-    const nullBuckets = data.filter(d => d.isMissing).length;
-    const firstRealPoint = data.find(d => d.hasSnapshot);
-    const lastRealPoint = [...data].reverse().find(d => d.hasSnapshot);
+    // Calculate debug info for CCU chart (only shown in debug mode)
+    const firstPoint = data[0];
+    const lastPoint = data[data.length - 1];
     
     const ccuDebugInfo = {
       chartDataLength: data.length,
-      realSnapshotPoints,
-      nullBuckets,
-      firstRealPointTime: firstRealPoint?.tooltipLabel || null,
-      lastRealPointTime: lastRealPoint?.tooltipLabel || null,
-      latestSnapshotAt: lastRealPoint?.capturedAt || null,
-      minutesSinceLatestSnapshot: lastRealPoint?.capturedAt 
-        ? Math.round((now.getTime() - new Date(lastRealPoint.capturedAt).getTime()) / 60000)
+      realSnapshotPoints: data.length,
+      firstRealPointTime: firstPoint?.tooltipLabel || null,
+      lastRealPointTime: lastPoint?.tooltipLabel || null,
+      latestSnapshotAt: lastPoint?.capturedAt || null,
+      minutesSinceLatestSnapshot: lastPoint?.capturedAt 
+        ? Math.round((now.getTime() - new Date(lastPoint.capturedAt).getTime()) / 60000)
         : null,
     };
     
@@ -1304,12 +1272,9 @@ const handleSyncAndRefresh = useCallback(async () => {
                 <div className="mb-3 p-2 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-xs font-mono">
                   <div className="font-semibold text-cyan-500 mb-1">CCU Chart Debug</div>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-muted-foreground">
-                    <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.chartDataLength}</span></div>
-                    <div>realSnapshotPoints: <span className={processedCcuHistory.ccuDebugInfo.realSnapshotPoints > 0 ? "text-green-400" : "text-red-400"}>{processedCcuHistory.ccuDebugInfo.realSnapshotPoints}</span></div>
-                    <div>nullBuckets: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.nullBuckets}</span></div>
-                    <div>firstRealPoint: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.firstRealPointTime || "none"}</span></div>
-                    <div>lastRealPoint: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.lastRealPointTime || "none"}</span></div>
-                    <div>latestSnapshotAt: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.latestSnapshotAt || "none"}</span></div>
+                    <div>dataPoints: <span className={processedCcuHistory.ccuDebugInfo.realSnapshotPoints > 0 ? "text-green-400" : "text-red-400"}>{processedCcuHistory.ccuDebugInfo.realSnapshotPoints}</span></div>
+                    <div>firstPoint: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.firstRealPointTime || "none"}</span></div>
+                    <div>lastPoint: <span className="text-foreground">{processedCcuHistory.ccuDebugInfo.lastRealPointTime || "none"}</span></div>
                     <div>minutesSinceLatest: <span className={processedCcuHistory.ccuDebugInfo.minutesSinceLatestSnapshot && processedCcuHistory.ccuDebugInfo.minutesSinceLatestSnapshot > 5 ? "text-yellow-400" : "text-green-400"}>{processedCcuHistory.ccuDebugInfo.minutesSinceLatestSnapshot ?? "—"}</span></div>
                   </div>
                 </div>
@@ -1328,8 +1293,8 @@ const handleSyncAndRefresh = useCallback(async () => {
                     <AreaChart data={processedCcuHistory.data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="liveCcuGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#38BDF8" stopOpacity={0.4}/>
-                          <stop offset="100%" stopColor="#38BDF8" stopOpacity={0.05}/>
+                          <stop offset="0%" stopColor="#0ea5e9" stopOpacity={0.3}/>
+                          <stop offset="100%" stopColor="#0ea5e9" stopOpacity={0.02}/>
                         </linearGradient>
                       </defs>
                       <CartesianGrid {...gridProps} />
@@ -1350,30 +1315,22 @@ const handleSyncAndRefresh = useCallback(async () => {
                           if (!active || !payload || payload.length === 0) return null;
                           const dataPoint = payload[0]?.payload as {
                             tooltipLabel?: string;
-                            ccu?: number | null;
-                            isMissing?: boolean;
-                            source?: string | null;
+                            ccu?: number;
+                            source?: string;
                             snapshotsCount?: number;
                           };
                           if (!dataPoint) return null;
-                          
-                          if (dataPoint.isMissing) {
-                            return (
-                              <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                                <p className="text-sm text-muted-foreground">{dataPoint.tooltipLabel}</p>
-                                <p className="text-sm text-yellow-500">No snapshot for this minute</p>
-                              </div>
-                            );
-                          }
                           
                           return (
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm text-muted-foreground mb-1">{dataPoint.tooltipLabel}</p>
                               <p className="text-sm font-medium text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
-                              {dataPoint.source && (
+                              {/* Only show source in debug mode */}
+                              {isDebugMode && dataPoint.source && (
                                 <p className="text-xs text-muted-foreground">Source: {dataPoint.source}</p>
                               )}
-                              {dataPoint.snapshotsCount && dataPoint.snapshotsCount > 1 && (
+                              {/* Only show snapshots count in debug mode */}
+                              {isDebugMode && dataPoint.snapshotsCount && dataPoint.snapshotsCount > 1 && (
                                 <p className="text-xs text-muted-foreground">Snapshots in bucket: {dataPoint.snapshotsCount}</p>
                               )}
                             </div>
@@ -1383,29 +1340,15 @@ const handleSyncAndRefresh = useCallback(async () => {
                       <Area 
                         type="monotone" 
                         dataKey="ccu" 
-                        stroke="#38BDF8"
+                        stroke="#0ea5e9"
                         strokeWidth={2}
                         fill="url(#liveCcuGradient)"
-                        // Always show dots for real snapshot points - makes sparse data visible
-                        dot={(props) => {
-                          const { cx, cy, payload } = props as { cx: number; cy: number; payload: { isMissing?: boolean } };
-                          // Only show dots for real snapshots, not missing buckets
-                          if (payload?.isMissing || cy === undefined || isNaN(cy)) return <g key={`dot-${cx}`} />;
-                          return (
-                            <circle 
-                              key={`dot-${cx}`}
-                              cx={cx} 
-                              cy={cy} 
-                              r={4} 
-                              fill="#38BDF8" 
-                              stroke="#0a0a0a" 
-                              strokeWidth={1}
-                            />
-                          );
-                        }}
-                        activeDot={{ r: 6, fill: "#38BDF8", strokeWidth: 2, stroke: "#0a0a0a" }}
-                        // DO NOT connect nulls - show gaps in the line for missing data
-                        connectNulls={false}
+                        fillOpacity={0.15}
+                        // Small dots always visible, larger on hover
+                        dot={{ r: 2, fill: "#0ea5e9", strokeWidth: 0 }}
+                        activeDot={{ r: 5, fill: "#0ea5e9", strokeWidth: 2, stroke: "#0a0a0a" }}
+                        // Connect all points with a continuous line
+                        connectNulls={true}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
