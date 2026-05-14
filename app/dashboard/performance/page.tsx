@@ -339,24 +339,26 @@ const handleSyncAndRefresh = useCallback(async () => {
     };
   }, [refresh, rawCcuHistory?.rawSnapshots?.length, selectedGameId]);
   
-  // SIMPLIFIED: Process CCU history - just filter and map real snapshots
-  // No bucket logic, no missing minute warnings, no fake gaps
+  // Process CCU history with aggregation by interval:
+  // 1H = group by minute (~60 points max)
+  // 24H = group by hour (~24 points max)
+  // 7D/28D/90D = group by day
   const processedCcuHistory = useMemo(() => {
     const now = new Date();
     
-    // Calculate cutoff time based on selected range
-    const getRangeMs = (range: CCUHistoryRange): number => {
+    // Calculate cutoff time and bucket size based on selected range
+    const getRangeConfig = (range: CCUHistoryRange): { rangeMs: number; bucketMs: number; bucketType: "minute" | "hour" | "day" } => {
       switch (range) {
-        case "1h": return 60 * 60 * 1000;
-        case "24h": return 24 * 60 * 60 * 1000;
-        case "7d": return 7 * 24 * 60 * 60 * 1000;
-        case "28d": return 28 * 24 * 60 * 60 * 1000;
-        case "90d": return 90 * 24 * 60 * 60 * 1000;
-        default: return 24 * 60 * 60 * 1000;
+        case "1h": return { rangeMs: 60 * 60 * 1000, bucketMs: 60 * 1000, bucketType: "minute" };
+        case "24h": return { rangeMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 60 * 1000, bucketType: "hour" };
+        case "7d": return { rangeMs: 7 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketType: "day" };
+        case "28d": return { rangeMs: 28 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketType: "day" };
+        case "90d": return { rangeMs: 90 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketType: "day" };
+        default: return { rangeMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 60 * 1000, bucketType: "hour" };
       }
     };
     
-    const rangeMs = getRangeMs(ccuRange);
+    const { rangeMs, bucketMs, bucketType } = getRangeConfig(ccuRange);
     const cutoffTime = new Date(now.getTime() - rangeMs);
     
     // Empty data case
@@ -370,15 +372,58 @@ const handleSyncAndRefresh = useCallback(async () => {
       };
     }
     
-    // Filter snapshots by range and sort by time ascending
+    // Filter snapshots by range
     const filteredSnapshots = rawCcuHistory.rawSnapshots
       .filter(s => s.time && typeof s.ccu === "number")
-      .filter(s => new Date(s.time).getTime() >= cutoffTime.getTime())
-      .sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
+      .filter(s => new Date(s.time).getTime() >= cutoffTime.getTime());
+    
+    // Get bucket start for a given timestamp
+    const getBucketStart = (timestamp: number): number => {
+      const date = new Date(timestamp);
+      if (bucketType === "minute") {
+        date.setSeconds(0, 0);
+      } else if (bucketType === "hour") {
+        date.setMinutes(0, 0, 0);
+      } else { // day
+        date.setHours(0, 0, 0, 0);
+      }
+      return date.getTime();
+    };
+    
+    // Aggregate into buckets - keep latest snapshot per bucket
+    const buckets = new Map<number, { ccu: number; snapshotsCount: number; latestTimestamp: number }>();
+    
+    filteredSnapshots.forEach(snap => {
+      const snapTimestamp = new Date(snap.time).getTime();
+      const bucketStart = getBucketStart(snapTimestamp);
+      
+      const existing = buckets.get(bucketStart);
+      if (existing) {
+        existing.snapshotsCount++;
+        // Use latest snapshot in bucket
+        if (snapTimestamp > existing.latestTimestamp) {
+          existing.ccu = snap.ccu;
+          existing.latestTimestamp = snapTimestamp;
+        }
+      } else {
+        buckets.set(bucketStart, {
+          ccu: snap.ccu,
+          snapshotsCount: 1,
+          latestTimestamp: snapTimestamp,
+        });
+      }
+    });
     
     // Format tooltip label - always shows full date/time
-    const formatTooltipLabel = (timestamp: number): string => {
-      const date = new Date(timestamp);
+    const formatTooltipLabel = (bucketStart: number): string => {
+      const date = new Date(bucketStart);
+      if (bucketType === "day") {
+        return new Intl.DateTimeFormat(undefined, { 
+          weekday: "short",
+          day: "numeric",
+          month: "short",
+        }).format(date);
+      }
       return new Intl.DateTimeFormat(undefined, { 
         day: "numeric",
         month: "short",
@@ -387,36 +432,33 @@ const handleSyncAndRefresh = useCallback(async () => {
       }).format(date);
     };
     
-    // Format X-axis label based on range
-    const formatLabel = (timestamp: number): string => {
-      const date = new Date(timestamp);
-      // For short ranges (1h, 24h), show time only
-      if (ccuRange === "1h" || ccuRange === "24h") {
+    // Format X-axis label based on bucket type
+    const formatLabel = (bucketStart: number): string => {
+      const date = new Date(bucketStart);
+      if (bucketType === "minute" || bucketType === "hour") {
         return new Intl.DateTimeFormat(undefined, { 
           hour: "2-digit", 
           minute: "2-digit",
         }).format(date);
       }
-      // For longer ranges, show date + time
+      // For day buckets, show date
       return new Intl.DateTimeFormat(undefined, { 
         day: "numeric",
         month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
       }).format(date);
     };
     
-    // Map snapshots directly to chart data points
-    const data = filteredSnapshots.map(snap => {
-      const timestamp = new Date(snap.time).getTime();
-      return {
-        timestamp,
-        label: formatLabel(timestamp),
-        tooltipLabel: formatTooltipLabel(timestamp),
-        ccu: snap.ccu,
-        source: snap.source || "unknown",
-      };
-    });
+    // Convert buckets to sorted array
+    const sortedBuckets = Array.from(buckets.entries())
+      .sort((a, b) => a[0] - b[0]);
+    
+    const data = sortedBuckets.map(([bucketStart, bucket]) => ({
+      bucketStart,
+      label: formatLabel(bucketStart),
+      tooltipLabel: formatTooltipLabel(bucketStart),
+      ccu: bucket.ccu,
+      snapshotsCount: bucket.snapshotsCount,
+    }));
     
     // Calculate stats
     const ccuValues = data.map(d => d.ccu);
@@ -1215,7 +1257,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                           const dataPoint = payload[0]?.payload as {
                             tooltipLabel?: string;
                             ccu?: number;
-                            source?: string;
+                            snapshotsCount?: number;
                           };
                           if (!dataPoint) return null;
                           
@@ -1223,6 +1265,11 @@ const handleSyncAndRefresh = useCallback(async () => {
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm font-medium text-foreground mb-1">{dataPoint.tooltipLabel}</p>
                               <p className="text-sm text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
+                              {dataPoint.snapshotsCount && dataPoint.snapshotsCount > 1 && (
+                                <p className="text-xs text-muted-foreground">
+                                  Snapshots in bucket: {dataPoint.snapshotsCount}
+                                </p>
+                              )}
                             </div>
                           );
                         }}
@@ -1233,8 +1280,9 @@ const handleSyncAndRefresh = useCallback(async () => {
                         stroke="#0ea5e9"
                         strokeWidth={2}
                         fill="url(#liveCcuGradient)"
-                        dot={{ r: 3, fill: "#0ea5e9", strokeWidth: 0 }}
-                        activeDot={{ r: 6, fill: "#0ea5e9", strokeWidth: 2, stroke: "#0a0a0a" }}
+                        fillOpacity={0.18}
+                        dot={false}
+                        activeDot={{ r: 4, fill: "#0ea5e9", strokeWidth: 0 }}
                         connectNulls={true}
                       />
                     </AreaChart>
