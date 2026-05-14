@@ -37,7 +37,7 @@ import {
   Activity,
   Clock,
   UserPlus,
-  UserCheck,
+
   ShoppingCart,
   Gamepad2,
   AlertCircle,
@@ -881,7 +881,7 @@ const handleSyncAndRefresh = useCallback(async () => {
             RoMonetize Tracker
           </Badge>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
           <Card className="border-border/50">
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center gap-2 mb-2">
@@ -965,36 +965,6 @@ const handleSyncAndRefresh = useCallback(async () => {
             )}
           </CardContent>
         </Card>
-
-          <Card className="border-border/50">
-            <CardContent className="pt-5 pb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <UserCheck className="w-4 h-4 text-teal-500" />
-                <span className="text-xs text-muted-foreground">Returning</span>
-              </div>
-              {!safeDataHealth.hasTrackerEvents ? (
-                <div className="text-xs text-muted-foreground">Requires tracking script</div>
-              ) : safeTrackerStats.returningPlayersStatus === "no_players" ? (
-                <>
-                  <div className="text-sm text-muted-foreground">No players yet</div>
-                </>
-              ) : safeTrackerStats.returningPlayersStatus === "no_returning_yet" ? (
-                <>
-                  <div className="text-2xl font-bold text-foreground">0</div>
-                  <p className="text-[10px] text-muted-foreground mt-1">No returning players yet</p>
-                </>
-              ) : safeTrackerStats.returningPlayersStatus === "needs_history" ? (
-                <>
-                  <div className="text-sm text-muted-foreground">—</div>
-                  <p className="text-[10px] text-muted-foreground mt-1">Needs more history</p>
-                </>
-              ) : (
-                <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.returningPlayers)}
-                </div>
-              )}
-            </CardContent>
-          </Card>
 
           {/* Purchases - Locked for free users */}
           {monetizationLocked ? (
@@ -1140,17 +1110,6 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>missing: <span className="text-foreground text-[10px]">{JSON.stringify(analyticsDebugInfo?.missingFlags ?? [])}</span></div>
                   <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
                   <div>latestEventAt: <span className="text-foreground">{analyticsDebugInfo?.lastTrackerEventAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(analyticsDebugInfo.lastTrackerEventAt)) : "none"}</span></div>
-                  
-                  {/* Returning Users Debug - KEY for the returning users fix */}
-                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Returning Users Debug:</span>
-                  </div>
-                  <div>newPlayers: <span className="text-foreground">{safeTrackerStats.newPlayers ?? 0}</span></div>
-                  <div>returningPlayers: <span className={safeTrackerStats.returningPlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.returningPlayers ?? 0}</span></div>
-                  <div>status: <span className="text-foreground">{safeTrackerStats.returningPlayersStatus || "—"}</span></div>
-                  <div>sum check: <span className={(safeTrackerStats.newPlayers + safeTrackerStats.returningPlayers) === safeTrackerStats.uniquePlayers ? "text-green-400" : "text-red-400"}>{safeTrackerStats.newPlayers + safeTrackerStats.returningPlayers} = {safeTrackerStats.uniquePlayers}</span></div>
-                  <div>distinctPlayersAllTime: <span className="text-foreground">{(safeTrackerStats as Record<string, unknown>)?._debug?.distinctPlayersAllTime ?? "—"}</span></div>
-                  <div>multiSessionPlayers: <span className="text-foreground">{(safeTrackerStats as Record<string, unknown>)?._debug?.playersWithMultipleSessions ?? "—"}</span></div>
                   
                   {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
