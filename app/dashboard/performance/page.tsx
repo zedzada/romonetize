@@ -375,8 +375,21 @@ const handleSyncAndRefresh = useCallback(async () => {
     }
     
     // Bucket the data based on interval - use timestamp as bucket key for proper sorting
-    const buckets = new Map<number, { ccu: number; timestamp: number; latestTime: string }>();
+    const buckets = new Map<number, { ccu: number | null; timestamp: number; latestTime: string | null; isMissing: boolean }>();
     
+    // First, fill all buckets from rangeStart to now for minute mode (to show gaps)
+    if (ccuInterval === "1m") {
+      const bucketMs = 60 * 1000;
+      let bucketTime = Math.floor(cutoffTime.getTime() / bucketMs) * bucketMs;
+      const nowBucket = Math.floor(now.getTime() / bucketMs) * bucketMs;
+      
+      while (bucketTime <= nowBucket) {
+        buckets.set(bucketTime, { ccu: null, timestamp: bucketTime, latestTime: null, isMissing: true });
+        bucketTime += bucketMs;
+      }
+    }
+    
+    // Now fill in actual data from snapshots
     filteredSnapshots.forEach((snap) => {
       const snapTime = new Date(snap.time);
       const snapMs = snapTime.getTime();
@@ -396,7 +409,13 @@ const handleSyncAndRefresh = useCallback(async () => {
       }
       
       const existing = buckets.get(bucketStart);
-      if (existing) {
+      if (existing && existing.isMissing) {
+        // Fill in the missing bucket with actual data
+        existing.ccu = snap.ccu;
+        existing.timestamp = snapMs;
+        existing.latestTime = snap.time;
+        existing.isMissing = false;
+      } else if (existing) {
         // Use latest CCU in the bucket
         if (snapMs > existing.timestamp) {
           existing.ccu = snap.ccu;
@@ -404,7 +423,7 @@ const handleSyncAndRefresh = useCallback(async () => {
           existing.latestTime = snap.time;
         }
       } else {
-        buckets.set(bucketStart, { ccu: snap.ccu, timestamp: snapMs, latestTime: snap.time });
+        buckets.set(bucketStart, { ccu: snap.ccu, timestamp: snapMs, latestTime: snap.time, isMissing: false });
       }
     });
     
@@ -456,13 +475,16 @@ const handleSyncAndRefresh = useCallback(async () => {
       bucketStart: bucketStartMs, // Numeric timestamp for sorting - NEVER sort by labels
       time: new Date(bucketStartMs).toISOString(),
       timeLabel: formatTimeLabel(bucketStartMs),
-      tooltipLabel: formatTooltipLabel(bucketStartMs),
-      ccu: bucket.ccu,
+      tooltipLabel: bucket.isMissing 
+        ? `${formatTooltipLabel(bucketStartMs)} (no snapshot)` 
+        : formatTooltipLabel(bucketStartMs),
+      ccu: bucket.ccu, // null for missing buckets
       capturedAt: bucket.latestTime,
+      isMissing: bucket.isMissing,
     }));
     
-    // Calculate stats
-    const ccuValues = data.map((d) => d.ccu);
+    // Calculate stats (only from non-null values)
+    const ccuValues = data.filter((d) => d.ccu !== null).map((d) => d.ccu as number);
     const currentCcu = ccuValues.length > 0 ? ccuValues[ccuValues.length - 1] : null;
     const peakCcu = ccuValues.length > 0 ? Math.max(...ccuValues) : null;
     const avgCcu = ccuValues.length > 0 
@@ -1186,21 +1208,31 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>distinctPlayersAllTime: <span className="text-foreground">{(safeTrackerStats as Record<string, unknown>)?._debug?.distinctPlayersAllTime ?? "—"}</span></div>
                   <div>multiSessionPlayers: <span className="text-foreground">{(safeTrackerStats as Record<string, unknown>)?._debug?.playersWithMultipleSessions ?? "—"}</span></div>
                   
-                  {/* Cron Status - KEY for background CCU collection */}
+                  {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Vercel Cron Status (Background CCU):</span>
+                    <span className="text-amber-400">Snapshot Diagnostics (15 min window):</span>
+                  </div>
+                  <div>now: <span className="text-foreground">{rawCcuHistory?.cronStatus?.now ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.now)) : "—"}</span></div>
+                  <div>latestSnapshotAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestSnapshotAt)) : "none"}</span></div>
+                  <div>minutesSinceLatest: <span className={rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot && rawCcuHistory.cronStatus.minutesSinceLatestSnapshot > 2 ? "text-yellow-400" : "text-green-400"}>{rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot ?? "—"}</span></div>
+                  <div>snapshotsLast15Min: <span className={rawCcuHistory?.cronStatus?.snapshotsLast15Minutes && rawCcuHistory.cronStatus.snapshotsLast15Minutes >= 10 ? "text-green-400" : "text-yellow-400"}>{rawCcuHistory?.cronStatus?.snapshotsLast15Minutes ?? 0} / {rawCcuHistory?.cronStatus?.expectedSnapshotsLast15Minutes ?? "—"}</span></div>
+                  
+                  {/* Cron Status */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Vercel Cron ({rawCcuHistory?.cronStatus?.cronInterval || "5m"}):</span>
                   </div>
                   <div>cronConfigured: <span className={rawCcuHistory?.cronStatus?.cronConfigured ? "text-green-400" : "text-red-400"}>{rawCcuHistory?.cronStatus?.cronConfigured ? "YES" : "NO"}</span></div>
-                  <div>snapshotsLast10Min: <span className="text-foreground">{rawCcuHistory?.cronStatus?.snapshotsLast10Minutes ?? 0}</span></div>
-                  <div>latestCronAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestCronSnapshotAt)) : "none"}</span></div>
-                  <div>latestBrowserAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestBrowserSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestBrowserSnapshotAt)) : "none"}</span></div>
+                  <div>cronRunsLast15Min: <span className="text-foreground">{rawCcuHistory?.cronStatus?.cronRunsLast15Minutes ?? 0}</span></div>
+                  <div>latestCronRun: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronRun ? `${new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestCronRun.started_at))} (${rawCcuHistory.cronStatus.latestCronRun.ok ? "ok" : "fail"}, ${rawCcuHistory.cronStatus.latestCronRun.snapshots_inserted} inserted)` : "none"}</span></div>
+                  <div>latestCronSnapshot: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestCronSnapshotAt)) : "none"}</span></div>
                   
-                  {/* Polling status */}
+                  {/* Browser Polling status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Browser Polling:</span>
+                    <span className="text-amber-400">Browser Polling ({rawCcuHistory?.cronStatus?.browserPollInterval || "60s"}):</span>
                   </div>
-                  <div>lastPollTime: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
+                  <div>lastBrowserPollAt: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
                   <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
+                  <div>latestBrowserSnapshot: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestBrowserSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestBrowserSnapshotAt)) : "none"}</span></div>
                 </div>
                 
                 {/* Manual Cron Trigger Button */}
@@ -1246,15 +1278,20 @@ const handleSyncAndRefresh = useCallback(async () => {
                       />
                       <Tooltip
                         {...tooltipStyle}
-                        formatter={(value: number | null) => [value !== null ? value.toLocaleString() : "—", "CCU"]}
-labelFormatter={(label, payload) => {
-                            // Show full date/time from preformatted tooltipLabel
-                            const dataPoint = payload?.[0]?.payload;
-                            if (dataPoint?.tooltipLabel) {
-                              return dataPoint.tooltipLabel;
-                            }
-                            return `${label}`;
-                          }}
+                        formatter={(value: number | null, _name: string, props: { payload?: { isMissing?: boolean } }) => {
+                          if (value === null || props.payload?.isMissing) {
+                            return ["No data", "CCU"];
+                          }
+                          return [value.toLocaleString(), "CCU"];
+                        }}
+                        labelFormatter={(_label, payload) => {
+                          // Show full date/time from preformatted tooltipLabel
+                          const dataPoint = payload?.[0]?.payload;
+                          if (dataPoint?.tooltipLabel) {
+                            return dataPoint.tooltipLabel;
+                          }
+                          return "";
+                        }}
                       />
                       <Area 
                         type="monotone" 

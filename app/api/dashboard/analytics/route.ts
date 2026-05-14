@@ -1142,10 +1142,19 @@ let ccuHistory: {
     source: "ccu_snapshots" | "roblox_game_syncs" | "none";
     // Cron status for debug display
     cronStatus?: {
+      now: string;
+      selectedGameId: string;
+      latestSnapshotAt: string | null;
+      minutesSinceLatestSnapshot: number | null;
+      snapshotsLast15Minutes: number;
+      expectedSnapshotsLast15Minutes: number;
+      cronRunsLast15Minutes: number;
+      latestCronRun: { started_at: string; ok: boolean; snapshots_inserted: number } | null;
       latestCronSnapshotAt: string | null;
       latestBrowserSnapshotAt: string | null;
-      snapshotsLast10Minutes: number;
       cronConfigured: boolean;
+      cronInterval: string;
+      browserPollInterval: string;
     };
   } = {
     currentCcu: robloxStats?.ccu ?? null,
@@ -1202,23 +1211,58 @@ let ccuHistory: {
     }
     
     // Fetch cron status for debug display
-    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
     const { data: cronSnapshots } = await supabase
       .from("ccu_snapshots")
       .select("source, captured_at")
       .eq("game_id", gameId)
-      .gte("captured_at", tenMinutesAgo.toISOString())
+      .gte("captured_at", fifteenMinutesAgo.toISOString())
       .order("captured_at", { ascending: false });
     
+    // Find latest snapshot overall
+    const latestSnapshot = cronSnapshots?.[0];
     // Find latest cron vs browser snapshot
     const latestCronSnapshot = cronSnapshots?.find(s => s.source === "vercel_cron");
     const latestBrowserSnapshot = cronSnapshots?.find(s => s.source !== "vercel_cron" && s.source !== null);
     
+    // Calculate minutes since latest snapshot
+    const latestSnapshotAt = latestSnapshot?.captured_at ? new Date(latestSnapshot.captured_at) : null;
+    const minutesSinceLatestSnapshot = latestSnapshotAt 
+      ? Math.round((now.getTime() - latestSnapshotAt.getTime()) / 60000) 
+      : null;
+    
+    // Query cron_runs table if it exists
+    let cronRunsLast15Minutes = 0;
+    let latestCronRun: { started_at: string; ok: boolean; snapshots_inserted: number } | null = null;
+    try {
+      const { data: cronRuns } = await supabase
+        .from("cron_runs")
+        .select("started_at, ok, snapshots_inserted")
+        .eq("job_name", "collect-ccu")
+        .gte("started_at", fifteenMinutesAgo.toISOString())
+        .order("started_at", { ascending: false });
+      
+      cronRunsLast15Minutes = cronRuns?.length ?? 0;
+      latestCronRun = cronRuns?.[0] ?? null;
+    } catch {
+      // Table may not exist - ignore
+    }
+    
     ccuHistory.cronStatus = {
+      now: now.toISOString(),
+      selectedGameId: gameId,
+      latestSnapshotAt: latestSnapshotAt?.toISOString() ?? null,
+      minutesSinceLatestSnapshot,
+      snapshotsLast15Minutes: cronSnapshots?.length ?? 0,
+      expectedSnapshotsLast15Minutes: 15, // 1 per minute if browser open, or 3 if only cron (5-min interval)
+      cronRunsLast15Minutes,
+      latestCronRun,
       latestCronSnapshotAt: latestCronSnapshot?.captured_at ?? null,
       latestBrowserSnapshotAt: latestBrowserSnapshot?.captured_at ?? null,
-      snapshotsLast10Minutes: cronSnapshots?.length ?? 0,
       cronConfigured: !!process.env.CRON_SECRET,
+      // Note: Vercel cron runs every 5 minutes, browser polling every 60s when dashboard open
+      cronInterval: "5m (Vercel)",
+      browserPollInterval: "60s (when dashboard open)",
     };
   } catch (err) {
     sectionErrors.ccuHistory = err instanceof Error ? err.message : "Failed to fetch CCU history";
