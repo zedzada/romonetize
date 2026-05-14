@@ -371,44 +371,53 @@ const handleSyncAndRefresh = useCallback(async () => {
     // Convert to sorted array by bucket timestamp (ascending = oldest to newest)
     const sortedBuckets = Array.from(buckets.entries()).sort((a, b) => a[0] - b[0]);
     
-    // Format function for time labels in user's local timezone
-    const formatTimeLabel = (bucketStart: number): string => {
-      const date = new Date(bucketStart);
+    // Format function for X-axis labels in user's local timezone
+    // IMPORTANT: Labels must include date context when range crosses midnight
+    const formatTimeLabel = (bucketStartMs: number): string => {
+      const date = new Date(bucketStartMs);
       
       if (ccuInterval === "1m") {
-        // 1H + 1m: "2:05 PM" format in local time
+        // 1H + 1m: Simple "14:05" format - no date needed for 1 hour range
         return new Intl.DateTimeFormat(undefined, { 
-          hour: "numeric", 
+          hour: "2-digit", 
           minute: "2-digit",
         }).format(date);
       } else if (ccuInterval === "hourly") {
-        if (ccuRange === "24h") {
-          // 24H + Hourly: "3 PM" format in local time
-          return new Intl.DateTimeFormat(undefined, { 
-            hour: "numeric",
-          }).format(date);
-        } else {
-          // 7D + Hourly: "May 9 3 PM" format (with date context)
-          return new Intl.DateTimeFormat(undefined, { 
-            month: "short", 
-            day: "numeric",
-            hour: "numeric",
-          }).format(date);
-        }
-      } else {
-        // Daily (28D/90D): "May 9" format
+        // 24H or 7D hourly: Include weekday to disambiguate midnight crossings
+        // e.g., "mar. 20:00", "mer. 10:00" 
         return new Intl.DateTimeFormat(undefined, { 
+          weekday: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+        }).format(date);
+      } else {
+        // Daily (28D/90D): "9 mai" or "May 9" format
+        return new Intl.DateTimeFormat(undefined, { 
+          day: "numeric",
           month: "short", 
-          day: "numeric" 
         }).format(date);
       }
     };
     
-    const data = sortedBuckets.map(([bucketStart, bucket]) => ({
-      time: new Date(bucketStart).toISOString(),
-      timeLabel: formatTimeLabel(bucketStart),
+    // Format function for tooltip - always show full date and time
+    const formatTooltipLabel = (bucketStartMs: number): string => {
+      const date = new Date(bucketStartMs);
+      return new Intl.DateTimeFormat(undefined, { 
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      }).format(date);
+    };
+    
+    // Map to output data - ALWAYS include numeric bucketStart for proper sorting
+    // Sort is already done by bucketStart (Map keys are sorted ascending)
+    const data = sortedBuckets.map(([bucketStartMs, bucket]) => ({
+      bucketStart: bucketStartMs, // Numeric timestamp for sorting - NEVER sort by labels
+      time: new Date(bucketStartMs).toISOString(),
+      timeLabel: formatTimeLabel(bucketStartMs),
+      tooltipLabel: formatTooltipLabel(bucketStartMs),
       ccu: bucket.ccu,
-      // Include original timestamp for tooltip
       capturedAt: bucket.latestTime,
     }));
     
@@ -1162,19 +1171,14 @@ const handleSyncAndRefresh = useCallback(async () => {
                       <Tooltip
                         {...tooltipStyle}
                         formatter={(value: number | null) => [value !== null ? value.toLocaleString() : "—", "CCU"]}
-                        labelFormatter={(label, payload) => {
-                          // Show exact captured time in user's local timezone
-                          const dataPoint = payload?.[0]?.payload;
-                          if (dataPoint?.capturedAt) {
-                            return new Intl.DateTimeFormat(undefined, {
-                              month: "short",
-                              day: "numeric",
-                              hour: "numeric",
-                              minute: "2-digit",
-                            }).format(new Date(dataPoint.capturedAt));
-                          }
-                          return `${label}`;
-                        }}
+labelFormatter={(label, payload) => {
+                            // Show full date/time from preformatted tooltipLabel
+                            const dataPoint = payload?.[0]?.payload;
+                            if (dataPoint?.tooltipLabel) {
+                              return dataPoint.tooltipLabel;
+                            }
+                            return `${label}`;
+                          }}
                       />
                       <Area 
                         type="monotone" 
