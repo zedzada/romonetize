@@ -15,6 +15,9 @@ const CRON_SECRET = process.env.CRON_SECRET;
  * This enables CCU charts even when users are not viewing the dashboard
  */
 export async function GET(request: NextRequest) {
+  const startedAt = new Date().toISOString();
+  let cronRunId: string | null = null;
+  
   // Verify cron secret in production
   if (process.env.NODE_ENV === "production" && CRON_SECRET) {
     const authHeader = request.headers.get("Authorization");
@@ -37,6 +40,24 @@ export async function GET(request: NextRequest) {
   }
 
   const supabase = createServerClient(supabaseUrl, supabaseServiceKey);
+
+  // Log cron run start (if table exists)
+  try {
+    const { data: cronRun } = await supabase
+      .from("cron_runs")
+      .insert({
+        job_name: "collect-ccu",
+        started_at: startedAt,
+        ok: false,
+        games_processed: 0,
+        snapshots_inserted: 0,
+      })
+      .select("id")
+      .single();
+    cronRunId = cronRun?.id || null;
+  } catch {
+    // Table may not exist yet - continue without logging
+  }
 
   try {
     // Get all active games
@@ -194,6 +215,23 @@ export async function GET(request: NextRequest) {
       if (gameData?.user_id) userIds.add(gameData.user_id);
     }
 
+    // Log cron run completion
+    if (cronRunId) {
+      try {
+        await supabase
+          .from("cron_runs")
+          .update({
+            finished_at: new Date().toISOString(),
+            ok: true,
+            games_processed: games.length,
+            snapshots_inserted: successCount,
+          })
+          .eq("id", cronRunId);
+      } catch {
+        // Ignore logging errors
+      }
+    }
+
     return NextResponse.json({
       success: true,
       message: `Collected CCU for ${successCount}/${results.length} games`,
@@ -209,6 +247,23 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("[CCU Cron] Unexpected error:", error);
+    
+    // Log failed cron run
+    if (cronRunId) {
+      try {
+        await supabase
+          .from("cron_runs")
+          .update({
+            finished_at: new Date().toISOString(),
+            ok: false,
+            error: error instanceof Error ? error.message : "Unknown error",
+          })
+          .eq("id", cronRunId);
+      } catch {
+        // Ignore logging errors
+      }
+    }
+    
     return NextResponse.json(
       {
         success: false,
