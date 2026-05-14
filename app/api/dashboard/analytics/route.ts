@@ -1264,8 +1264,8 @@ let ccuHistory: {
       latestCronSnapshotAt: latestCronSnapshot?.captured_at ?? null,
       latestBrowserSnapshotAt: latestBrowserSnapshot?.captured_at ?? null,
       cronConfigured: !!process.env.CRON_SECRET,
-      // Note: Vercel cron runs every 5 minutes, browser polling every 60s when dashboard open
-      cronInterval: "5m (Vercel)",
+      // Note: Vercel cron runs every minute, browser polling every 60s when dashboard open
+      cronInterval: "1m (Vercel)",
       browserPollInterval: "60s (when dashboard open)",
     };
   } catch (err) {
