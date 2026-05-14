@@ -1109,12 +1109,19 @@ export async function GET(request: NextRequest) {
   // Always fetch last 90 days of data - client will filter by selected range
   const ccuHistoryStart = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000); // 90 days
   
-  let ccuHistory: {
+let ccuHistory: {
     currentCcu: number | null;
     // Raw snapshots - client handles bucketing and time formatting
     rawSnapshots: Array<{ time: string; ccu: number }>;
     // Source tracking for debugging
     source: "ccu_snapshots" | "roblox_game_syncs" | "none";
+    // Cron status for debug display
+    cronStatus?: {
+      latestCronSnapshotAt: string | null;
+      latestBrowserSnapshotAt: string | null;
+      snapshotsLast10Minutes: number;
+      cronConfigured: boolean;
+    };
   } = {
     currentCcu: robloxStats?.ccu ?? null,
     rawSnapshots: [],
@@ -1168,6 +1175,26 @@ export async function GET(request: NextRequest) {
         }
       }
     }
+    
+    // Fetch cron status for debug display
+    const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+    const { data: cronSnapshots } = await supabase
+      .from("ccu_snapshots")
+      .select("source, captured_at")
+      .eq("game_id", gameId)
+      .gte("captured_at", tenMinutesAgo.toISOString())
+      .order("captured_at", { ascending: false });
+    
+    // Find latest cron vs browser snapshot
+    const latestCronSnapshot = cronSnapshots?.find(s => s.source === "vercel_cron");
+    const latestBrowserSnapshot = cronSnapshots?.find(s => s.source !== "vercel_cron" && s.source !== null);
+    
+    ccuHistory.cronStatus = {
+      latestCronSnapshotAt: latestCronSnapshot?.captured_at ?? null,
+      latestBrowserSnapshotAt: latestBrowserSnapshot?.captured_at ?? null,
+      snapshotsLast10Minutes: cronSnapshots?.length ?? 0,
+      cronConfigured: !!process.env.CRON_SECRET,
+    };
   } catch (err) {
     sectionErrors.ccuHistory = err instanceof Error ? err.message : "Failed to fetch CCU history";
   }

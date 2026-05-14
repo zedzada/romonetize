@@ -139,7 +139,7 @@ export async function GET(request: NextRequest) {
             roblox_game_id: resolvedRobloxGameId, // Use resolved ID, never null
             ccu: stats.currentPlayers,
             captured_at: new Date().toISOString(),
-            source: "cron_job",
+            source: "vercel_cron",
             created_at: new Date().toISOString(),
           });
 
