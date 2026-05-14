@@ -123,6 +123,14 @@ export default function PerformancePage() {
   const [isRunningCron, setIsRunningCron] = useState(false);
   const [cronResult, setCronResult] = useState<{ ok: boolean; message: string } | null>(null);
   
+  // Cron status from /api/cron/status (debug mode only)
+  const [cronStatus, setCronStatus] = useState<{
+    vercelCronRowsLast10Minutes: number;
+    robloxApiRowsLast10Minutes: number;
+    latestCronSnapshotAt: string | null;
+    cronConfigured: boolean;
+  } | null>(null);
+  
   // Handle CCU range change with auto-interval switching per requirements:
   // 1H default: 1m, 24H default: Hourly, 7D default: Hourly, 28D/90D default: Daily
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
@@ -169,7 +177,25 @@ export default function PerformancePage() {
   useEffect(() => {
     // Check URL params client-side only
     const params = new URLSearchParams(window.location.search);
-    setIsDebugMode(params.get("debug") === "true");
+    const debugEnabled = params.get("debug") === "true";
+    setIsDebugMode(debugEnabled);
+    
+    // Fetch cron status when debug mode is enabled
+    if (debugEnabled) {
+      fetch("/api/cron/status")
+        .then(res => res.json())
+        .then(data => {
+          setCronStatus({
+            vercelCronRowsLast10Minutes: data.vercelCronRowsLast10Minutes ?? 0,
+            robloxApiRowsLast10Minutes: data.robloxApiRowsLast10Minutes ?? 0,
+            latestCronSnapshotAt: data.latestCronSnapshotAt ?? null,
+            cronConfigured: data.cronConfigured ?? false,
+          });
+        })
+        .catch(() => {
+          // Silently fail - cron status is optional debug info
+        });
+    }
   }, []);
   
   // Auto-polling for CCU snapshots (every 60 seconds while page is open)
@@ -506,11 +532,24 @@ const handleSyncAndRefresh = useCallback(async () => {
       }
     });
     
+    // Check if range crosses day boundaries (for showing date in labels)
+    const rangeStartDay = cutoffTime.toDateString();
+    const nowDay = now.toDateString();
+    const crossesDays = rangeStartDay !== nowDay;
+    
     // Format labels based on interval
     const formatLabel = (bucketStart: number): string => {
       const date = new Date(bucketStart);
       if (ccuInterval === "1m") {
-        // "18:43" format
+        // For 1m: "18:43" or "14 mai 18:43" if crosses days
+        if (crossesDays) {
+          return new Intl.DateTimeFormat(undefined, { 
+            day: "numeric",
+            month: "short",
+            hour: "2-digit", 
+            minute: "2-digit",
+          }).format(date);
+        }
         return new Intl.DateTimeFormat(undefined, { 
           hour: "2-digit", 
           minute: "2-digit",
@@ -531,15 +570,9 @@ const handleSyncAndRefresh = useCallback(async () => {
       }
     };
     
+    // Tooltip always shows full date/time like "14 mai, 19:08"
     const formatTooltipLabel = (bucketStart: number): string => {
       const date = new Date(bucketStart);
-      if (ccuInterval === "1m") {
-        // For 1m, just show HH:mm
-        return new Intl.DateTimeFormat(undefined, { 
-          hour: "2-digit",
-          minute: "2-digit",
-        }).format(date);
-      }
       return new Intl.DateTimeFormat(undefined, { 
         day: "numeric",
         month: "short",
@@ -1365,6 +1398,24 @@ const handleSyncAndRefresh = useCallback(async () => {
             )}
             
             <CardContent>
+              {/* Cron Status Debug - only shown with ?debug=true */}
+              {isDebugMode && cronStatus && (
+                <div className="mb-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg text-xs font-mono">
+                  <div className="font-semibold text-purple-500 mb-2">Cron Status (/api/cron/status)</div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-muted-foreground">
+                    <div>vercelCronRowsLast10Min: <span className={cronStatus.vercelCronRowsLast10Minutes > 0 ? "text-green-400" : "text-red-400"}>{cronStatus.vercelCronRowsLast10Minutes}</span></div>
+                    <div>robloxApiRowsLast10Min: <span className="text-foreground">{cronStatus.robloxApiRowsLast10Minutes}</span></div>
+                    <div>latestCronSnapshot: <span className="text-foreground">{cronStatus.latestCronSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(cronStatus.latestCronSnapshotAt)) : "none"}</span></div>
+                    <div>cronConfigured: <span className={cronStatus.cronConfigured ? "text-green-400" : "text-yellow-400"}>{cronStatus.cronConfigured ? "yes" : "no"}</span></div>
+                  </div>
+                  {cronStatus.vercelCronRowsLast10Minutes === 0 && (
+                    <div className="mt-2 p-2 bg-red-500/20 border border-red-500/30 rounded text-red-300">
+                      Background cron is not inserting snapshots. CCU history only updates while the dashboard is open.
+                    </div>
+                  )}
+                </div>
+              )}
+              
               {/* CCU Snapshot Debug Info - only shown with ?debug=true */}
               {isDebugMode && processedCcuHistory.ccuDebugInfo && (
                 <div className="mb-3 p-3 bg-cyan-500/10 border border-cyan-500/30 rounded-lg text-xs font-mono">
@@ -1408,16 +1459,33 @@ const handleSyncAndRefresh = useCallback(async () => {
                       </defs>
                       <CartesianGrid {...gridProps} />
                       <XAxis 
-                        dataKey="label"
+                        dataKey="bucketStart"
                         {...axisProps}
                         // For 1m interval: show tick every 5 minutes, always show first and last
-                        interval={ccuInterval === "1m" ? 4 : "preserveStartEnd"}
+                        interval={0}
                         minTickGap={ccuInterval === "1m" ? 30 : 50}
-                        // Explicit ticks for 1m to ensure proper spacing
+                        // Custom tick formatter to show labels
+                        tickFormatter={(bucketStart: number) => {
+                          const dataPoint = processedCcuHistory.data.find(d => d.bucketStart === bucketStart);
+                          return dataPoint?.label || "";
+                        }}
+                        // Generate explicit ticks every 5 minutes for 1m interval
                         ticks={ccuInterval === "1m" && processedCcuHistory.data.length > 0 
-                          ? processedCcuHistory.data
-                              .filter((_, i) => i === 0 || i === processedCcuHistory.data.length - 1 || i % 5 === 0)
-                              .map(d => d.label)
+                          ? (() => {
+                              const data = processedCcuHistory.data;
+                              const ticks: number[] = [];
+                              // Always include first bucket
+                              if (data.length > 0) ticks.push(data[0].bucketStart);
+                              // Add every 5th minute (index 5, 10, 15, ...)
+                              for (let i = 5; i < data.length; i += 5) {
+                                ticks.push(data[i].bucketStart);
+                              }
+                              // Always include last bucket if not already included
+                              if (data.length > 1 && !ticks.includes(data[data.length - 1].bucketStart)) {
+                                ticks.push(data[data.length - 1].bucketStart);
+                              }
+                              return ticks;
+                            })()
                           : undefined}
                       />
                       <YAxis 
