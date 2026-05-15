@@ -15,6 +15,9 @@ const VALID_EVENT_TYPES = [
   // Script lifecycle events
   "script_started",     // Server script initialized (confirms tracking is working)
   
+  // CCU heartbeat (sent every 60 seconds from each server)
+  "ccu_heartbeat",      // CCU heartbeat from tracker script
+  
   // Player events
   "session_start",      // Player joins game
   "session_end",        // Player leaves game
@@ -61,6 +64,11 @@ interface TrackingEvent {
   product_type?: "gamepass" | "devproduct" | "subscription";
   robux?: number;
   metadata?: Record<string, unknown>;
+  // CCU heartbeat fields
+  server_id?: string;
+  place_id?: string;
+  universe_id?: string;
+  ccu?: number;
 }
 
 // Map legacy event types to new Roblox-specific names (for analytics normalization)
@@ -84,6 +92,12 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   const robux = raw.robux ?? metadata.robux;
   const sessionId = raw.session_id ?? raw.sessionId ?? metadata.session_id ?? metadata.sessionId;
   
+  // CCU heartbeat fields
+  const serverId = raw.server_id ?? raw.serverId ?? metadata.server_id ?? metadata.serverId;
+  const placeId = raw.place_id ?? raw.placeId ?? metadata.place_id ?? metadata.placeId;
+  const universeId = raw.universe_id ?? raw.universeId ?? metadata.universe_id ?? metadata.universeId;
+  const ccu = raw.ccu ?? metadata.ccu;
+  
   // Normalize legacy purchase_success based on product_type
   let normalizedEventType = eventType;
   if (eventType === "purchase_success" && productType === "devproduct") {
@@ -101,6 +115,11 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
     product_type: productType,
     robux: typeof robux === "number" ? robux : (typeof robux === "string" ? parseInt(robux, 10) : undefined),
     metadata: metadata,
+    // CCU heartbeat fields
+    server_id: serverId,
+    place_id: placeId,
+    universe_id: universeId,
+    ccu: typeof ccu === "number" ? ccu : (typeof ccu === "string" ? parseInt(ccu, 10) : undefined),
   };
   
   return normalized;
@@ -414,12 +433,86 @@ export async function POST(request: NextRequest) {
           price_robux: event.robux || 0,
           total_revenue: 0,
           total_purchases: 0,
-          total_clicks: 1,
-        });
-      }
+total_clicks: 1,
+  });
+  }
+  }
+  
+  // Handle CCU heartbeat events - upsert to server_heartbeats and aggregate CCU
+  const ccuHeartbeatEvents = events.filter(
+    (e) => e.event_type === "ccu_heartbeat"
+  );
+
+  for (const event of ccuHeartbeatEvents) {
+    const serverId = (event as Record<string, unknown>).server_id as string | undefined;
+    const placeId = (event as Record<string, unknown>).place_id as string | undefined;
+    const universeId = (event as Record<string, unknown>).universe_id as string | undefined;
+    const serverCcu = (event as Record<string, unknown>).ccu as number | undefined;
+    
+    if (!serverId) {
+      console.warn(`[api/events] CCU heartbeat missing server_id for game_id=${game.id}`);
+      continue;
     }
 
-    // Log server-side for debugging (only prefix of API key)
+    // Upsert to server_heartbeats table
+    const { error: heartbeatError } = await supabaseAdmin
+      .from("server_heartbeats")
+      .upsert({
+        game_id: game.id,
+        user_id: game.user_id,
+        server_id: serverId,
+        place_id: placeId?.toString() || null,
+        universe_id: universeId?.toString() || null,
+        ccu: serverCcu ?? 0,
+        last_seen_at: new Date().toISOString(),
+      }, {
+        onConflict: "game_id,server_id",
+      });
+
+    if (heartbeatError) {
+      console.error(`[api/events] Failed to upsert server heartbeat: ${heartbeatError.message}`);
+      continue;
+    }
+
+    // Calculate total CCU from all active servers (last seen within 2 minutes)
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    const { data: activeServers, error: serversError } = await supabaseAdmin
+      .from("server_heartbeats")
+      .select("ccu")
+      .eq("game_id", game.id)
+      .gte("last_seen_at", twoMinutesAgo);
+
+    if (serversError) {
+      console.error(`[api/events] Failed to fetch active servers: ${serversError.message}`);
+      continue;
+    }
+
+    // Sum CCU across all active servers
+    const totalCcu = (activeServers || []).reduce((sum, s) => sum + (s.ccu || 0), 0);
+
+    // Insert aggregated CCU snapshot
+    await supabaseAdmin
+      .from("ccu_snapshots")
+      .insert({
+        game_id: game.id,
+        ccu: totalCcu,
+        source: "romonetize_tracker",
+        created_at: new Date().toISOString(),
+      });
+
+    // Also update current_players on the games table
+    await supabaseAdmin
+      .from("games")
+      .update({
+        current_players: totalCcu,
+        last_roblox_sync: new Date().toISOString(),
+      })
+      .eq("id", game.id);
+
+    console.log(`[api/events] CCU heartbeat: game_id=${game.id}, server_id=${serverId}, server_ccu=${serverCcu}, total_ccu=${totalCcu}`);
+  }
+  
+  // Log server-side for debugging (only prefix of API key)
     console.log(`[api/events] Received: api_key=${apiKey.slice(0, 8)}..., event_types=${validatedEvents.map(e => e.event_type).join(",")}, game_id=${game.id}`);
 
     return NextResponse.json({
@@ -458,17 +551,21 @@ export async function GET() {
       header: "x-api-key: your_api_key",
       body: '{ "apiKey": "your_api_key", "eventType": "..." }',
     },
-    fields: {
-      note: "Both camelCase and snake_case are accepted",
-      event_type_or_eventType: "Required. One of the valid event types",
-      player_id_or_playerId: "Optional. Roblox player ID",
-      session_id_or_sessionId: "Optional. Session identifier for tracking player sessions",
-      product_id_or_productId: "Optional. Product identifier",
-      product_name_or_productName: "Optional. Product display name",
-      product_type_or_productType: "Optional. gamepass, devproduct, or subscription",
-      robux: "Optional. Price in Robux",
-      metadata: "Optional. Additional data object",
-    },
+fields: {
+  note: "Both camelCase and snake_case are accepted",
+  event_type_or_eventType: "Required. One of the valid event types",
+  player_id_or_playerId: "Optional. Roblox player ID",
+  session_id_or_sessionId: "Optional. Session identifier for tracking player sessions",
+  product_id_or_productId: "Optional. Product identifier",
+  product_name_or_productName: "Optional. Product display name",
+  product_type_or_productType: "Optional. gamepass, devproduct, or subscription",
+  robux: "Optional. Price in Robux",
+  metadata: "Optional. Additional data object",
+  server_id_or_serverId: "For ccu_heartbeat. Roblox JobId",
+  place_id_or_placeId: "For ccu_heartbeat. Roblox PlaceId",
+  universe_id_or_universeId: "For ccu_heartbeat. Roblox GameId/UniverseId",
+  ccu: "For ccu_heartbeat. Current player count in this server",
+  },
     event_types: VALID_EVENT_TYPES,
   });
 }

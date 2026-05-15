@@ -47,9 +47,10 @@ warn("[RoMonetize] No API key configured. Go to My Game to connect your Roblox g
 `;
   }
 
-  return `-- RoMonetize Tracking Script v2.0
+  return `-- RoMonetize Tracking Script v3.0
 -- Place this script in ServerScriptService
 -- DO NOT SHARE THIS SCRIPT - it contains your secret API key
+-- Features: Player tracking, purchases, CCU heartbeats every 60 seconds
 
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
@@ -256,8 +257,63 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
     end
 end)
 
+--------------------------------------------------------------------------------
+-- CCU HEARTBEAT (every 60 seconds)
+--------------------------------------------------------------------------------
+local function sendCCUHeartbeat()
+    local playerCount = #Players:GetPlayers()
+    
+    local body = {
+        apiKey = API_KEY,
+        api_key = API_KEY,
+        event_type = "ccu_heartbeat",
+        server_id = game.JobId,
+        place_id = tostring(game.PlaceId),
+        universe_id = tostring(game.GameId),
+        ccu = playerCount,
+        metadata = {
+            timestamp = os.time(),
+            studio = isStudio
+        }
+    }
+    
+    local jsonBody = HttpService:JSONEncode(body)
+    
+    local success, response = pcall(function()
+        return HttpService:RequestAsync({
+            Url = API_URL,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["x-api-key"] = API_KEY
+            },
+            Body = jsonBody
+        })
+    end)
+    
+    if success and response.Success then
+        print("[RoMonetize] CCU heartbeat sent: players=" .. playerCount)
+    else
+        -- Silently fail for heartbeats to avoid log spam
+    end
+end
+
+-- Start CCU heartbeat loop (every 60 seconds)
+task.spawn(function()
+    while true do
+        -- Wait first to allow server to initialize
+        task.wait(60)
+        sendCCUHeartbeat()
+    end
+end)
+
+-- Send initial heartbeat after 5 seconds (allow players to join)
+task.delay(5, function()
+    sendCCUHeartbeat()
+end)
+
 print("[RoMonetize] Tracking script loaded successfully!")
-print("[RoMonetize] Listening for player_join, session_end, and purchase events")
+print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU heartbeats")
 `;
 }
 
@@ -365,7 +421,7 @@ export default function TrackingSetupPage() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Tracking Setup</h1>
         <p className="text-muted-foreground">
-          Install the RoMonetize tracking script to capture sessions, purchases, and revenue.
+          The RoMonetize Tracker sends player activity, purchases, sessions, and CCU heartbeats every 60 seconds.
         </p>
       </div>
 
@@ -617,7 +673,7 @@ export default function TrackingSetupPage() {
           <div className="flex gap-3">
             <CheckCircle2 className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
             <p className="text-sm text-muted-foreground">
-              <strong className="text-foreground">Activity tracked:</strong> player_join, session_end, purchase_success
+              <strong className="text-foreground">Activity tracked:</strong> player_join, session_end, purchase_success, ccu_heartbeat (every 60s)
             </p>
           </div>
           <div className="flex gap-3">

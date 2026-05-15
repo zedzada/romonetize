@@ -1096,16 +1096,36 @@ export async function GET(request: NextRequest) {
     ? productsWithClicks.reduce((sum, p) => sum + (p.conversionRate || 0), 0) / productsWithClicks.length
     : null;
 
-  // === CCU STATS (from snapshots) ===
+  // === CCU STATS (prioritize tracker heartbeats over Roblox API) ===
   let ccuStats = {
-    current: robloxStats?.ccu ?? null,
+    current: null as number | null,
     peak: null as number | null,
     avg: null as number | null,
     snapshots: [] as Array<{ time: string; ccu: number }>,
     message: null as string | null,
+    source: "none" as "romonetize_tracker" | "roblox_api" | "none",
   };
 
   try {
+    // PRIORITY 1: Check for tracker heartbeat CCU from active servers
+    const twoMinutesAgo = new Date(now.getTime() - 2 * 60 * 1000).toISOString();
+    const { data: activeServers } = await supabase
+      .from("server_heartbeats")
+      .select("ccu, last_seen_at")
+      .eq("game_id", gameId)
+      .gte("last_seen_at", twoMinutesAgo);
+
+    if (activeServers && activeServers.length > 0) {
+      // Sum CCU across all active servers for total CCU
+      const trackerCcu = activeServers.reduce((sum, s) => sum + (s.ccu || 0), 0);
+      ccuStats.current = trackerCcu;
+      ccuStats.source = "romonetize_tracker";
+    } else if (robloxStats?.ccu !== null) {
+      // FALLBACK: Use Roblox API CCU
+      ccuStats.current = robloxStats.ccu;
+      ccuStats.source = "roblox_api";
+    }
+
     // Use captured_at for time filtering (preferred), fallback to created_at
     const { data: ccuSnapshots } = await supabase
       .from("ccu_snapshots")
@@ -1119,7 +1139,10 @@ export async function GET(request: NextRequest) {
         time: s.captured_at || s.created_at,
         ccu: s.ccu,
       }));
-      ccuStats.current = ccuSnapshots[ccuSnapshots.length - 1].ccu;
+      // Only override current if not already set from tracker heartbeats
+      if (ccuStats.current === null) {
+        ccuStats.current = ccuSnapshots[ccuSnapshots.length - 1].ccu;
+      }
       ccuStats.peak = Math.max(...ccuSnapshots.map((s) => s.ccu));
       ccuStats.avg = Math.round(ccuSnapshots.reduce((sum, s) => sum + s.ccu, 0) / ccuSnapshots.length);
     } else {
@@ -1158,13 +1181,14 @@ let ccuHistory: {
       browserPollInterval: string;
     };
   } = {
-    currentCcu: robloxStats?.ccu ?? null,
+    // Priority: tracker heartbeats > snapshots > roblox API
+    currentCcu: ccuStats.current ?? robloxStats?.ccu ?? null,
     rawSnapshots: [],
     source: "none",
   };
   
   try {
-    // PRIMARY: Fetch from ccu_snapshots table (populated by sync and auto-polling)
+    // PRIMARY: Fetch from ccu_snapshots table (populated by tracker heartbeats and sync)
     // Include source field for tooltip display
     // Use captured_at for time filtering (preferred), fallback to created_at for older rows
     const { data: ccuSnapshotsData } = await supabase
