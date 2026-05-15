@@ -29,7 +29,7 @@ export function RevenueModeToggle({ showDescription = true, className = "" }: Re
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
-            title="Shows 70% of gross sales (estimated creator payout after Roblox 30% fee)"
+            title="Est. Revenue applies an approximate 70% creator payout estimate after Roblox marketplace fees. May not match Roblox exactly."
           >
             Est. Revenue
           </button>
@@ -41,7 +41,7 @@ export function RevenueModeToggle({ showDescription = true, className = "" }: Re
                 ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
-            title="Shows 100% of tracked sales (matches Roblox dashboard)"
+            title="Gross Sales are calculated from tracked purchase events before Roblox marketplace fees. May not match Roblox exactly."
           >
             Gross Sales
           </button>

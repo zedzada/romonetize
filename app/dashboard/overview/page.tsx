@@ -172,6 +172,12 @@ export default function OverviewPage() {
 
       {/* Key Metrics Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        {/* Revenue disclaimer */}
+        {hasTrackerData && (
+          <p className="col-span-full text-[10px] text-muted-foreground -mb-2">
+            Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports.
+          </p>
+        )}
         {/* Est. Total Revenue */}
         <Card className="border-border/50">
           <CardContent className="pt-5 pb-4">
