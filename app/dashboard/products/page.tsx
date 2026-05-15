@@ -345,6 +345,9 @@ export default function ProductsPage() {
             <div>
               <CardTitle className="text-lg font-semibold text-foreground">Product Performance</CardTitle>
               <p className="text-sm text-muted-foreground mt-1">Based on tracked purchases from your game</p>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Product revenue is estimated from tracked purchases and may differ from Roblox due to processing delays, refunds, fees, or reporting differences.
+              </p>
             </div>
             <Badge variant="secondary" className="bg-emerald-500/20 text-emerald-400 border-emerald-500/40 text-[10px]">
               RoMonetize Tracker

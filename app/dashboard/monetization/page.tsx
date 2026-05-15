@@ -627,6 +627,13 @@ export default function MonetizationPage() {
         </Card>
       )}
 
+      {/* Revenue disclaimer */}
+      {hasTrackerData && (
+        <p className="text-[10px] text-muted-foreground">
+          Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports. Use Roblox Creator Dashboard as the final source of truth for payouts and official revenue.
+        </p>
+      )}
+
       {/* Revenue Stats Cards - 6 column grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         <Card className="border-border bg-card shadow-sm">

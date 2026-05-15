@@ -450,6 +450,8 @@ When analyzing images (UI screenshots, shop layouts, game screenshots):
 - Recommend conversion improvements
 
 Format responses with clear headings, bullet points, and readable spacing. Be concise but actionable.
+
+IMPORTANT: Revenue numbers are estimates from RoMonetize tracker data and may differ from official Roblox reports. Never claim exact official Roblox revenue unless it is explicitly from Roblox official data. Always refer to revenue as "estimated" or "approximate" when discussing monetization metrics.
 `;
 
     if (analyticsContext.hasData) {
