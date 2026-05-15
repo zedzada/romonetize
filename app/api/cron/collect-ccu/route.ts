@@ -126,18 +126,15 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // Insert CCU snapshot with source = "vercel_cron"
-        // IMPORTANT: source column distinguishes cron snapshots from browser-triggered ones
-        // Schema columns: id, game_id, ccu, created_at, source, captured_at
-        const now = new Date().toISOString();
+        // Insert CCU snapshot
+        // NOTE: Only use columns that exist in the schema: id, game_id, ccu, created_at
+        // The source/captured_at columns require a migration that may not have been run
         const { error: insertError } = await supabase
           .from("ccu_snapshots")
           .insert({
             game_id: game.id,
             ccu: stats.currentPlayers,
-            source: "vercel_cron",
-            captured_at: now,
-            created_at: now,
+            created_at: new Date().toISOString(),
           });
 
         if (insertError) {
