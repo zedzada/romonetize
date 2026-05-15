@@ -1224,11 +1224,6 @@ const handleSyncAndRefresh = useCallback(async () => {
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm font-medium text-foreground mb-1">{dataPoint.tooltipLabel}</p>
                               <p className="text-sm text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
-                              {dataPoint.snapshotsCount && dataPoint.snapshotsCount > 1 && (
-                                <p className="text-xs text-muted-foreground">
-                                  Snapshots in bucket: {dataPoint.snapshotsCount}
-                                </p>
-                              )}
                             </div>
                           );
                         }}
