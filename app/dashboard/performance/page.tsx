@@ -1224,11 +1224,6 @@ const handleSyncAndRefresh = useCallback(async () => {
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm font-medium text-foreground mb-1">{dataPoint.tooltipLabel}</p>
                               <p className="text-sm text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
-                              {dataPoint.snapshotsCount && dataPoint.snapshotsCount > 1 && (
-                                <p className="text-xs text-muted-foreground">
-                                  Snapshots in bucket: {dataPoint.snapshotsCount}
-                                </p>
-                              )}
                             </div>
                           );
                         }}
@@ -1249,9 +1244,8 @@ const handleSyncAndRefresh = useCallback(async () => {
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-center">
                     <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
-                    <h4 className="font-medium text-foreground mb-2">No CCU history yet</h4>
                     <p className="text-sm text-muted-foreground max-w-md">
-                      Refresh Roblox data to start collecting CCU snapshots. History will build up over time as more snapshots are recorded.
+                      No CCU history yet. Refresh Roblox data to start collecting snapshots.
                     </p>
                     <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" className="mt-4">
                       <RefreshCw className="w-4 h-4 mr-2" />
