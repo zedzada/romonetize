@@ -293,8 +293,10 @@ local function sendCCUHeartbeat()
     
     if success and response.Success then
         print("[RoMonetize] CCU heartbeat sent: players=" .. playerCount)
+    elseif success then
+        warn("[RoMonetize] CCU heartbeat failed: HTTP " .. tostring(response.StatusCode) .. " - " .. tostring(response.Body))
     else
-        -- Silently fail for heartbeats to avoid log spam
+        warn("[RoMonetize] CCU heartbeat failed:", tostring(response))
     end
 end
 

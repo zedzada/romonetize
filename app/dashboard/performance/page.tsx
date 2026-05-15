@@ -118,6 +118,17 @@ export default function PerformancePage() {
     cronConfigured: boolean;
   } | null>(null);
   
+  // Heartbeat debug info from /api/heartbeat/debug (debug mode only)
+  const [heartbeatDebug, setHeartbeatDebug] = useState<{
+    selectedGameId: string | null;
+    selectedGameName: string | null;
+    activeServerHeartbeats: number;
+    latestHeartbeatAt: string | null;
+    minutesSinceLatestHeartbeat: number | null;
+    latest10Heartbeats: Array<{ server_id: string; ccu: number; last_seen_at: string }>;
+    latest10CcuSnapshots: Array<{ ccu: number; created_at: string; source: string }>;
+  } | null>(null);
+  
   // Handle CCU range change - simple, no interval logic
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
     setCcuRange(newRange);
@@ -169,6 +180,16 @@ export default function PerformancePage() {
         })
         .catch(() => {
           // Silently fail - cron status is optional debug info
+        });
+        
+      // Fetch heartbeat debug info
+      fetch("/api/heartbeat/debug")
+        .then(res => res.json())
+        .then(data => {
+          setHeartbeatDebug(data);
+        })
+        .catch(() => {
+          // Silently fail - heartbeat debug is optional
         });
     }
   }, []);
@@ -1183,6 +1204,61 @@ const handleSyncAndRefresh = useCallback(async () => {
                     <div>snapshotsInRange: <span className={processedCcuHistory.snapshotCount > 0 ? "text-green-400" : "text-red-400"}>{processedCcuHistory.snapshotCount}</span></div>
                     <div>currentCcu: <span className="text-foreground">{processedCcuHistory.currentCcu ?? "—"}</span></div>
                     <div>peakCcu: <span className="text-foreground">{processedCcuHistory.peakCcu ?? "—"}</span></div>
+                  </div>
+                </div>
+              )}
+              
+              {/* Tracker Heartbeat Debug - only shown with ?debug=true */}
+              {isDebugMode && heartbeatDebug && (
+                <div className="mb-3 p-3 bg-purple-500/10 border border-purple-500/30 rounded-lg text-xs font-mono">
+                  <div className="font-semibold text-purple-500 mb-2">Tracker Heartbeat Debug</div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-muted-foreground mb-3">
+                    <div>gameId: <span className="text-foreground">{heartbeatDebug.selectedGameId?.slice(0, 8) || "—"}...</span></div>
+                    <div>gameName: <span className="text-foreground">{heartbeatDebug.selectedGameName || "—"}</span></div>
+                    <div>activeServers: <span className={heartbeatDebug.activeServerHeartbeats > 0 ? "text-green-400" : "text-red-400"}>{heartbeatDebug.activeServerHeartbeats}</span></div>
+                    <div>lastHeartbeat: <span className={heartbeatDebug.minutesSinceLatestHeartbeat !== null && heartbeatDebug.minutesSinceLatestHeartbeat <= 2 ? "text-green-400" : "text-amber-400"}>
+                      {heartbeatDebug.minutesSinceLatestHeartbeat !== null ? `${heartbeatDebug.minutesSinceLatestHeartbeat}m ago` : "never"}
+                    </span></div>
+                  </div>
+                  
+                  {heartbeatDebug.minutesSinceLatestHeartbeat !== null && heartbeatDebug.minutesSinceLatestHeartbeat > 2 && (
+                    <div className="mb-3 p-2 bg-amber-500/20 border border-amber-500/40 rounded text-amber-400">
+                      No heartbeat received for {heartbeatDebug.minutesSinceLatestHeartbeat} minutes
+                    </div>
+                  )}
+                  
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <div className="text-muted-foreground mb-1">Latest 10 Heartbeats:</div>
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {heartbeatDebug.latest10Heartbeats.length === 0 ? (
+                          <div className="text-red-400">No heartbeats recorded</div>
+                        ) : (
+                          heartbeatDebug.latest10Heartbeats.map((h, i) => (
+                            <div key={i} className="text-[10px]">
+                              <span className="text-muted-foreground">{new Date(h.last_seen_at).toLocaleTimeString()}</span>
+                              {" "}server={h.server_id.slice(0, 8)}... ccu=<span className="text-foreground">{h.ccu}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground mb-1">Latest 10 CCU Snapshots:</div>
+                      <div className="max-h-32 overflow-y-auto space-y-0.5">
+                        {heartbeatDebug.latest10CcuSnapshots.length === 0 ? (
+                          <div className="text-red-400">No snapshots recorded</div>
+                        ) : (
+                          heartbeatDebug.latest10CcuSnapshots.map((s, i) => (
+                            <div key={i} className="text-[10px]">
+                              <span className="text-muted-foreground">{new Date(s.created_at).toLocaleTimeString()}</span>
+                              {" "}ccu=<span className="text-foreground">{s.ccu}</span>
+                              {" "}source=<span className={s.source === "romonetize_tracker" ? "text-purple-400" : "text-blue-400"}>{s.source}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
               )}
