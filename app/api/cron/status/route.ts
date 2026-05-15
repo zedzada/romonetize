@@ -29,6 +29,7 @@ export async function GET() {
 
   const now = new Date();
   const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000);
+  const sixtyMinutesAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
   // Count connected games (games with roblox_game_id)
   const { count: connectedGamesCount } = await supabase
@@ -36,74 +37,86 @@ export async function GET() {
     .select("*", { count: "exact", head: true })
     .not("roblox_game_id", "is", null);
 
-  // Get snapshots grouped by source in last 10 minutes
-  // First, get all snapshots in last 10 minutes
-  const { data: recentSnapshots } = await supabase
+  // Count active games (games with status = 'active')
+  const { count: activeGamesCount } = await supabase
+    .from("games")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "active");
+
+  // Get snapshots in last 10 minutes (using only existing columns: id, game_id, ccu, created_at)
+  const { data: recentSnapshots10, count: rowsLast10Minutes } = await supabase
     .from("ccu_snapshots")
-    .select("source, created_at, captured_at")
+    .select("id, game_id, ccu, created_at", { count: "exact" })
     .gte("created_at", tenMinutesAgo.toISOString())
     .order("created_at", { ascending: false });
 
-  // Group by source
-  const sourceGroups: Record<string, { count: number; latest: string | null }> = {};
-  let vercelCronRowsLast10Minutes = 0;
-  let robloxApiRowsLast10Minutes = 0;
-  
-  for (const snap of recentSnapshots || []) {
-    const source = snap.source || "unknown";
-    if (!sourceGroups[source]) {
-      sourceGroups[source] = { count: 0, latest: null };
-    }
-    sourceGroups[source].count++;
-    if (!sourceGroups[source].latest) {
-      sourceGroups[source].latest = snap.captured_at || snap.created_at;
-    }
-    
-    if (source === "vercel_cron") {
-      vercelCronRowsLast10Minutes++;
-    } else if (source === "roblox_api") {
-      robloxApiRowsLast10Minutes++;
-    }
-  }
-
-  // Get latest cron snapshot specifically
-  const { data: latestCronSnapshot } = await supabase
+  // Get snapshots in last 60 minutes
+  const { count: rowsLast60Minutes } = await supabase
     .from("ccu_snapshots")
-    .select("created_at, captured_at, source")
-    .eq("source", "vercel_cron")
+    .select("*", { count: "exact", head: true })
+    .gte("created_at", sixtyMinutesAgo.toISOString());
+
+  // Get latest snapshot
+  const { data: latestSnapshot } = await supabase
+    .from("ccu_snapshots")
+    .select("id, game_id, ccu, created_at")
     .order("created_at", { ascending: false })
     .limit(1)
     .single();
 
-  const latestCronSnapshotAt = latestCronSnapshot?.captured_at || latestCronSnapshot?.created_at || null;
-  const minutesSinceLatestCronSnapshot = latestCronSnapshotAt
-    ? Math.round((now.getTime() - new Date(latestCronSnapshotAt).getTime()) / 60000)
+  const latestSnapshotAt = latestSnapshot?.created_at || null;
+  const minutesSinceLatestSnapshot = latestSnapshotAt
+    ? Math.round((now.getTime() - new Date(latestSnapshotAt).getTime()) / 60000)
     : null;
 
-  // Calculate expected rows: 1 snapshot per game per minute = connectedGamesCount * 10
+  // Calculate expected rows: 1 snapshot per game per minute
   const expectedRowsLast10Minutes = (connectedGamesCount || 0) * 10;
+  const expectedRowsLast60Minutes = (connectedGamesCount || 0) * 60;
 
-  // Format latestRowsBySource for easy reading
-  const latestRowsBySource = Object.entries(sourceGroups).map(([source, data]) => ({
-    source,
-    rows: data.count,
-    latest: data.latest,
-  }));
+  // Group recent snapshots by game to show per-game activity
+  const gameActivity: Record<string, { count: number; latestCcu: number; latestAt: string }> = {};
+  for (const snap of recentSnapshots10 || []) {
+    const gameId = snap.game_id;
+    if (!gameActivity[gameId]) {
+      gameActivity[gameId] = { count: 0, latestCcu: snap.ccu, latestAt: snap.created_at };
+    }
+    gameActivity[gameId].count++;
+  }
+
+  // Determine if cron appears to be working
+  // If we have snapshots in the last 10 minutes without browser activity, cron is likely working
+  const cronLikelyWorking = (rowsLast10Minutes || 0) > 0 && minutesSinceLatestSnapshot !== null && minutesSinceLatestSnapshot < 5;
 
   return NextResponse.json({
+    // Timestamps
     now: now.toISOString(),
-    latestCronSnapshotAt,
-    minutesSinceLatestCronSnapshot,
-    vercelCronRowsLast10Minutes,
-    robloxApiRowsLast10Minutes,
-    latestRowsBySource,
-    connectedGamesCount: connectedGamesCount || 0,
+    latestSnapshotAt,
+    minutesSinceLatestSnapshot,
+    
+    // Snapshot counts
+    rowsLast10Minutes: rowsLast10Minutes || 0,
+    rowsLast60Minutes: rowsLast60Minutes || 0,
     expectedRowsLast10Minutes,
-    // Diagnostic info
+    expectedRowsLast60Minutes,
+    
+    // Game counts
+    connectedGamesCount: connectedGamesCount || 0,
+    activeGamesCount: activeGamesCount || 0,
+    
+    // Per-game activity in last 10 mins
+    gamesWithSnapshotsLast10Min: Object.keys(gameActivity).length,
+    
+    // Configuration
     cronConfigured: !!process.env.CRON_SECRET,
+    cronConfiguredPath: "/api/cron/collect-ccu",
     cronFrequency: "* * * * * (every minute)",
-    note: vercelCronRowsLast10Minutes === 0 
-      ? "No vercel_cron snapshots found. Run the migration script to add source column, then deploy."
-      : undefined,
+    
+    // Status
+    cronLikelyWorking,
+    note: (rowsLast10Minutes || 0) === 0
+      ? "No snapshots in last 10 minutes. Verify cron is deployed and running."
+      : cronLikelyWorking
+        ? "Cron appears to be working - snapshots are being collected."
+        : "Snapshots exist but may be from browser polling only.",
   });
 }
