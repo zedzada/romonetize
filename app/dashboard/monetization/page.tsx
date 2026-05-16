@@ -760,41 +760,82 @@ export default function MonetizationPage() {
         </Card>
       </div>
 
-      {/* ARPPU / ARPDAU Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* PCR / ARPPU / ARPDAU Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {/* PCR - Payer Conversion Rate */}
+        <Card className="border-border bg-card shadow-sm">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Activity className="w-4 h-4 text-violet-400" />
+              <span className="text-xs text-muted-foreground">PCR</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : revenueStats?.conversionRate != null && revenueStats.conversionRate > 0 ? (
+                `${revenueStats.conversionRate.toFixed(2)}%`
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Paying Users / Active Users</p>
+          </CardContent>
+        </Card>
+
+        {/* ARPPU - Average Revenue Per Paying User */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-emerald-400" />
-              <span className="text-xs text-muted-foreground">Est. ARPPU</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "Gross ARPPU" : "Est. ARPPU"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
+              ) : (() => {
+                const arppuValue = revenueDisplayMode === "gross" 
+                  ? revenueStats?.grossArppu 
+                  : revenueStats?.estimatedArppu;
+                return arppuValue != null && arppuValue > 0 
+                  ? formatRobux(arppuValue)
+                  : <span className="text-muted-foreground">—</span>;
+              })()}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Formula pending</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Revenue / Paying Users</p>
           </CardContent>
         </Card>
 
+        {/* ARPDAU - Average Revenue Per Daily Active User */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-muted-foreground">Est. ARPDAU</span>
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "Gross ARPDAU" : "Est. ARPDAU"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
+              ) : (() => {
+                const arpdauValue = revenueDisplayMode === "gross" 
+                  ? revenueStats?.grossArpdau 
+                  : revenueStats?.estimatedArpdau;
+                return arpdauValue != null && arpdauValue > 0 
+                  ? formatRobux(arpdauValue)
+                  : <span className="text-muted-foreground">—</span>;
+              })()}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Formula pending</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Revenue / DAU</p>
           </CardContent>
         </Card>
+      </div>
+
+      {/* Relationship note */}
+      <div className="text-[10px] text-muted-foreground text-center px-4 -mt-2">
+        ARPDAU = PCR × ARPPU (using PCR as decimal, e.g. 2.5% = 0.025)
       </div>
 
       {/* Hero Chart: Hourly Revenue / Sales */}
@@ -1484,6 +1525,7 @@ export default function MonetizationPage() {
   hasTrackerData,
   error,
   selectedGameName,
+  revenueDisplayMode,
   revenueStats: {
     grossRevenue: safeRevenueStats.grossRevenue,
     estimatedRevenue: safeRevenueStats.estimatedRevenue,
@@ -1491,6 +1533,15 @@ export default function MonetizationPage() {
     estimatedRevenue72h: safeRevenueStats.estimatedRevenue72h,
     totalPurchases: safeRevenueStats.totalPurchases,
     payingUsers: safeRevenueStats.payingUsers,
+  },
+  metrics: {
+    PCR: revenueStats?.conversionRate ?? null,
+    grossARPPU: revenueStats?.grossArppu ?? null,
+    estimatedARPPU: revenueStats?.estimatedArppu ?? null,
+    grossARPDAU: revenueStats?.grossArpdau ?? null,
+    estimatedARPDAU: revenueStats?.estimatedArpdau ?? null,
+    averageDAU: revenueStats?.averageDau ?? null,
+    daysWithData: revenueStats?.daysWithData ?? null,
   },
   chartDataPoints: processedChartData?.length ?? 0,
   chartTotals,
