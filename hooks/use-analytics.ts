@@ -192,7 +192,17 @@ export interface MonetizationCharts {
   revenueOverTime: Array<{ date: string; revenue: number }>;
   purchasesOverTime: Array<{ date: string; purchases: number }>;
   revenueByProductType: Array<{ productType: string; revenue: number }>;
-  topProducts: Array<{ productId: string; productName: string; productType: string; revenue: number; purchases: number; buyers: number }>;
+  // Top products with both gross and estimated values
+  topProducts: Array<{ 
+    productId: string; 
+    productName: string; 
+    productType: string; 
+    revenue: number; // Legacy: gross revenue
+    grossRevenue?: number;
+    estimatedRevenue?: number;
+    purchases: number; 
+    buyers: number;
+  }>;
   // 72h hourly monetization data
   hourlyMonetization: HourlyMonetizationPoint[];
   // 24h minute-level monetization data (for real-time 1m interval)
@@ -205,18 +215,46 @@ export interface ProductAnalyticsItem {
   productId: string;
   productName: string;
   productType: string;
-  priceRobux: number;
-  revenue: number;
+  // Gross values (before 30% Roblox fee)
+  grossRevenue: number;
+  grossRevenuePerBuyer: number;
+  // Estimated values (after 30% Roblox fee - creator payout)
+  estimatedRevenue: number;
+  estimatedRevenuePerBuyer: number;
+  // Counts
   purchases: number;
   buyers: number;
-  views: number;
   clicks: number;
+  // Metrics
   conversionRate: number | null;
-  revenuePerBuyer: number;
+  conversionNeedsTracking: boolean;
+}
+
+export interface ProductAnalyticsTopProduct {
+  productId: string;
+  productName: string;
+  productType: string;
+  grossRevenue: number;
+  estimatedRevenue: number;
+  purchases: number;
+  buyers: number;
 }
 
 export interface ProductAnalytics {
   products: ProductAnalyticsItem[];
+  // Top 4 products for Overview page (same data as products, just sliced)
+  topProducts: ProductAnalyticsTopProduct[];
+  // Summary totals
+  totalPurchases: number;
+  totalBuyers: number;
+  grossTotalRevenue: number;
+  estimatedTotalRevenue: number;
+  // Debug info
+  aggregationSource: string;
+  totalEventsUsed: number;
+  hitSupabaseLimit: boolean;
+  selectedRange: string;
+  locked: boolean;
 }
 
 export interface AnalyticsData {

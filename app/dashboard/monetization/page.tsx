@@ -1240,24 +1240,29 @@ export default function MonetizationPage() {
             </CardContent>
           </Card>
 
-          {/* Top Products - Horizontal Bar Chart (estimated 70%) */}
+          {/* Top Products - Horizontal Bar Chart (respects revenue display mode) */}
           <Card className="border-border bg-card shadow-sm">
             <CardHeader className="pb-2">
-              <CardTitle className="text-base font-semibold text-foreground">Top Products by Est. Revenue</CardTitle>
-              <p className="text-xs text-muted-foreground">Best performing products</p>
+              <CardTitle className="text-base font-semibold text-foreground">
+                Top Products by {revenueDisplayMode === "gross" ? "Gross" : "Est."} Revenue
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">Best performing products (same data as Products page)</p>
             </CardHeader>
             <CardContent className="pt-2">
               {monetizationCharts?.topProducts?.length ? (() => {
-                // Transform to estimated revenue (70%)
-                const estimatedProducts = monetizationCharts.topProducts.slice(0, 5).map(p => ({
+                // Use the revenue display mode to show correct values
+                // topProducts now includes both grossRevenue and estimatedRevenue from shared aggregation
+                const displayProducts = monetizationCharts.topProducts.slice(0, 5).map(p => ({
                   ...p,
-                  revenue: Math.round(p.revenue * CREATOR_REVENUE_RATE)
+                  displayRevenue: revenueDisplayMode === "gross" 
+                    ? (p.grossRevenue ?? p.revenue) 
+                    : (p.estimatedRevenue ?? Math.round(p.revenue * CREATOR_REVENUE_RATE))
                 }));
                 return (
                   <div className="h-[220px]">
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart 
-                        data={estimatedProducts} 
+                        data={displayProducts} 
                         layout="vertical"
                         margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
                       >
@@ -1296,7 +1301,7 @@ export default function MonetizationPage() {
                           }}
                         />
                         <Bar 
-                          dataKey="revenue" 
+                          dataKey="displayRevenue" 
                           fill="url(#topProductsGradient)"
                           radius={[0, 6, 6, 0]}
                           maxBarSize={30}

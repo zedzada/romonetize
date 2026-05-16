@@ -3,12 +3,19 @@ import { createClient } from "@/lib/supabase/server";
 import { getRobloxGameStats } from "@/lib/services/roblox-api";
 import { getSelectedGameForUser, getAllGamesForUser, type GameSummary } from "@/lib/server/selected-game";
 import { calculatePeriodMetrics, type EventWithMetrics } from "@/lib/metrics/arppu-arpdau";
+import { 
+  aggregateProducts, 
+  getTopProducts,
+  getEventRobux as getEventRobuxShared,
+  CREATOR_REVENUE_RATE,
+  type ProductPurchaseEvent,
+  type ProductClickEvent,
+  type RobloxProductInfo,
+  type AggregatedProduct,
+} from "@/lib/utils/product-aggregation";
 
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
-
-// Roblox takes 30% of revenue, creators receive 70%
-const CREATOR_REVENUE_RATE = 0.7;
 
 // Supabase default row limit - must paginate if more rows expected
 const SUPABASE_PAGE_SIZE = 1000;
@@ -933,11 +940,11 @@ export async function GET(request: NextRequest) {
   const conversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : null;
   const purchaseRate = uniquePlayers > 0 ? (totalPurchases / uniquePlayers) * 100 : null;
 
-  // === PRODUCT STATS ===
+  // === PRODUCT STATS (using shared aggregation helper) ===
   step = "calculate_products";
   
   // First, fetch synced Roblox products for name enrichment
-  let robloxProductsMap = new Map<string, { name: string; type: string; price: number }>();
+  const robloxProductsMap = new Map<string, RobloxProductInfo>();
   try {
     const { data: robloxProducts } = await supabase
       .from("roblox_products")
@@ -952,156 +959,47 @@ export async function GET(request: NextRequest) {
       });
     });
   } catch (err) {
-    // Non-fatal - continue without Roblox enrichment
     sectionErrors.robloxProductsEnrich = err instanceof Error ? err.message : "Failed to fetch";
   }
   
-  // Collect all events by product_id to find best name/type across all events
-  const productEventMap = new Map<string, typeof purchaseEvents>();
-  [...purchaseEvents, ...clickEvents].forEach((e) => {
-    const productId = e.product_id;
-    if (!productId) return;
-    const existing = productEventMap.get(productId) || [];
-    existing.push(e);
-    productEventMap.set(productId, existing);
-  });
+  // Use shared aggregation helper for consistent product stats
+  // This is the SINGLE SOURCE OF TRUTH for all product data across:
+  // - Overview Top Products
+  // - Products page table
+  // - Monetization product breakdown
+  // - AI Assistant context
+  const productAggregationResult = aggregateProducts(
+    purchaseEvents as ProductPurchaseEvent[],
+    clickEvents as ProductClickEvent[],
+    robloxProductsMap
+  );
   
-  // Helper: resolve product name with priority
-  // 1. event.product_name
-  // 2. event.metadata.product_name
-  // 3. matching product from roblox_products by product_id
-  // 4. matching known product name from another event with same product_id
-  // 5. fallback: Product {product_id}
-  // 6. final fallback: Unknown Product (only if no product_id)
-  function resolveProductName(productId: string | null, events: typeof purchaseEvents): string {
-    if (!productId) return "Unknown Product";
-    
-    // Check all events for this product_id for a name
-    for (const e of events) {
-      if (e.product_name && e.product_name !== "Unknown Product" && e.product_name !== "Unknown Gamepass") {
-        return e.product_name;
-      }
-      // Check metadata
-      const meta = e.metadata as Record<string, unknown> | null;
-      if (meta?.product_name && typeof meta.product_name === "string") {
-        return meta.product_name;
-      }
-    }
-    
-    // Check Roblox synced products
-    const robloxProduct = robloxProductsMap.get(productId);
-    if (robloxProduct?.name) {
-      return robloxProduct.name;
-    }
-    
-    // Fallback to Unknown Product #{product_id}
-    return `Unknown Product #${productId}`;
-  }
+  // Get top 4 products for Overview page (same data as Products page)
+  const topProducts = getTopProducts(productAggregationResult, 4);
   
-  // Helper: resolve product type with priority
-  function resolveProductType(productId: string | null, events: typeof purchaseEvents): string {
-    // Check events
-    for (const e of events) {
-      if (e.product_type && e.product_type !== "unknown") {
-        return e.product_type;
-      }
-      if (e.event_type === "gamepass_purchase" || e.event_type === "gamepass_click") {
-        return "gamepass";
-      }
-      if (e.event_type === "devproduct_purchase" || e.event_type === "devproduct_click") {
-        return "devproduct";
-      }
-    }
-    
-    // Check Roblox synced products
-    if (productId) {
-      const robloxProduct = robloxProductsMap.get(productId);
-      if (robloxProduct?.type) {
-        return robloxProduct.type;
-      }
-    }
-    
-    return "gamepass";
-  }
-  
-  const productMap = new Map<string, {
-    id: string;
-    name: string;
-    type: string;
-    revenue: number;
-    purchases: number;
-    clicks: number;
-    uniqueBuyers: Set<string>;
-  }>();
+  // Legacy format for backwards compatibility - products array with both gross and estimated
+  const products = productAggregationResult.products.map((p) => ({
+    id: p.productId,
+    name: p.productName,
+    type: p.productType,
+    // Gross revenue (before 30% Roblox fee)
+    revenue: p.grossRevenue,
+    grossRevenue: p.grossRevenue,
+    // Estimated revenue (after 30% Roblox fee - creator payout)
+    estimatedRevenue: p.estimatedRevenue,
+    purchases: p.purchases,
+    uniqueBuyers: p.buyers,
+    clicks: p.clicks,
+    conversionRate: p.conversionRate !== null ? p.conversionRate * 100 : null,
+    conversionNeedsTracking: p.conversionNeedsTracking,
+    revPerBuyer: p.grossRevenuePerBuyer,
+    grossRevenuePerBuyer: p.grossRevenuePerBuyer,
+    estimatedRevenuePerBuyer: p.estimatedRevenuePerBuyer,
+  }));
 
-  purchaseEvents.forEach((e) => {
-    const key = e.product_id || "unknown";
-    const eventRobux = getEventRobux(e);
-    const existing = productMap.get(key);
-    
-    if (existing) {
-      existing.revenue += eventRobux;
-      existing.purchases += 1;
-      if (e.player_id) existing.uniqueBuyers.add(e.player_id);
-    } else {
-      const buyers = new Set<string>();
-      if (e.player_id) buyers.add(e.player_id);
-      
-      // Get all events for this product to resolve name/type
-      const allEventsForProduct = productEventMap.get(key) || [e];
-      
-      productMap.set(key, {
-        id: e.product_id || key,
-        name: resolveProductName(e.product_id, allEventsForProduct),
-        type: resolveProductType(e.product_id, allEventsForProduct),
-        revenue: eventRobux,
-        purchases: 1,
-        clicks: 0,
-        uniqueBuyers: buyers,
-      });
-    }
-  });
-
-  clickEvents.forEach((e) => {
-    const key = e.product_id || "unknown";
-    const existing = productMap.get(key);
-    
-    if (existing) {
-      existing.clicks += 1;
-    } else {
-      // Get all events for this product to resolve name/type
-      const allEventsForProduct = productEventMap.get(key) || [e];
-      
-      productMap.set(key, {
-        id: e.product_id || key,
-        name: resolveProductName(e.product_id, allEventsForProduct),
-        type: resolveProductType(e.product_id, allEventsForProduct),
-        revenue: 0,
-        purchases: 0,
-        clicks: 1,
-        uniqueBuyers: new Set(),
-      });
-    }
-  });
-
-  const products = Array.from(productMap.values())
-    .map((p) => ({
-      id: p.id,
-      name: p.name,
-      type: p.type,
-      revenue: p.revenue,
-      purchases: p.purchases,
-      uniqueBuyers: p.uniqueBuyers.size,
-      clicks: p.clicks,
-      conversionRate: p.clicks > 0 ? (p.purchases / p.clicks) * 100 : null,
-      conversionNeedsTracking: p.clicks === 0 && p.purchases > 0,
-      revPerBuyer: p.uniqueBuyers.size > 0 ? p.revenue / p.uniqueBuyers.size : 0,
-    }))
-    .sort((a, b) => b.revenue - a.revenue);
-
-  const totalProductRevenue = products.reduce((sum, p) => sum + p.revenue, 0);
-  const totalProductPurchases = products.reduce((sum, p) => sum + p.purchases, 0);
-  const totalUniqueBuyers = new Set(purchaseEvents.filter((e) => e.player_id).map((e) => e.player_id)).size;
+  const totalProductRevenue = productAggregationResult.grossTotalRevenue;
+  const totalProductPurchases = productAggregationResult.totalPurchases;
+  const totalUniqueBuyers = productAggregationResult.totalBuyers;
   const productsWithClicks = products.filter((p) => p.clicks > 0 && p.conversionRate !== null);
   const avgConversionRate = productsWithClicks.length > 0
     ? productsWithClicks.reduce((sum, p) => sum + (p.conversionRate || 0), 0) / productsWithClicks.length
@@ -1471,12 +1369,16 @@ let ccuHistory: {
     { productType: "devproduct", revenue: devproductRevenue },
   ].filter(r => r.revenue > 0);
 
-  // === TOP PRODUCTS ===
-  const topProducts = products.slice(0, 10).map(p => ({
+  // === TOP PRODUCTS (for monetizationCharts - uses same shared aggregation) ===
+  // This ensures monetization page top products match products page exactly
+  const monetizationTopProducts = products.slice(0, 10).map(p => ({
     productId: p.id,
     productName: p.name,
     productType: p.type,
-    revenue: p.revenue,
+    // Include both gross and estimated for proper display mode support
+    revenue: p.grossRevenue, // Legacy: gross revenue for backwards compatibility
+    grossRevenue: p.grossRevenue,
+    estimatedRevenue: p.estimatedRevenue,
     purchases: p.purchases,
     buyers: p.uniqueBuyers,
   }));
@@ -1638,11 +1540,12 @@ trackerStats: hasTrackerEvents ? {
         ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
       } : null,
   // Monetization charts - locked for free users
+  // Uses same shared product aggregation for consistency with Products page
   monetizationCharts: monetizationLocked ? null : (hasTrackerEvents ? {
   revenueOverTime: revenueChart.map(r => ({ date: r.time, revenue: r.revenue })),
   purchasesOverTime,
   revenueByProductType,
-  topProducts,
+  topProducts: monetizationTopProducts,
   // 72h hourly monetization data (always from last 72 hours, grouped hourly)
   hourlyMonetization,
   // 24h minute-level monetization data (always from last 24 hours, grouped per minute)
@@ -1651,29 +1554,48 @@ trackerStats: hasTrackerEvents ? {
 purchaseCount72h: purchases72hCount,
     } : null),
 // Product analytics - locked for free users
-  productAnalytics: monetizationLocked ? { products: [], locked: true } : {
-  products: products.map(p => ({
-  productId: p.id,
-  productName: p.name,
-  productType: p.type,
-  priceRobux: 0, // Would need to be fetched from Roblox API/synced products
-  // Gross values
-  grossRevenue: p.revenue,
-  grossRevenuePerBuyer: p.revPerBuyer,
-  // Estimated values (70% creator payout)
-  estimatedRevenue: Math.round(p.revenue * CREATOR_REVENUE_RATE),
-  estimatedRevenuePerBuyer: p.uniqueBuyers > 0 ? Math.round((p.revenue * CREATOR_REVENUE_RATE) / p.uniqueBuyers) : 0,
-  // Legacy fields for backwards compatibility
-  revenue: p.revenue,
-  revenuePerBuyer: p.revPerBuyer,
-  // Non-revenue metrics unchanged
-  purchases: p.purchases,
-  buyers: p.uniqueBuyers,
-  views: 0, // Future: from product_view events
-  clicks: p.clicks,
-  conversionRate: p.conversionRate,
-  })),
-  locked: false,
+  // SINGLE SOURCE OF TRUTH for all product data - same data for Overview, Products, Monetization pages
+  productAnalytics: monetizationLocked ? { products: [], locked: true, aggregationSource: "locked" } : {
+    // Products from shared aggregation helper
+    products: productAggregationResult.products.map(p => ({
+      productId: p.productId,
+      productName: p.productName,
+      productType: p.productType,
+      // Gross values (before 30% Roblox fee)
+      grossRevenue: p.grossRevenue,
+      grossRevenuePerBuyer: p.grossRevenuePerBuyer,
+      // Estimated values (after 30% Roblox fee - creator payout)
+      estimatedRevenue: p.estimatedRevenue,
+      estimatedRevenuePerBuyer: p.estimatedRevenuePerBuyer,
+      // Counts
+      purchases: p.purchases,
+      buyers: p.buyers,
+      clicks: p.clicks,
+      // Metrics
+      conversionRate: p.conversionRate,
+      conversionNeedsTracking: p.conversionNeedsTracking,
+    })),
+    // Top 4 products for Overview page (same data, just sliced)
+    topProducts: topProducts.map(p => ({
+      productId: p.productId,
+      productName: p.productName,
+      productType: p.productType,
+      grossRevenue: p.grossRevenue,
+      estimatedRevenue: p.estimatedRevenue,
+      purchases: p.purchases,
+      buyers: p.buyers,
+    })),
+    // Summary totals
+    totalPurchases: productAggregationResult.totalPurchases,
+    totalBuyers: productAggregationResult.totalBuyers,
+    grossTotalRevenue: productAggregationResult.grossTotalRevenue,
+    estimatedTotalRevenue: productAggregationResult.estimatedTotalRevenue,
+    // Debug info
+    aggregationSource: "shared_helper",
+    totalEventsUsed: productAggregationResult.totalEventsUsed,
+    hitSupabaseLimit: productAggregationResult.hitSupabaseLimit,
+    selectedRange: range,
+    locked: false,
   },
       sectionErrors,
       lastUpdated: new Date().toISOString(),
