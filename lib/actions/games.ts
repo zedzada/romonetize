@@ -482,7 +482,7 @@ export async function getGameStats(
     .eq("game_id", gameId)
     .in("event_type", purchaseEventTypes);
 
-  const totalRevenue = revenueData?.reduce((sum, e) => sum + (e.robux || 0), 0) || 0;
+  const totalRevenue = revenueData?.reduce((sum: number, e: { robux: number | null }) => sum + (e.robux || 0), 0) || 0;
 
   // Get total products count
   const { count: totalProducts } = await supabase
