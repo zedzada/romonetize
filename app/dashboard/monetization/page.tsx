@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -233,6 +234,10 @@ function ChartLegend({ items }: { items: Array<{ name: string; color: string; va
 }
 
 export default function MonetizationPage() {
+  const searchParams = useSearchParams();
+  const debugMode = searchParams.get("debug") === "true";
+  const [debugData, setDebugData] = useState<Record<string, unknown> | null>(null);
+  
   const [chartRange, setChartRange] = useState<ChartRange>("72h");
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
@@ -241,7 +246,7 @@ export default function MonetizationPage() {
   const { mode: revenueDisplayMode, setMode: setRevenueDisplayMode } = useRevenueDisplayMode();
   
   // Check plan access - use canAccessMonetization for proper gating
-  const { canAccessMonetization, loading: planLoading } = usePlanAccess();
+  const { canAccessMonetization, loading: planLoading, planInfo } = usePlanAccess();
   
   // Theme-aware chart colors
   const chartTheme = useChartTheme();
@@ -282,6 +287,26 @@ export default function MonetizationPage() {
     selectedGameName,
     refresh,
   } = useAnalytics({ enabled: true, range: "7d" });
+
+  // Fetch debug data when debug mode is enabled
+  useEffect(() => {
+    if (!debugMode) {
+      setDebugData(null);
+      return;
+    }
+    
+    async function fetchDebugData() {
+      try {
+        const response = await fetch("/api/dashboard/analytics?range=7d&debug=true");
+        const data = await response.json();
+        setDebugData(data.debug || { error: "No debug data in response", fullResponse: data });
+      } catch (err) {
+        setDebugData({ error: err instanceof Error ? err.message : "Failed to fetch debug data" });
+      }
+    }
+    
+    fetchDebugData();
+  }, [debugMode]);
 
   // Safe defaults - all values from API
   const safeRevenueStats = {
@@ -1413,6 +1438,75 @@ export default function MonetizationPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Debug Panel - only shown when ?debug=true */}
+      {debugMode && (
+        <Card className="border-orange-500/30 bg-orange-500/5">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-orange-500" />
+              Monetization Debug Info
+            </CardTitle>
+            <CardDescription>
+              Debug data from /api/dashboard/analytics?debug=true
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              {/* Client-side plan info */}
+              <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                <h4 className="font-medium text-sm mb-2">Client-Side Plan Check</h4>
+                <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
+{JSON.stringify({
+  planInfo: planInfo,
+  canAccessMonetization,
+  planLoading,
+}, null, 2)}
+                </pre>
+              </div>
+              
+              {/* Client-side stats */}
+              <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                <h4 className="font-medium text-sm mb-2">Client-Side Revenue Stats</h4>
+                <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
+{JSON.stringify({
+  hasTrackerData,
+  error,
+  selectedGameName,
+  revenueStats: {
+    grossRevenue: safeRevenueStats.grossRevenue,
+    estimatedRevenue: safeRevenueStats.estimatedRevenue,
+    grossRevenue72h: safeRevenueStats.grossRevenue72h,
+    estimatedRevenue72h: safeRevenueStats.estimatedRevenue72h,
+    totalPurchases: safeRevenueStats.totalPurchases,
+    payingUsers: safeRevenueStats.payingUsers,
+  },
+  chartDataPoints: processedChartData?.length ?? 0,
+  chartTotals,
+  monetizationCharts: monetizationCharts ? {
+    purchaseCount72h: monetizationCharts.purchaseCount72h,
+    revenue72h: monetizationCharts.revenue72h,
+    hourlyMonetizationLength: monetizationCharts.hourlyMonetization?.length ?? 0,
+  } : null,
+}, null, 2)}
+                </pre>
+              </div>
+
+              {/* Server-side debug data */}
+              <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                <h4 className="font-medium text-sm mb-2">Server-Side Debug Data</h4>
+                {debugData ? (
+                  <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap max-h-[400px] overflow-y-auto">
+{JSON.stringify(debugData, null, 2)}
+                  </pre>
+                ) : (
+                  <p className="text-sm text-muted-foreground">Loading debug data...</p>
+                )}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

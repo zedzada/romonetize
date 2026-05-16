@@ -55,7 +55,7 @@ export function usePlanAccess() {
 
   return {
     plan,
-    planInfo,
+    planInfo: planInfo ?? null,
     loading,
     hasProAccess: planInfo?.canAccessMonetization ?? false,
     hasStudioAccess: planInfo?.plan === "studio" && (planInfo?.canAccessMonetization ?? false),
