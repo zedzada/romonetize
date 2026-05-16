@@ -71,8 +71,8 @@ export async function POST() {
       });
     }
 
-    const gameIds = userGames.map(g => g.id);
-    const gameNames = userGames.map(g => g.name || g.roblox_game_id || g.id);
+    const gameIds = userGames.map((g: { id: string; name: string | null; roblox_game_id: string | null }) => g.id);
+    const gameNames = userGames.map((g: { id: string; name: string | null; roblox_game_id: string | null }) => g.name || g.roblox_game_id || g.id);
 
     // Step 2: Delete events for these games
     const { error: eventsError, count: eventsCount } = await supabase
