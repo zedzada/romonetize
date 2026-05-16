@@ -12,6 +12,7 @@ import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipSty
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { RevenueModeToggle } from "@/components/dashboard/revenue-mode-toggle";
 import { useRevenueDisplayMode, type RevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
+import { getProductPurchaseMetrics, CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
 import {
   AreaChart,
   Area,
@@ -81,7 +82,7 @@ function requiresDailyInterval(range: ChartRange): boolean {
 }
 
 // Roblox takes 30%, creators get 70%
-const CREATOR_REVENUE_RATE = 0.7;
+// CREATOR_REVENUE_RATE imported from @/lib/utils/product-aggregation
 
 // Custom tooltip for the hero chart - shows mode-specific data with estimated revenue
 function HeroChartTooltip({ 
@@ -356,13 +357,18 @@ function MonetizationContent() {
   // === SINGLE SOURCE OF TRUTH: Use productAnalytics (same as Products page) ===
   // This ensures Monetization shows EXACT SAME data as Products page
   
-  // Revenue and purchase stats from shared aggregation
+  // Revenue and purchase stats from shared helper (single source of truth)
+  const sharedMetrics = getProductPurchaseMetrics({
+    productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
+    revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+  });
+  
   const summaryStats = {
-    grossRevenue: productAnalytics?.grossTotalRevenue ?? 0,
-    estimatedRevenue: productAnalytics?.estimatedTotalRevenue ?? 0,
-    totalPurchases: productAnalytics?.totalPurchases ?? 0,
-    payingUsers: productAnalytics?.totalBuyers ?? 0,
-    uniqueActiveUsers: trackerStats?.uniquePlayers ?? 0,
+    grossRevenue: sharedMetrics.grossTotalRevenue,
+    estimatedRevenue: sharedMetrics.estimatedTotalRevenue,
+    totalPurchases: sharedMetrics.totalPurchases,
+    payingUsers: sharedMetrics.totalBuyers,
+    uniqueActiveUsers: sharedMetrics.uniqueActivePlayers,
   };
   
   // Metrics calculated from shared aggregation
@@ -557,6 +563,60 @@ function MonetizationContent() {
   // Get current mode display info (labels depend on display mode)
   // Use exact count from API for total purchases (bypasses Supabase 1000 row limit)
   const exactPurchaseCount72h = monetizationCharts?.purchaseCount72h ?? 0;
+
+  // === DERIVED SECONDARY CHART DATA (from hero chart's processedChartData) ===
+  // This ensures all charts use the SAME purchase data source
+
+  // Est. Daily Revenue: aggregate hourly buckets into daily bars
+  const dailyRevenueData = useMemo(() => {
+    if (!processedChartData.length) return [];
+    const dailyBuckets = new Map<string, number>();
+    processedChartData.forEach((p) => {
+      const dayKey = new Date(p.time).toISOString().slice(0, 10);
+      dailyBuckets.set(dayKey, (dailyBuckets.get(dayKey) || 0) + p.totalRevenue);
+    });
+    return Array.from(dailyBuckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, revenue]) => ({
+        date: date + "T00:00:00.000Z",
+        revenue: revenueDisplayMode === "gross" ? revenue : Math.round(revenue * CREATOR_REVENUE_RATE),
+      }));
+  }, [processedChartData, revenueDisplayMode]);
+
+  // Purchases Over Time: bucket by time matching the hero chart interval
+  const purchasesOverTimeData = useMemo(() => {
+    if (!processedChartData.length) return [];
+    // For short ranges (1h/6h/24h), use hourly; for longer ranges, use daily
+    const useDailyBuckets = ["7d", "28d", "90d"].includes(chartRange);
+    if (useDailyBuckets) {
+      const dailyBuckets = new Map<string, number>();
+      processedChartData.forEach((p) => {
+        const dayKey = new Date(p.time).toISOString().slice(0, 10);
+        dailyBuckets.set(dayKey, (dailyBuckets.get(dayKey) || 0) + p.purchases);
+      });
+      return Array.from(dailyBuckets.entries())
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, purchases]) => ({ date: date + "T00:00:00.000Z", purchases }));
+    }
+    // Hourly buckets for shorter ranges
+    return processedChartData.map((p) => ({ date: p.time, purchases: p.purchases }));
+  }, [processedChartData, chartRange]);
+
+  // Revenue by Type: derived from chartTotals (same hero chart source)
+  const revenueByTypeData = useMemo(() => {
+    const data: Array<{ productType: string; revenue: number }> = [];
+    if (chartTotals.gamepass > 0) {
+      data.push({ productType: "gamepass", revenue: revenueDisplayMode === "gross" ? chartTotals.gamepass : Math.round(chartTotals.gamepass * CREATOR_REVENUE_RATE) });
+    }
+    if (chartTotals.devproduct > 0) {
+      data.push({ productType: "devproduct", revenue: revenueDisplayMode === "gross" ? chartTotals.devproduct : Math.round(chartTotals.devproduct * CREATOR_REVENUE_RATE) });
+    }
+    // If we have revenue but no type breakdown, show as "Unknown"
+    if (data.length === 0 && chartTotals.total > 0) {
+      data.push({ productType: "unknown", revenue: revenueDisplayMode === "gross" ? chartTotals.total : Math.round(chartTotals.total * CREATOR_REVENUE_RATE) });
+    }
+    return data;
+  }, [chartTotals, revenueDisplayMode]);
   
   const modeConfig = useMemo(() => {
     const prefix = revenueDisplayMode === "gross" ? "" : "Est. ";
@@ -1210,16 +1270,11 @@ function MonetizationContent() {
               <p className="text-xs text-muted-foreground">Estimated revenue grouped by day (after 30% fee)</p>
             </CardHeader>
             <CardContent className="pt-2">
-              {monetizationCharts?.revenueOverTime?.length ? (() => {
-                // Transform to estimated revenue (70%)
-                const estimatedDailyData = monetizationCharts.revenueOverTime.map(item => ({
-                  ...item,
-                  revenue: Math.round(item.revenue * CREATOR_REVENUE_RATE)
-                }));
+              {dailyRevenueData.length > 0 ? (() => {
                 return (
                 <div className="h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={estimatedDailyData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <BarChart data={dailyRevenueData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="dailyRevenueGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor={COLORS.totalRevenue} stopOpacity={1}/>
@@ -1229,19 +1284,27 @@ function MonetizationContent() {
                       <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
+                        tickFormatter={(v) => {
+                          const d = new Date(v);
+                          return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                        }}
                         {...axisProps}
                         tick={{ fill: chartTheme.axis, fontSize: 10 }}
+                        interval="preserveStartEnd"
                       />
                       <YAxis 
-                        tickFormatter={(v) => `R$${v}`}
+                        tickFormatter={(v) => `R$${v >= 1000 ? `${(v/1000).toFixed(1)}k` : v}`}
                         {...axisProps}
                         tick={{ fill: chartTheme.axis, fontSize: 10 }}
                         width={50}
                       />
                       <Tooltip
                         {...tooltipStyle}
-                        formatter={(value: number) => [`R$${value.toLocaleString()}`, "Est. Revenue"]}
+                        labelFormatter={(v) => {
+                          const d = new Date(v);
+                          return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                        }}
+                        formatter={(value: number) => [`R$${value.toLocaleString()}`, revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"]}
                       />
                       <Bar 
                         dataKey="revenue" 
@@ -1255,7 +1318,7 @@ function MonetizationContent() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "No revenue in selected range" : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>
@@ -1268,10 +1331,10 @@ function MonetizationContent() {
               <p className="text-xs text-muted-foreground">Number of transactions</p>
             </CardHeader>
             <CardContent className="pt-2">
-              {monetizationCharts?.purchasesOverTime?.length ? (
+              {purchasesOverTimeData.length > 0 ? (
                 <div className="h-[220px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={monetizationCharts.purchasesOverTime} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <AreaChart data={purchasesOverTimeData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <defs>
                         <linearGradient id="purchasesGradient" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="0%" stopColor={COLORS.purchases} stopOpacity={0.4}/>
@@ -1281,9 +1344,16 @@ function MonetizationContent() {
                       <CartesianGrid {...gridProps} />
                       <XAxis 
                         dataKey="date" 
-                        tickFormatter={(v) => formatChartTime(v, "7d")}
+                        tickFormatter={(v) => {
+                          const d = new Date(v);
+                          if (["1h", "6h", "24h", "72h"].includes(chartRange)) {
+                            return d.toLocaleString(undefined, { hour: "numeric", hour12: true });
+                          }
+                          return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                        }}
                         {...axisProps}
                         tick={{ fill: chartTheme.axis, fontSize: 10 }}
+                        interval="preserveStartEnd"
                       />
                       <YAxis 
                         allowDecimals={false}
@@ -1293,6 +1363,13 @@ function MonetizationContent() {
                       />
                       <Tooltip
                         {...tooltipStyle}
+                        labelFormatter={(v) => {
+                          const d = new Date(v);
+                          if (["1h", "6h", "24h", "72h"].includes(chartRange)) {
+                            return d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit", hour12: true });
+                          }
+                          return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+                        }}
                         formatter={(value: number) => [value.toLocaleString(), "Purchases"]}
                       />
                       <Area 
@@ -1309,7 +1386,7 @@ function MonetizationContent() {
                 </div>
               ) : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "No purchases in selected range" : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>
@@ -1322,19 +1399,24 @@ function MonetizationContent() {
               <p className="text-xs text-muted-foreground">Gamepasses vs Developer Products</p>
             </CardHeader>
             <CardContent className="pt-2">
-              {monetizationCharts?.revenueByProductType?.length ? (() => {
-                // Transform to estimated revenue (70%)
-                const estimatedData = monetizationCharts.revenueByProductType.map(item => ({
-                  ...item,
-                  revenue: Math.round(item.revenue * CREATOR_REVENUE_RATE)
-                }));
-                const estimatedTotal = estimatedData.reduce((s, i) => s + i.revenue, 0);
+              {revenueByTypeData.length > 0 ? (() => {
+                const typeTotal = revenueByTypeData.reduce((s, i) => s + i.revenue, 0);
+                const typeColorMap: Record<string, string> = {
+                  gamepass: COLORS.gamepass,
+                  devproduct: COLORS.devProduct,
+                  unknown: "#9CA3AF",
+                };
+                const typeLabelMap: Record<string, string> = {
+                  gamepass: "Game Passes",
+                  devproduct: "Dev Products",
+                  unknown: "Unknown",
+                };
                 return (
                   <div className="h-[220px] flex items-center justify-center gap-6">
                     <ResponsiveContainer width={180} height={180}>
                       <PieChart>
                         <Pie
-                          data={estimatedData}
+                          data={revenueByTypeData}
                           dataKey="revenue"
                           nameKey="productType"
                           cx="50%"
@@ -1344,10 +1426,10 @@ function MonetizationContent() {
                           paddingAngle={3}
                           strokeWidth={0}
                         >
-                          {estimatedData.map((entry) => (
+                          {revenueByTypeData.map((entry) => (
                             <Cell 
                               key={entry.productType} 
-                              fill={entry.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct}
+                              fill={typeColorMap[entry.productType] || "#9CA3AF"}
                             />
                           ))}
                         </Pie>
@@ -1355,23 +1437,23 @@ function MonetizationContent() {
                           {...tooltipStyle}
                           formatter={(value: number, name: string) => [
                             `R$${value.toLocaleString()}`,
-                            name === "gamepass" ? "Game Passes" : "Dev Products"
+                            typeLabelMap[name] || name
                           ]}
                         />
                       </PieChart>
                     </ResponsiveContainer>
                     <div className="space-y-3">
-                      {estimatedData.map((item) => {
-                        const percentage = estimatedTotal > 0 ? ((item.revenue / estimatedTotal) * 100).toFixed(1) : "0";
+                      {revenueByTypeData.map((item) => {
+                        const percentage = typeTotal > 0 ? ((item.revenue / typeTotal) * 100).toFixed(1) : "0";
                         return (
                           <div key={item.productType} className="flex items-center gap-3">
                             <div 
                               className="w-4 h-4 rounded-md" 
-                              style={{ backgroundColor: item.productType === "gamepass" ? COLORS.gamepass : COLORS.devProduct }}
+                              style={{ backgroundColor: typeColorMap[item.productType] || "#9CA3AF" }}
                             />
                             <div>
                               <p className="text-sm font-medium text-foreground">
-                                {item.productType === "gamepass" ? "Game Passes" : "Dev Products"}
+                                {typeLabelMap[item.productType] || item.productType}
                               </p>
                               <p className="text-lg font-bold text-foreground">
                                 R${item.revenue.toLocaleString()}
@@ -1386,7 +1468,7 @@ function MonetizationContent() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "No revenue breakdown available" : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>

@@ -10,19 +10,20 @@ import { RangeControls, type ChartDateRange } from "@/components/dashboard/chart
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 import { useRevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
-import { 
-  RefreshCw, 
-  Package, 
-  DollarSign, 
-  ShoppingCart, 
-  Users,
-  TrendingUp,
+import { getProductPurchaseMetrics, CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
+import {
+  RefreshCw,
   AlertCircle,
   CheckCircle2,
   ExternalLink,
+  Package,
+  DollarSign,
+  ShoppingCart,
+  Users,
+  TrendingUp,
 } from "lucide-react";
 
-// Safe number formatter - never crashes
+// formatNumber, formatRobux, formatPercent helpers
 function formatNumber(value: unknown): string {
   if (typeof value === "number" && !isNaN(value)) {
     return value.toLocaleString();
@@ -46,10 +47,9 @@ function formatPercent(value: unknown): string {
   return "—";
 }
 
-// Roblox takes 30%, creators get 70%
-const CREATOR_REVENUE_RATE = 0.7;
+// CREATOR_REVENUE_RATE imported from @/lib/utils/product-aggregation
 
-// Products page range type - supports 7d to All time
+// Products page range type - supports 7d to 90d
 type ProductsRange = "7d" | "28d" | "90d";
 
 // Map products range to analytics API range
@@ -84,10 +84,8 @@ export default function ProductsPage() {
   } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
 
   // Safe defaults per spec
-  // PRIORITY: productAnalytics is the SINGLE SOURCE OF TRUTH from shared aggregation
-  // Only fall back to productStats for legacy compatibility
+  // Use getProductPurchaseMetrics as the SINGLE SOURCE OF TRUTH
   const safeProductStats = productStats ?? {};
-  const safeProductAnalytics = productAnalytics ?? {};
   const safeSyncedProducts = Array.isArray(syncedProducts?.products)
     ? syncedProducts.products
     : [];
@@ -95,28 +93,26 @@ export default function ProductsPage() {
   const hasTrackerEvents = dataHealth?.hasTrackerEvents ?? false;
   const hasSyncedProducts = safeSyncedProducts.length > 0;
 
-  // Products from shared aggregation - SINGLE SOURCE OF TRUTH
-  // This ensures Products page shows EXACT SAME data as Monetization page
-  const trackerProducts = 
-    (safeProductAnalytics.products && safeProductAnalytics.products.length > 0)
-      ? safeProductAnalytics.products
-      : Array.isArray(safeProductStats.products)
-        ? safeProductStats.products
-        : [];
+  // Shared helper: single source of truth for product metrics
+  const sharedMetrics = getProductPurchaseMetrics({
+    productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
+    revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+  });
+
+  // Products from shared aggregation
+  const trackerProducts = sharedMetrics.products;
   
-  // Summary stats - prefer productAnalytics (shared aggregation) over productStats
+  // Summary stats from shared helper
   const summaryStats = {
-    grossTotalRevenue: safeProductAnalytics.grossTotalRevenue ?? safeProductStats.grossTotalRevenue ?? safeProductStats.totalRevenue ?? 0,
-    estimatedTotalRevenue: safeProductAnalytics.estimatedTotalRevenue ?? safeProductStats.estimatedTotalRevenue ?? Math.round((safeProductStats.totalRevenue ?? 0) * CREATOR_REVENUE_RATE),
-    totalPurchases: safeProductAnalytics.totalPurchases ?? safeProductStats.totalPurchases ?? 0,
-    totalBuyers: safeProductAnalytics.totalBuyers ?? safeProductStats.uniqueBuyers ?? 0,
-    uniqueActiveUsers: safeProductAnalytics.uniqueActiveUsers ?? safeProductStats.uniqueActiveUsers ?? 0,
+    grossTotalRevenue: sharedMetrics.grossTotalRevenue,
+    estimatedTotalRevenue: sharedMetrics.estimatedTotalRevenue,
+    totalPurchases: sharedMetrics.totalPurchases,
+    totalBuyers: sharedMetrics.totalBuyers,
+    uniqueActiveUsers: sharedMetrics.uniqueActivePlayers,
   };
   
-  // Payer Conversion Rate = uniquePayingUsers / uniqueActiveUsers
-  const payerConversionRate = summaryStats.uniqueActiveUsers > 0 
-    ? summaryStats.totalBuyers / summaryStats.uniqueActiveUsers 
-    : null;
+  // Payer Conversion Rate from shared helper
+  const payerConversionRate = sharedMetrics.payerConversionRate;
 
   const hasTrackerProducts = trackerProducts.length > 0;
   
@@ -254,7 +250,7 @@ export default function ProductsPage() {
             </Link>
           </Button>
         </div>
-      ) : (safeProductStats.totalPurchases ?? 0) === 0 && (
+      ) : sharedMetrics.totalPurchases === 0 && (
         <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
           <AlertCircle className="w-4 h-4 text-blue-600" />
           <span className="text-sm text-blue-700">
@@ -395,27 +391,21 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {trackerProducts.map((product) => {
-                    // Normalize product shape for both productAnalytics and productStats formats
-                    const productId = product.productId ?? product.id ?? "unknown";
-                    // Resolve product name - show "Unknown Product #ID" for unknown products with IDs
-                    const rawName = product.productName ?? product.name;
-                    const productName = rawName && rawName !== "Unknown Product" && rawName !== "Unknown Gamepass"
-                      ? rawName
+                    const productId = product.productId;
+                    const productName = product.productName !== "Unknown Product" && !product.productName.startsWith("Unknown Product #")
+                      ? product.productName
                       : productId !== "unknown" 
                         ? `Unknown Product #${productId}`
                         : "Unknown Product";
-                    const productType = product.productType ?? product.type ?? "unknown";
-                    // Use estimated values (70% of gross) if available, otherwise calculate from gross
-                    const grossRevenue = product.grossRevenue ?? product.revenue ?? 0;
-                    const estimatedRevenue = product.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+                    const productType = product.productType;
+                    const grossRevenue = product.grossRevenue;
+                    const estimatedRevenue = product.estimatedRevenue;
                     const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
                     const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
                     const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
-                    const purchases = product.purchases ?? 0;
-                    const buyers = product.buyers ?? product.uniqueBuyers ?? 0;
-                    const grossRevPerBuyer = product.grossRevenuePerBuyer ?? product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? grossRevenue / buyers : 0);
-                    const estimatedRevPerBuyer = product.estimatedRevenuePerBuyer ?? Math.round(grossRevPerBuyer * CREATOR_REVENUE_RATE);
-                    const displayRevPerBuyer = revenueDisplayMode === "gross" ? grossRevPerBuyer : estimatedRevPerBuyer;
+                    const purchases = product.purchases;
+                    const buyers = product.buyers;
+                    const displayRevPerBuyer = product.revenuePerBuyer;
                     
                     return (
                       <tr key={productId} className="border-b border-border hover:bg-muted/50 transition-colors">
@@ -503,22 +493,20 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {safeSyncedProducts.map((product, index) => {
-                    // Safe field access per spec
-                    const name = product?.name ?? product?.productName ?? "Unnamed product";
-                    const type = product?.productType ?? product?.type ?? "Product";
-                    const price = product?.priceRobux ?? product?.price_robux ?? product?.price ?? null;
-                    const id = product?.robloxProductId ?? product?.roblox_product_id ?? product?.id ?? index;
+                    // Safe field access using SyncedProduct type
+                    const name = product?.name ?? "Unnamed product";
+                    const type = product?.productType ?? "Product";
+                    const price = product?.priceRobux ?? null;
+                    const id = product?.robloxProductId ?? product?.id ?? String(index);
 
-                    // Tracker-based metrics (from productStats.products if available)
-                    const trackerProduct = Array.isArray(safeProductStats.products)
-                      ? safeProductStats.products.find((p: { id?: string }) => p?.id === String(id))
-                      : null;
+                    // Tracker-based metrics (from sharedMetrics.products if available)
+                    const trackerProduct = sharedMetrics.products.find((p) => p.productId === String(id));
                     
                     // Calculate estimated values for tracker product
-                    const grossRevenue = trackerProduct?.revenue ?? 0;
-                    const estimatedRevenue = Math.round(grossRevenue * CREATOR_REVENUE_RATE);
-                    const buyers = trackerProduct?.uniqueBuyers ?? 0;
-                    const estimatedRevPerBuyer = buyers > 0 ? Math.round((grossRevenue * CREATOR_REVENUE_RATE) / buyers) : 0;
+                    const grossRevenue = trackerProduct?.grossRevenue ?? 0;
+                    const estimatedRevenue = trackerProduct?.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+                    const buyers = trackerProduct?.buyers ?? 0;
+                    const estimatedRevPerBuyer = trackerProduct?.revenuePerBuyer ?? (buyers > 0 ? Math.round((grossRevenue * CREATOR_REVENUE_RATE) / buyers) : 0);
 
                     return (
                       <tr key={id} className="border-b border-border/30 hover:bg-muted/40 transition-colors">

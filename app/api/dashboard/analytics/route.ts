@@ -355,8 +355,8 @@ export async function GET(request: NextRequest) {
   // For chart data and basic counts, we use separate targeted queries
   // DO NOT fetch all events - this is what caused the timeout
   
-  // Fetch limited purchase events for revenue chart (last 500 only for JS bucketing)
-  // This is a fallback - ideally we'd use the SQL RPC for chart data too
+  // Fetch limited purchase events for revenue chart (last 2000 only for JS bucketing)
+  // This is the fallback data source when SQL RPCs fail
   step = "read_chart_events";
   let purchaseEvents: Array<{
     id: string;
@@ -390,19 +390,65 @@ export async function GET(request: NextRequest) {
     sectionErrors.chartEvents = err instanceof Error ? err.message : "Failed to fetch chart events";
   }
   
-  // Fetch limited session events for session chart
+  // === FALLBACK: If SQL RPC summaryStats returned zeros but purchaseEvents exist, rebuild from events ===
+  if (summaryStats.totalPurchases === 0 && purchaseEvents.length > 0) {
+    const buyerSet = new Set<string>();
+    let totalRobux = 0;
+    let gpRevenue = 0;
+    let dpRevenue = 0;
+    let gpCount = 0;
+    let dpCount = 0;
+    
+    purchaseEvents.forEach((e) => {
+      const robux = Number(e.robux ?? 0);
+      totalRobux += robux;
+      if (e.player_id && e.player_id !== "server") buyerSet.add(e.player_id);
+      
+      if (e.event_type === "gamepass_purchase") {
+        gpRevenue += robux;
+        gpCount += 1;
+      } else if (e.event_type === "devproduct_purchase") {
+        dpRevenue += robux;
+        dpCount += 1;
+      } else {
+        // purchase_success - check product_type
+        const pt = (e.product_type || "").toLowerCase();
+        if (["gamepass", "game_pass", "pass"].includes(pt)) {
+          gpRevenue += robux;
+          gpCount += 1;
+        } else if (["devproduct", "dev_product", "developer_product"].includes(pt)) {
+          dpRevenue += robux;
+          dpCount += 1;
+        }
+      }
+    });
+    
+    summaryStats = {
+      ...summaryStats,
+      totalRevenue: totalRobux,
+      gamepassRevenue: gpRevenue,
+      devproductRevenue: dpRevenue,
+      totalPurchases: purchaseEvents.length,
+      gamepassPurchases: gpCount,
+      devproductPurchases: dpCount,
+      totalBuyers: buyerSet.size,
+    };
+  }
+  
+  // Fetch limited session events for session chart (include metadata for duration)
   let sessionEvents: Array<{
     id: string;
     event_type: string;
     player_id: string | null;
     created_at: string;
     game_id: string;
+    metadata: Record<string, unknown> | null;
   }> = [];
   
   try {
     const { data: sessionData, error: sessionError } = await supabase
       .from("events")
-      .select("id, event_type, player_id, created_at, game_id")
+      .select("id, event_type, player_id, created_at, game_id, metadata")
       .eq("game_id", gameId)
       .in("event_type", [...sessionStartTypes, ...sessionEndTypes])
       .gte("created_at", startDate.toISOString())
@@ -422,17 +468,29 @@ export async function GET(request: NextRequest) {
   const allEvents: Array<{ event_type: string; player_id: string | null }> = []; // Empty - we don't need full events anymore
 
   // Get total event count and latest event time for dataHealth (all-time, not just range)
+  // For "Tracked Actions": exclude server-only events (ccu_heartbeat, script_started)
+  const SERVER_ONLY_EVENT_TYPES = ["ccu_heartbeat", "script_started"];
   let totalEventsCount = 0;
+  let totalEventsCountAllTypes = 0; // Including server events, for hasTrackerEvents check
   let latestEventAt: string | null = null;
   try {
-    const { count } = await supabase
+    // Count all events (for hasTrackerEvents check)
+    const { count: allCount } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId);
-    totalEventsCount = count || 0;
+    totalEventsCountAllTypes = allCount || 0;
 
-    // Get latest event time if we have events
-    if (totalEventsCount > 0) {
+    // Count user actions only (excluding ccu_heartbeat, script_started)
+    const { count: actionCount } = await supabase
+      .from("events")
+      .select("*", { count: "exact", head: true })
+      .eq("game_id", gameId)
+      .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`);
+    totalEventsCount = actionCount || 0;
+
+    // Get latest event time if we have events (use allTypes count)
+    if (totalEventsCountAllTypes > 0) {
       const { data: latestEvent } = await supabase
         .from("events")
         .select("created_at")
@@ -450,7 +508,7 @@ export async function GET(request: NextRequest) {
   const missing: string[] = [];
   
   // Check tracker events
-  const hasTrackerEvents = totalEventsCount > 0;
+  const hasTrackerEvents = totalEventsCountAllTypes > 0;
   if (!hasTrackerEvents) {
     missing.push("tracking_script_not_installed");
   }
@@ -588,8 +646,11 @@ export async function GET(request: NextRequest) {
   // Use SQL-aggregated stats instead of JS-calculated ones
   // IMPORTANT: uniquePlayers from SQL RPC may include server events - we recalculate below
   let uniquePlayers = summaryStats.uniquePlayers;
-  const totalSessions = summaryStats.totalSessions;
-  const totalPurchases = summaryStats.totalPurchases;
+  // Override totalSessions from SQL RPC: count player_join + session_start from fetched sessionEvents
+  // The SQL RPC may only count session_start, missing player_join events
+  const totalSessions = sessionEvents.filter(e => sessionStartTypes.includes(e.event_type)).length || summaryStats.totalSessions;
+  // Override totalPurchases: use SQL RPC value, but fallback to purchaseEvents count if RPC returned 0
+  const totalPurchases = summaryStats.totalPurchases || purchaseEvents.length;
   const totalRevenue = summaryStats.totalRevenue;
   
   // RECALCULATE uniquePlayers to exclude server-only events
@@ -721,6 +782,84 @@ export async function GET(request: NextRequest) {
     sectionErrors.revenue72h = err instanceof Error ? err.message : "Failed to fetch 72h revenue";
   }
 
+  // === FALLBACK: Build hourlyMonetization from purchaseEvents if SQL RPC failed/empty ===
+  // This ensures the chart renders whenever the cards show data (same source of truth)
+  if (hourlyMonetization.length === 0 && purchaseEvents.length > 0) {
+    // Normalize product type from event_type and product_type fields
+    const normalizeProductType = (eventType: string, productType: string | null, metadata: Record<string, unknown> | null): "gamepass" | "devproduct" | "unknown" => {
+      if (eventType === "gamepass_purchase") return "gamepass";
+      if (eventType === "devproduct_purchase") return "devproduct";
+      // For purchase_success, check product_type field
+      const pt = (productType || (metadata?.product_type as string) || "").toLowerCase();
+      if (["gamepass", "game_pass", "pass"].includes(pt)) return "gamepass";
+      if (["devproduct", "dev_product", "developer_product"].includes(pt)) return "devproduct";
+      return "unknown";
+    };
+
+    // Build hourly buckets from raw purchase events
+    const fallbackBuckets = new Map<string, {
+      total: number; devproduct: number; gamepass: number;
+      purchases: number; gamepassPurchases: number; devproductPurchases: number;
+    }>();
+    
+    // Initialize all hours in range with zeros
+    for (let i = 0; i < rangeHours; i++) {
+      const bucketTime = new Date(rangeNow.getTime() - i * 60 * 60 * 1000);
+      const bucketKey = bucketTime.toISOString().slice(0, 13) + ":00:00.000Z";
+      fallbackBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0, gamepassPurchases: 0, devproductPurchases: 0 });
+    }
+    
+    // Place each purchase into the correct bucket
+    purchaseEvents.forEach((e) => {
+      const bucketKey = new Date(e.created_at).toISOString().slice(0, 13) + ":00:00.000Z";
+      const bucket = fallbackBuckets.get(bucketKey);
+      if (!bucket) return; // Event outside range
+      
+      const robux = getEventRobux(e);
+      const pType = normalizeProductType(e.event_type, e.product_type, e.metadata);
+      
+      bucket.total += robux;
+      bucket.purchases += 1;
+      if (pType === "gamepass") {
+        bucket.gamepass += robux;
+        bucket.gamepassPurchases += 1;
+      } else if (pType === "devproduct") {
+        bucket.devproduct += robux;
+        bucket.devproductPurchases += 1;
+      }
+    });
+    
+    // Convert to sorted array and populate hourlyMonetization
+    Array.from(fallbackBuckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([time, data]) => {
+        hourlyMonetization.push({
+          time,
+          totalRevenue: data.total,
+          devproductRevenue: data.devproduct,
+          gamepassRevenue: data.gamepass,
+          purchases: data.purchases,
+          gamepassPurchases: data.gamepassPurchases,
+          devproductPurchases: data.devproductPurchases,
+        });
+      });
+    
+    // Also update the totals from the fallback data
+    purchaseEvents.forEach((e) => {
+      const robux = getEventRobux(e);
+      const pType = normalizeProductType(e.event_type, e.product_type, e.metadata);
+      revenue72h += robux;
+      purchases72hCount += 1;
+      if (pType === "gamepass") {
+        gamepassRevenue72h += robux;
+        gamepassPurchases72h += 1;
+      } else if (pType === "devproduct") {
+        devproductRevenue72h += robux;
+        devproductPurchases72h += 1;
+      }
+    });
+  }
+
   // === MINUTE-LEVEL MONETIZATION CHART DATA ===
   // Note: We're not building minute-level data anymore to avoid heavy fetch
   // The hourlyMonetization chart is sufficient for most use cases
@@ -733,9 +872,28 @@ export async function GET(request: NextRequest) {
   }> = []; // Empty - would require separate SQL RPC for minute-level aggregation
 
   // === SESSION DURATION ===
-  // Calculate avg session duration from paired session events we fetched
+  // Calculate avg session duration from session_end metadata OR paired start/end events
   const sessionDurations: number[] = [];
   const activeSessions = new Map<string, Date>();
+
+  // Helper: extract duration_seconds from session_end metadata
+  const extractDurationFromMetadata = (metadata: Record<string, unknown> | null): number | null => {
+    if (!metadata) return null;
+    // Check multiple metadata fields where duration may be stored
+    const candidates = [
+      metadata.duration_seconds,
+      metadata.session_duration,
+      metadata.duration,
+    ];
+    for (const val of candidates) {
+      if (typeof val === "number" && val > 0 && val < 86400) return val;
+      if (typeof val === "string") {
+        const parsed = parseFloat(val);
+        if (!isNaN(parsed) && parsed > 0 && parsed < 86400) return parsed;
+      }
+    }
+    return null;
+  };
 
   // Use the limited session events we fetched (not allEvents)
   [...sessionEvents].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).forEach((e) => {
@@ -743,6 +901,14 @@ export async function GET(request: NextRequest) {
     if (sessionStartTypes.includes(e.event_type)) {
       activeSessions.set(e.player_id, new Date(e.created_at));
     } else if (sessionEndTypes.includes(e.event_type)) {
+      // First try: extract duration from session_end metadata
+      const metadataDuration = extractDurationFromMetadata(e.metadata);
+      if (metadataDuration !== null) {
+        sessionDurations.push(metadataDuration);
+        activeSessions.delete(e.player_id);
+        return;
+      }
+      // Fallback: calculate from paired start/end timestamps
       const start = activeSessions.get(e.player_id);
       if (start) {
         const duration = (new Date(e.created_at).getTime() - start.getTime()) / 1000;

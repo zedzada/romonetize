@@ -105,11 +105,13 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get universe ID (either from DB or by looking it up)
-    let universeId = game.universe_id;
+    // Get universe ID
+    // roblox_game_id IS the universe ID (stored from Roblox games API)
+    // Priority: universe_id > roblox_game_id > lookup from root_place_id
+    let universeId = game.universe_id || game.roblox_game_id;
     
-    if (!universeId && game.roblox_game_id) {
-      universeId = await getUniverseIdFromPlaceId(game.roblox_game_id);
+    if (!universeId && game.root_place_id) {
+      universeId = await getUniverseIdFromPlaceId(game.root_place_id);
       
       // Save the universe ID for future use
       if (universeId) {

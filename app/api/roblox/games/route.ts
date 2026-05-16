@@ -52,6 +52,46 @@ interface ThumbnailData {
   imageUrl: string | null;
 }
 
+// Pagination helper: fetch ALL pages from a Roblox games endpoint
+async function fetchAllRobloxGames(
+  baseUrl: string,
+  limit = 50,
+  maxPages = 20, // Safety cap to avoid infinite loops
+): Promise<{ games: RobloxGame[]; pagesFetched: number }> {
+  const allGames: RobloxGame[] = [];
+  let cursor: string | undefined = undefined;
+  let pagesFetched = 0;
+
+  do {
+    const separator = baseUrl.includes("?") ? "&" : "?";
+    const url = cursor
+      ? `${baseUrl}${separator}limit=${limit}&cursor=${cursor}`
+      : `${baseUrl}${separator}limit=${limit}`;
+
+    try {
+      const res = await fetch(url, {
+        headers: { Accept: "application/json" },
+        next: { revalidate: 60 },
+      });
+
+      if (!res.ok) {
+        console.error(`[Roblox API] Pagination fetch failed (${res.status}) for ${url}`);
+        break;
+      }
+
+      const data: RobloxGamesResponse = await res.json();
+      pagesFetched++;
+      allGames.push(...(data.data || []));
+      cursor = data.nextPageCursor || undefined;
+    } catch (error) {
+      console.error(`[Roblox API] Pagination fetch error for ${url}:`, error);
+      break;
+    }
+  } while (cursor && pagesFetched < maxPages);
+
+  return { games: allGames, pagesFetched };
+}
+
 export async function GET() {
   try {
     // Get authenticated user
@@ -90,6 +130,11 @@ export async function GET() {
     // Use a Map to allow replacing user games with group games (group wins)
     const gamesMap = new Map<number, EnhancedGame>();
     let groupWarning: string | null = null;
+    let personalPagesFetched = 0;
+    let groupPagesFetched = 0;
+    let personalGamesCount = 0;
+    let groupGamesCount = 0;
+    const eligibleGroupCount = { total: 0 };
 
     // Helper to add/merge a game - group source always wins over user source
     const addGame = (game: EnhancedGame) => {
@@ -125,32 +170,28 @@ export async function GET() {
           const ownerRole = gr.role.name.toLowerCase().includes("owner");
           return highRank || ownerRole;
         });
+        eligibleGroupCount.total = eligibleGroups.length;
 
-        // Fetch games for each eligible group
+        // Fetch games for each eligible group (with pagination)
         for (const groupRole of eligibleGroups) {
           try {
-            const groupGamesResponse = await fetch(
-              `https://games.roblox.com/v2/groups/${groupRole.group.id}/games?accessFilter=Public&limit=50`,
-              {
-                headers: { "Accept": "application/json" },
-                next: { revalidate: 60 },
-              }
+            const { games: groupGames, pagesFetched } = await fetchAllRobloxGames(
+              `https://games.roblox.com/v2/groups/${groupRole.group.id}/games?accessFilter=Public`,
             );
+            groupPagesFetched += pagesFetched;
 
-            if (groupGamesResponse.ok) {
-              const groupGamesData: RobloxGamesResponse = await groupGamesResponse.json();
-              for (const game of groupGamesData.data || []) {
-                addGame({
-                  id: game.id,
-                  name: game.name,
-                  rootPlaceId: game.rootPlaceId,
-                  source: "group",
-                  groupName: groupRole.group.name,
-                  groupId: groupRole.group.id,
-                  roleName: groupRole.role.name,
-                  roleRank: groupRole.role.rank,
-                });
-              }
+            for (const game of groupGames) {
+              groupGamesCount++;
+              addGame({
+                id: game.id,
+                name: game.name,
+                rootPlaceId: game.rootPlaceId,
+                source: "group",
+                groupName: groupRole.group.name,
+                groupId: groupRole.group.id,
+                roleName: groupRole.role.name,
+                roleRank: groupRole.role.rank,
+              });
             }
           } catch (error) {
             console.error(`[Roblox API] Failed to fetch games for group ${groupRole.group.id}:`, error);
@@ -164,41 +205,37 @@ export async function GET() {
       groupWarning = "Could not fetch group games. Showing personal games only.";
     }
 
-    // 2. Fetch personal games (processed second - group games already in map take priority)
+    // 2. Fetch personal games with pagination (processed second - group games already in map take priority)
     try {
-      const personalResponse = await fetch(
-        `https://games.roblox.com/v2/users/${robloxUserId}/games?accessFilter=Public&limit=50`,
-        {
-          headers: { "Accept": "application/json" },
-          next: { revalidate: 60 },
-        }
+      const { games: personalGames, pagesFetched } = await fetchAllRobloxGames(
+        `https://games.roblox.com/v2/users/${robloxUserId}/games?accessFilter=Public`,
       );
+      personalPagesFetched = pagesFetched;
 
-      if (personalResponse.ok) {
-        const personalData: RobloxGamesResponse = await personalResponse.json();
-        for (const game of personalData.data || []) {
-          // Check if the game's creator is actually a Group (Roblox API returns creator info)
-          const isGroupCreator = game.creator?.type === "Group";
-          
-          if (isGroupCreator && game.creator) {
-            // This "personal" game is actually group-owned - add as group
-            addGame({
-              id: game.id,
-              name: game.name,
-              rootPlaceId: game.rootPlaceId,
-              source: "group",
-              groupId: game.creator.id,
-              groupName: game.creator.name,
-            });
-          } else {
-            // Truly personal game
-            addGame({
-              id: game.id,
-              name: game.name,
-              rootPlaceId: game.rootPlaceId,
-              source: "user",
-            });
-          }
+      for (const game of personalGames) {
+        // Check if the game's creator is actually a Group (Roblox API returns creator info)
+        const isGroupCreator = game.creator?.type === "Group";
+        
+        if (isGroupCreator && game.creator) {
+          groupGamesCount++;
+          // This "personal" game is actually group-owned - add as group
+          addGame({
+            id: game.id,
+            name: game.name,
+            rootPlaceId: game.rootPlaceId,
+            source: "group",
+            groupId: game.creator.id,
+            groupName: game.creator.name,
+          });
+        } else {
+          personalGamesCount++;
+          // Truly personal game
+          addGame({
+            id: game.id,
+            name: game.name,
+            rootPlaceId: game.rootPlaceId,
+            source: "user",
+          });
         }
       }
     } catch (error) {
@@ -247,10 +284,20 @@ export async function GET() {
       }
     }
 
-    // Return combined results
+    // Return combined results with pagination metadata
     return NextResponse.json({ 
       games: allGames,
       warning: groupWarning,
+      meta: {
+        robloxUserId,
+        totalGamesFetched: allGames.length,
+        personalGamesCount,
+        groupGamesCount,
+        personalPagesFetched,
+        groupPagesFetched,
+        connectedGamesInList: 0, // client fills this in
+        sampleGameIds: allGames.slice(0, 5).map(g => ({ id: g.id, name: g.name, source: g.source })),
+      },
     });
   } catch (error) {
     console.error("[API] /api/roblox/games error:", error);

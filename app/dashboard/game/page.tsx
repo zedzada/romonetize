@@ -76,6 +76,15 @@ function GamePageContent() {
   const [robloxError, setRobloxError] = useState<string | null>(null);
   const [groupWarning, setGroupWarning] = useState<string | null>(null);
   const [hasRobloxAccount, setHasRobloxAccount] = useState<boolean | null>(null);
+  const [robloxMeta, setRobloxMeta] = useState<{
+    robloxUserId?: string;
+    totalGamesFetched?: number;
+    personalGamesCount?: number;
+    groupGamesCount?: number;
+    personalPagesFetched?: number;
+    groupPagesFetched?: number;
+    sampleGameIds?: Array<{ id: number; name: string; source: string }>;
+  } | null>(null);
   
   // Selection/connection state
   const [selectingGameId, setSelectingGameId] = useState<number | null>(null);
@@ -152,7 +161,7 @@ function GamePageContent() {
           group_name: g.group_name ?? undefined,
           root_place_id: g.root_place_id ?? undefined,
           role_name: g.role_name ?? undefined,
-          role_rank: g.role_rank ?? undefined,
+          role_rank: (g as unknown as Record<string, unknown>).role_rank as number | undefined,
           icon_url: g.icon_url ?? undefined,
         }));
         setConnectedGames(mappedGames);
@@ -199,6 +208,7 @@ function GamePageContent() {
       } else {
         const robloxGamesData = data.games || [];
         setRobloxGames(robloxGamesData);
+        setRobloxMeta(data.meta ?? null);
         if (data.warning) {
           setGroupWarning(data.warning);
         }
@@ -991,8 +1001,17 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Gamepad2 className="w-5 h-5 text-primary" />
                     Your Roblox Games
+                    {robloxGames.length > 0 && !loadingRobloxGames && (
+                      <span className="text-sm font-normal text-muted-foreground ml-1">
+                        ({robloxGames.length} loaded)
+                      </span>
+                    )}
                   </CardTitle>
-                  <CardDescription>Games from your Roblox account - connect them to start tracking</CardDescription>
+                  <CardDescription>
+                    {loadingRobloxGames 
+                      ? "Loading games from Roblox..."
+                      : "Games from your Roblox account - connect them to start tracking"}
+                  </CardDescription>
                 </div>
                 {hasRobloxAccount && (
                   <Button variant="outline" size="sm" onClick={fetchRobloxGames} disabled={loadingRobloxGames}>
@@ -1015,8 +1034,9 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                   </Button>
                 </div>
               ) : loadingRobloxGames ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex flex-col items-center justify-center py-8 gap-2">
                   <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+                  <p className="text-sm text-muted-foreground">Loading games from Roblox (all pages)...</p>
                 </div>
               ) : robloxError ? (
                 <div className="text-center py-8">
@@ -1119,10 +1139,50 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                       );
                     })}
                   </div>
+                  {/* Summary counts */}
+                  <p className="text-xs text-muted-foreground mt-3 text-center">
+                    Loaded {robloxGames.length} Roblox game{robloxGames.length !== 1 ? "s" : ""}
+                    {robloxMeta ? (
+                      <>
+                        {" "}&mdash; {robloxMeta.personalGamesCount ?? 0} personal, {robloxMeta.groupGamesCount ?? 0} group
+                        {" "}({(robloxMeta.personalPagesFetched ?? 0) + (robloxMeta.groupPagesFetched ?? 0)} page{((robloxMeta.personalPagesFetched ?? 0) + (robloxMeta.groupPagesFetched ?? 0)) !== 1 ? "s" : ""} fetched)
+                      </>
+                    ) : null}
+                  </p>
                 </>
               )}
             </CardContent>
           </Card>
+
+          {/* Debug Panel - only shown with ?debug=true */}
+          {searchParams.get("debug") === "true" && (
+            <Card className="border-amber-500/30 bg-amber-500/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm font-mono text-amber-600">Roblox Games Debug</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <pre className="text-xs font-mono text-muted-foreground overflow-auto max-h-[400px] whitespace-pre-wrap">
+                  {JSON.stringify({
+                    robloxUserId: robloxMeta?.robloxUserId ?? "unknown",
+                    totalGamesFetched: robloxMeta?.totalGamesFetched ?? robloxGames.length,
+                    personalGamesCount: robloxMeta?.personalGamesCount ?? "unknown",
+                    groupGamesCount: robloxMeta?.groupGamesCount ?? "unknown",
+                    personalPagesFetched: robloxMeta?.personalPagesFetched ?? "unknown",
+                    groupPagesFetched: robloxMeta?.groupPagesFetched ?? "unknown",
+                    connectedGamesCount: connectedGames.length,
+                    hiddenByFilterCount: 0,
+                    robloxGamesInUI: robloxGames.length,
+                    connectedGameIds: connectedGames.map(g => ({ id: g.id, robloxId: g.roblox_game_id, name: g.name })),
+                    sampleGameIds: robloxMeta?.sampleGameIds ?? robloxGames.slice(0, 5).map(g => ({ id: g.id, name: g.name, source: g.source })),
+                    groupWarning,
+                    hasRobloxAccount,
+                    robloxError,
+                    loadingRobloxGames,
+                  }, null, 2)}
+                </pre>
+              </CardContent>
+            </Card>
+          )}
 
         </>
       )}

@@ -377,3 +377,113 @@ export function getTopProducts(
 ): AggregatedProduct[] {
   return result.products.slice(0, count);
 }
+
+// ========================================================================
+// Shared Product Purchase Metrics Helper
+// ========================================================================
+// Single source of truth for product stats across:
+// - Products page table & cards
+// - Monetization cards & charts
+// - Overview Top Products
+// 
+// Consumes the `productAnalytics` field from the API response.
+// ========================================================================
+
+export interface ProductMetric {
+  productId: string;
+  productName: string;
+  productType: string;
+  purchases: number;
+  buyers: number;
+  grossRevenue: number;
+  estimatedRevenue: number;
+  revenuePerBuyer: number; // based on selected mode
+}
+
+export interface ProductPurchaseMetricsResult {
+  products: ProductMetric[];
+  totalPurchases: number;
+  totalBuyers: number;
+  grossTotalRevenue: number;
+  estimatedTotalRevenue: number;
+  /** Revenue value based on selected mode */
+  displayTotalRevenue: number;
+  /** Payer conversion rate = totalBuyers / uniqueActivePlayers */
+  payerConversionRate: number | null;
+  uniqueActivePlayers: number;
+  aggregationSource: string;
+}
+
+/**
+ * Normalise the API `productAnalytics` blob into a stable shape that every
+ * consumer (Products page, Monetization cards, Overview Top Products) can use
+ * directly.  
+ *
+ * This is the ONLY function pages should call to get purchase/revenue numbers.
+ */
+export function getProductPurchaseMetrics(opts: {
+  /** The `productAnalytics` object from the analytics API response */
+  productAnalytics: Record<string, unknown> | null | undefined;
+  /** "gross" or "estimated" */
+  revenueMode: "gross" | "estimated";
+}): ProductPurchaseMetricsResult {
+  const { productAnalytics, revenueMode } = opts;
+
+  const empty: ProductPurchaseMetricsResult = {
+    products: [],
+    totalPurchases: 0,
+    totalBuyers: 0,
+    grossTotalRevenue: 0,
+    estimatedTotalRevenue: 0,
+    displayTotalRevenue: 0,
+    payerConversionRate: null,
+    uniqueActivePlayers: 0,
+    aggregationSource: "none",
+  };
+
+  if (!productAnalytics) return empty;
+
+  const rawProducts = Array.isArray((productAnalytics as { products?: unknown[] }).products)
+    ? (productAnalytics as { products: Record<string, unknown>[] }).products
+    : [];
+
+  const isGross = revenueMode === "gross";
+
+  const products: ProductMetric[] = rawProducts.map((p) => {
+    const grossRevenue = Number(p.grossRevenue ?? p.revenue ?? 0);
+    const estimatedRevenue = Number(p.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE));
+    const buyers = Number(p.buyers ?? p.uniqueBuyers ?? 0);
+    const displayRevenue = isGross ? grossRevenue : estimatedRevenue;
+    const revPerBuyer = buyers > 0 ? Math.round(displayRevenue / buyers) : 0;
+
+    return {
+      productId: String(p.productId ?? p.id ?? "unknown"),
+      productName: String(p.productName ?? p.name ?? "Unknown Product"),
+      productType: String(p.productType ?? p.type ?? "unknown"),
+      purchases: Number(p.purchases ?? 0),
+      buyers,
+      grossRevenue,
+      estimatedRevenue,
+      revenuePerBuyer: revPerBuyer,
+    };
+  });
+
+  const totalPurchases = Number((productAnalytics as { totalPurchases?: number }).totalPurchases ?? products.reduce((s, p) => s + p.purchases, 0));
+  const totalBuyers = Number((productAnalytics as { totalBuyers?: number }).totalBuyers ?? products.reduce((s, p) => s + p.buyers, 0));
+  const grossTotalRevenue = Number((productAnalytics as { grossTotalRevenue?: number }).grossTotalRevenue ?? products.reduce((s, p) => s + p.grossRevenue, 0));
+  const estimatedTotalRevenue = Number((productAnalytics as { estimatedTotalRevenue?: number }).estimatedTotalRevenue ?? Math.round(grossTotalRevenue * CREATOR_REVENUE_RATE));
+  const uniqueActivePlayers = Number((productAnalytics as { uniqueActiveUsers?: number }).uniqueActiveUsers ?? 0);
+  const payerConversionRate = uniqueActivePlayers > 0 ? totalBuyers / uniqueActivePlayers : null;
+
+  return {
+    products,
+    totalPurchases,
+    totalBuyers,
+    grossTotalRevenue,
+    estimatedTotalRevenue,
+    displayTotalRevenue: isGross ? grossTotalRevenue : estimatedTotalRevenue,
+    payerConversionRate,
+    uniqueActivePlayers,
+    aggregationSource: String((productAnalytics as { aggregationSource?: string }).aggregationSource ?? "unknown"),
+  };
+}
