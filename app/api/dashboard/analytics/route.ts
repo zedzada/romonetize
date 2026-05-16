@@ -1566,8 +1566,7 @@ trackerStats: hasTrackerEvents ? {
         totalRevenue: null,
         totalPurchases: null,
         uniqueBuyers: null,
-        avgConversionRate: null,
-        avgConversionNeedsTracking: false,
+        uniqueActiveUsers: null,
         products: [],
         hasTrackerData: hasTrackerEvents,
         locked: true,
@@ -1580,9 +1579,8 @@ trackerStats: hasTrackerEvents ? {
         totalRevenue: totalProductRevenue,
         totalPurchases: totalProductPurchases,
         uniqueBuyers: totalUniqueBuyers,
-        avgConversionRate,
-        // Uses new formula: true if purchases exist but no views/clicks tracked
-        avgConversionNeedsTracking,
+        // Unique active users (for payer conversion rate calculation)
+        uniqueActiveUsers: summaryStats.uniquePlayers,
         products: products.slice(0, 50), // Top 50
         hasTrackerData: hasTrackerEvents,
         locked: false,
@@ -1652,11 +1650,6 @@ trackerStats: hasTrackerEvents ? {
       // Counts
       purchases: p.purchases,
       buyers: p.uniqueBuyers,
-      views: p.views,
-      clicks: p.clicks,
-      // Metrics
-      conversionRate: p.conversionRate,
-      conversionNeedsTracking: p.conversionNeedsTracking,
     })),
     // Top 4 products for Overview page (same data, just sliced)
     topProducts: topProducts.map(p => ({
@@ -1671,6 +1664,8 @@ trackerStats: hasTrackerEvents ? {
     // Summary totals (calculated from products array)
     totalPurchases: totalProductPurchases,
     totalBuyers: totalUniqueBuyers,
+    // Unique active users (for payer conversion rate calculation)
+    uniqueActiveUsers: summaryStats.uniquePlayers,
     grossTotalRevenue: totalProductRevenue,
     estimatedTotalRevenue: Math.round(totalProductRevenue * CREATOR_REVENUE_RATE),
     // Debug info
