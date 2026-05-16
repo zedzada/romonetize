@@ -31,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 import {
   Dialog,
   DialogContent,
@@ -56,6 +57,7 @@ function SettingsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { theme, setTheme } = useTheme();
+  const { toast } = useToast();
   const [mounted, setMounted] = useState(false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -174,7 +176,7 @@ function SettingsPageContent() {
           // Fetch full profile from profiles table (single source of truth)
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
-            .select("roblox_user_id, roblox_username, plan")
+            .select("roblox_user_id, roblox_username, plan, display_username, discord_username")
             .eq("id", user.id)
             .single();
 
@@ -183,13 +185,13 @@ function SettingsPageContent() {
             setUserPlan(profileData.plan || "free");
             
             // Set profile with database values (empty string if null)
-            // Display Username defaults to email prefix if not set
-            setUsername("");
+            // Display Username from database (if set)
+            setUsername(profileData.display_username || "");
             setProfile({
               name: user.user_metadata?.full_name || user.user_metadata?.name || "",
               email: user.email || "",
               robloxUsername: profileData.roblox_username || "",
-              discordUsername: "",
+              discordUsername: profileData.discord_username || "",
             });
           } else {
             // No profile exists - use empty defaults
@@ -216,12 +218,13 @@ function SettingsPageContent() {
     try {
       const supabase = createClient();
       
-      // Update profile timestamp
-      // Note: username, discord_username columns don't exist in current schema
-      // These are display-only fields that come from OAuth or are not stored
+      // Update profile with editable fields
       const { error: profileError } = await supabase
         .from("profiles")
         .update({
+          display_username: username || null,
+          roblox_username: profile.robloxUsername || null,
+          discord_username: profile.discordUsername || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", user.id);
@@ -233,8 +236,22 @@ function SettingsPageContent() {
       // Save notification settings to Supabase
       await saveNotificationSettings(user.id, notifications);
       
+      // Dispatch event for sidebar/profile to refresh immediately
+      window.dispatchEvent(new CustomEvent("profile-updated", {
+        detail: {
+          display_username: username || null,
+          roblox_username: profile.robloxUsername || null,
+          discord_username: profile.discordUsername || null,
+        }
+      }));
+      
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+      
+      toast({
+        title: "Settings saved",
+        description: "Your profile has been updated successfully.",
+      });
     } catch (error) {
       console.error("[v0] Error saving settings:", error);
     } finally {
@@ -467,6 +484,32 @@ function SettingsPageContent() {
                     className="bg-secondary/30"
                   />
                 </div>
+              </div>
+              
+              {/* Save Changes Button */}
+              <div className="pt-2 flex justify-end">
+                <Button 
+                  onClick={handleSave} 
+                  disabled={saving}
+                  className="gap-2"
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving...
+                    </>
+                  ) : saved ? (
+                    <>
+                      <Check className="w-4 h-4" />
+                      Saved!
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Changes
+                    </>
+                  )}
+                </Button>
               </div>
             </CardContent>
           </Card>

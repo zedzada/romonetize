@@ -78,7 +78,7 @@ export default function DashboardLayout({
   const [showTutorial, setShowTutorial] = useState(false);
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [profile, setProfile] = useState<{
-    username: string | null;
+    display_username: string | null;
     full_name: string | null;
     plan: UserPlan;
     email: string | null;
@@ -156,7 +156,7 @@ export default function DashboardLayout({
       const supabase = createClient();
       const { data: profileData, error } = await supabase
         .from("profiles")
-        .select("id, email, plan")
+        .select("id, email, plan, display_username")
         .eq("id", user.id)
         .single();
 
@@ -173,15 +173,15 @@ export default function DashboardLayout({
         await supabase.from("profiles").insert(newProfile);
         
         setProfile({
-          username: null,
+          display_username: null,
           full_name: null,
           plan: "free",
           email: user.email || null,
         });
       } else {
         setProfile({
-          username: null, // username column doesn't exist in profiles table
-          full_name: null, // full_name column doesn't exist in profiles table
+          display_username: profileData.display_username || null,
+          full_name: null,
           plan: (profileData.plan as UserPlan) || "free",
           email: profileData.email || user.email || null,
         });
@@ -220,6 +220,19 @@ export default function DashboardLayout({
     return () => subscription.unsubscribe();
   }, []);
 
+  // Listen for profile updates from settings page
+  useEffect(() => {
+    const handleProfileUpdate = (event: CustomEvent<{ display_username: string | null }>) => {
+      setProfile(prev => prev ? {
+        ...prev,
+        display_username: event.detail.display_username,
+      } : null);
+    };
+
+    window.addEventListener("profile-updated", handleProfileUpdate as EventListener);
+    return () => window.removeEventListener("profile-updated", handleProfileUpdate as EventListener);
+  }, []);
+
   const handleTutorialComplete = () => {
     setShowTutorial(false);
     localStorage.setItem("romonetize_tutorial_completed", "true");
@@ -255,11 +268,11 @@ export default function DashboardLayout({
     }
   };
 
-  // Get display name: profile.username > profile.full_name > user_metadata.name > email prefix > "User"
+  // Get display name: profile.display_username > profile.full_name > user_metadata.name > email prefix > "User"
   // This ensures we always use the CURRENT user's data, never cached/stale data
   const getDisplayName = () => {
-    // 1. Profile username from Supabase (highest priority if set)
-    if (profile?.username) return profile.username;
+    // 1. Custom display username from Supabase (highest priority if set)
+    if (profile?.display_username) return profile.display_username;
     // 2. Profile full_name from Supabase
     if (profile?.full_name) return profile.full_name;
     // 3. User metadata name (from OAuth providers like Google)
