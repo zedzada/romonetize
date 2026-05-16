@@ -450,25 +450,8 @@ function MonetizationContent() {
     }
 
     // === HOURLY / DAILY INTERVAL ===
-    // If monetizationCharts is unavailable but productAnalytics has data, 
-    // generate a single bucket with totals to prevent "Loading" state
+    // hourlyMonetization now covers the full selected range from the API
     if (!monetizationCharts?.hourlyMonetization?.length) {
-      if (productAnalytics && productAnalytics.totalPurchases > 0) {
-        // Create a single "today" bucket with the card totals
-        // This ensures chart shows data when cards have data
-        const grossRevenue = productAnalytics.grossTotalRevenue ?? 0;
-        const estimatedRevenue = productAnalytics.estimatedTotalRevenue ?? 0;
-        const revenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
-        return [{
-          time: new Date().toISOString().slice(0, 10) + "T00:00:00.000Z",
-          totalRevenue: revenue,
-          devproductRevenue: 0, // Not available from productAnalytics summary
-          gamepassRevenue: 0,   // Not available from productAnalytics summary
-          purchases: productAnalytics.totalPurchases ?? 0,
-          gamepassPurchases: 0,
-          devproductPurchases: 0,
-        }];
-      }
       return [];
     }
     
@@ -519,7 +502,7 @@ function MonetizationContent() {
 
     // Normalize all data points to ensure numeric values
     return filteredData.map(normalizePoint);
-  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode, productAnalytics]);
+  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode]);
 
   // Calculate totals for current view - use actual purchase counts from API
   const chartTotals = useMemo(() => {
@@ -1570,34 +1553,42 @@ function MonetizationContent() {
               {/* Unified Metrics (per spec) */}
               <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <h4 className="font-medium text-sm mb-2 text-emerald-700 dark:text-emerald-400">
-                  Unified Metrics (Same Source for Cards &amp; Charts)
+                  Chart Diagnostics
                 </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
 {JSON.stringify({
-  cardRevenue: displayRevenue,
-  cardPurchases: summaryStats.totalPurchases,
-  chartRevenue: chartTotals.total,
-  chartPurchases: chartTotals.purchases,
-  chartBucketCount: processedChartData.length,
-  chartLoading: isLoading,
-  chartError: error ?? null,
-  sameSourceForCardsAndChart: true,
   range: chartRange,
+  rangeStart: (() => {
+    const h = { "1h": 1, "6h": 6, "24h": 24, "72h": 72, "7d": 168, "28d": 672, "90d": 2160 };
+    return new Date(Date.now() - (h[chartRange] ?? 672) * 60 * 60 * 1000).toISOString();
+  })(),
+  rangeEnd: new Date().toISOString(),
+  cardPurchases: summaryStats.totalPurchases,
+  cardRevenue: displayRevenue,
+  chartBucketCount: processedChartData.length,
+  chartPurchasesTotal: chartTotals.purchases,
+  chartRevenueTotal: chartTotals.total,
+  firstBucket: processedChartData[0]?.time ?? null,
+  lastBucket: processedChartData[processedChartData.length - 1]?.time ?? null,
+  productTypeCounts: {
+    gamepassRevenue: chartTotals.gamepass,
+    devproductRevenue: chartTotals.devproduct,
+    gamepassPurchases: chartTotals.gamepassPurchases,
+    devproductPurchases: chartTotals.devproductPurchases,
+  },
+  sameSourceAsCards: true,
   revenueMode: revenueDisplayMode,
-  activeUsers: summaryStats.uniqueActiveUsers,
-  payingUsers: summaryStats.payingUsers,
-  pcr: pcr,
   hasPurchaseData,
   hasChartData,
-  usedFallbackForChart: !monetizationCharts?.hourlyMonetization?.length && !!productAnalytics?.totalPurchases,
+  hourlyMonetizationLength: monetizationCharts?.hourlyMonetization?.length ?? 0,
 }, null, 2)}
                 </pre>
               </div>
 
-              {/* Shared Aggregation Details */}
+              {/* Card Data Source */}
               <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
                 <h4 className="font-medium text-sm mb-2 text-blue-700 dark:text-blue-400">
-                  productAnalytics (Same as Products Page)
+                  productAnalytics (Card Data Source)
                 </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
 {JSON.stringify({
@@ -1608,28 +1599,6 @@ function MonetizationContent() {
   aggregationSource: productAnalytics?.aggregationSource ?? "unknown",
   productsCount: productAnalytics?.products?.length ?? 0,
   selectedRange: productAnalytics?.selectedRange ?? null,
-}, null, 2)}
-                </pre>
-              </div>
-
-              {/* Legacy revenueStats (for comparison) */}
-              <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                <h4 className="font-medium text-sm mb-2 text-muted-foreground">Legacy revenueStats (OLD - for comparison)</h4>
-                <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
-{JSON.stringify({
-  note: "This is the OLD data source - should match productAnalytics above",
-  revenueStats: revenueStats ? {
-    grossRevenue: revenueStats.grossRevenue,
-    estimatedRevenue: revenueStats.estimatedRevenue,
-    totalPurchases: revenueStats.totalPurchases,
-    payingUsers: revenueStats.payingUsers,
-    conversionRate: revenueStats.conversionRate,
-  } : null,
-  chartTotals,
-  monetizationCharts: monetizationCharts ? {
-    purchaseCount72h: monetizationCharts.purchaseCount72h,
-    revenue72h: monetizationCharts.revenue72h,
-  } : null,
 }, null, 2)}
                 </pre>
               </div>
