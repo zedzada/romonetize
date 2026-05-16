@@ -81,6 +81,28 @@ export async function GET() {
       created_at: recentEvents[0].created_at,
     } : null;
 
+    // Get CCU heartbeat status from server_heartbeats table
+    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+    
+    // Count active servers (heartbeat within last 2 minutes)
+    const { count: activeServerCount } = await supabase
+      .from("server_heartbeats")
+      .select("*", { count: "exact", head: true })
+      .eq("game_id", selectedGame.id)
+      .gte("last_seen_at", twoMinutesAgo);
+
+    // Get latest heartbeat
+    const { data: latestHeartbeat } = await supabase
+      .from("server_heartbeats")
+      .select("last_seen_at, ccu, server_id")
+      .eq("game_id", selectedGame.id)
+      .order("last_seen_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    const heartbeatActive = (activeServerCount ?? 0) > 0;
+    const latestHeartbeatAt = latestHeartbeat?.last_seen_at || null;
+
     return NextResponse.json({
       success: true,
       selectedGame: {
@@ -103,6 +125,11 @@ export async function GET() {
       })),
       trackingActive,
       reason,
+      // CCU heartbeat status
+      heartbeatActive,
+      latestHeartbeatAt,
+      activeServerCount: activeServerCount ?? 0,
+      latestHeartbeatCcu: latestHeartbeat?.ccu ?? null,
     });
   } catch (error) {
     console.error("[api/tracker/debug] Error:", error);
