@@ -169,6 +169,30 @@ export async function GET(request: Request) {
       .eq("game_id", gameId)
       .in("event_type", ["session_end", "player_leave"]);
 
+    // Calculate total revenue from purchase events (matches dashboard calculation)
+    const { data: purchaseRevData } = await supabase
+      .from("events")
+      .select("robux, event_type, metadata")
+      .eq("game_id", gameId)
+      .in("event_type", purchaseEventTypes);
+    
+    let totalRevenue = 0;
+    let gamepassRevenue = 0;
+    let devproductRevenue = 0;
+    let gamepassPurchases = 0;
+    let devproductPurchases = 0;
+    (purchaseRevData || []).forEach((e: { robux: number | null; event_type: string; metadata: Record<string, unknown> | null }) => {
+      const robux = Number(e.robux ?? (e.metadata?.robux as number) ?? 0);
+      totalRevenue += robux;
+      if (e.event_type === "gamepass_purchase") {
+        gamepassRevenue += robux;
+        gamepassPurchases += 1;
+      } else if (e.event_type === "devproduct_purchase") {
+        devproductRevenue += robux;
+        devproductPurchases += 1;
+      }
+    });
+
     // Get latest timestamps
     const { data: latestEvent } = await supabase
       .from("events")
@@ -219,6 +243,21 @@ export async function GET(request: Request) {
     if (serverEvents && distinctPlayers === 0 && (totalEvents ?? 0) > 0) {
       inconsistencies.push("Only server events present (ccu_heartbeat/script_started) - no real player data yet");
     }
+    
+    // Check: purchases exist but revenue is 0
+    if ((purchaseSuccessCount ?? 0) > 0 && totalRevenue === 0) {
+      inconsistencies.push("Purchases exist but totalRevenue is 0 - events may be missing robux field");
+    }
+    
+    // Check: uniquePlayers < totalSessions (shouldn't happen)
+    if (distinctPlayers > 0 && distinctPlayers < totalSessions) {
+      // This is normal - more sessions than players means returning players
+    }
+    
+    // Check: uniquePlayers = 0 but sessions > 0
+    if (distinctPlayers === 0 && totalSessions > 0) {
+      inconsistencies.push("totalSessions > 0 but distinctPlayers is 0 - session events may be missing player_id");
+    }
 
     return NextResponse.json({
       selectedGameId: gameId,
@@ -243,6 +282,23 @@ export async function GET(request: Request) {
       
       // Session metrics source
       avgSessionSourceCount: avgSessionSourceCount ?? 0,
+
+      // Revenue breakdown (all-time, matches getDashboardStats calculation)
+      totalRevenue,
+      gamepassRevenue,
+      devproductRevenue,
+      gamepassPurchases,
+      devproductPurchases,
+      estimatedRevenue: Math.round(totalRevenue * 0.7),
+      
+      // Dashboard-expected values (what the dashboard SHOULD show)
+      dashboardExpected: {
+        totalSessions: (playerJoinCount ?? 0) + (sessionStartCount ?? 0),
+        totalPurchases: purchaseSuccessCount ?? 0,
+        totalRevenue,
+        uniquePlayers: distinctPlayers,
+        note: "These values should match what Game Performance and Monetization pages display. If they don't, there's a mismatch.",
+      },
       
       // Related table counts
       ccuSnapshotsCount: ccuSnapshotsCount ?? 0,

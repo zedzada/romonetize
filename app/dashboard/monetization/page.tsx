@@ -1093,8 +1093,17 @@ function MonetizationContent() {
               </div>
               
               <div className="h-[360px] relative">
+                {/* Empty state when cards show purchases but chart has no data */}
+                {hasPurchaseData && !hasChartData && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-background/90 rounded-lg">
+                    <p className="text-muted-foreground text-sm font-medium">Chart data loading...</p>
+                    <p className="text-muted-foreground text-xs mt-1">
+                      {summaryStats.totalPurchases} purchase{summaryStats.totalPurchases !== 1 ? "s" : ""} detected. Chart buckets may not be available yet for this range.
+                    </p>
+                  </div>
+                )}
                 {/* Empty state when no data for selected mode */}
-                {!hasCurrentModeData && (
+                {hasChartData && !hasCurrentModeData && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-background/90 rounded-lg">
                     {chartInterval === "1m" ? (
                       <>
