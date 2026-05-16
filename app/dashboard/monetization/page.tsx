@@ -263,7 +263,7 @@ function MonetizationContent() {
   const debugMode = searchParams.get("debug") === "true";
   const [debugData, setDebugData] = useState<Record<string, unknown> | null>(null);
   
-  const [chartRange, setChartRange] = useState<ChartRange>("72h");
+  const [chartRange, setChartRange] = useState<ChartRange>("28d"); // Default to 28d to match Products page
   const [chartInterval, setChartInterval] = useState<ChartInterval>("hourly");
   const [chartMode, setChartMode] = useState<ChartMode>("total");
   
@@ -301,17 +301,37 @@ function MonetizationContent() {
     }
   };
 
+  // Map chart range to API range
+  function toAnalyticsRange(range: ChartRange): "7d" | "30d" | "90d" {
+    switch (range) {
+      case "1h":
+      case "6h":
+      case "24h":
+      case "72h":
+      case "7d":
+        return "7d";
+      case "28d":
+        return "30d";
+      case "90d":
+        return "90d";
+      default:
+        return "7d";
+    }
+  }
+
   const {
     isLoading,
     isRefreshing,
     error,
     revenueStats,
     monetizationCharts,
+    productAnalytics, // Use SAME data source as Products page
+    trackerStats,
     hasTrackerData,
     needsTrackingScript,
     selectedGameName,
     refresh,
-  } = useAnalytics({ enabled: true, range: "7d" });
+  } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
 
   // Fetch debug data when debug mode is enabled
   useEffect(() => {
@@ -333,31 +353,38 @@ function MonetizationContent() {
     fetchDebugData();
   }, [debugMode]);
 
-  // Safe defaults - all values from API
-  const safeRevenueStats = {
-    // Gross values (raw tracked sales - matches Roblox dashboard)
-    grossRevenue: revenueStats?.grossRevenue ?? 0,
-    grossRevenue72h: revenueStats?.grossRevenue72h ?? 0,
-    grossArppu: revenueStats?.grossArppu ?? 0,
-    grossArpdau: revenueStats?.grossArpdau ?? 0,
-    // Estimated values (after 30% Roblox fee)
-    estimatedRevenue: revenueStats?.estimatedRevenue ?? 0,
-    estimatedRevenue72h: revenueStats?.estimatedRevenue72h ?? 0,
-    estimatedArppu: revenueStats?.estimatedArppu ?? 0,
-    estimatedArpdau: revenueStats?.estimatedArpdau ?? 0,
-    // Non-revenue metrics
-    totalPurchases: revenueStats?.totalPurchases ?? 0,
-    payingUsers: revenueStats?.payingUsers ?? 0,
+  // === SINGLE SOURCE OF TRUTH: Use productAnalytics (same as Products page) ===
+  // This ensures Monetization shows EXACT SAME data as Products page
+  
+  // Revenue and purchase stats from shared aggregation
+  const summaryStats = {
+    grossRevenue: productAnalytics?.grossTotalRevenue ?? 0,
+    estimatedRevenue: productAnalytics?.estimatedTotalRevenue ?? 0,
+    totalPurchases: productAnalytics?.totalPurchases ?? 0,
+    payingUsers: productAnalytics?.totalBuyers ?? 0,
+    uniqueActiveUsers: trackerStats?.uniquePlayers ?? 0,
   };
   
-  // Display values based on toggle
+  // Metrics calculated from shared aggregation
+  const pcr = summaryStats.uniqueActiveUsers > 0
+    ? (summaryStats.payingUsers / summaryStats.uniqueActiveUsers) * 100
+    : null;
+  const grossArppu = summaryStats.payingUsers > 0
+    ? summaryStats.grossRevenue / summaryStats.payingUsers
+    : null;
+  const estimatedArppu = summaryStats.payingUsers > 0
+    ? summaryStats.estimatedRevenue / summaryStats.payingUsers
+    : null;
+  // ARPDAU would need DAU (daily unique users) - for now use null
+  const grossArpdau: number | null = null;
+  const estimatedArpdau: number | null = null;
+  
+  // Display values based on toggle (use shared aggregation data)
   const displayRevenue = revenueDisplayMode === "gross" 
-    ? safeRevenueStats.grossRevenue 
-    : safeRevenueStats.estimatedRevenue;
-  const displayRevenue72h = revenueDisplayMode === "gross" 
-    ? safeRevenueStats.grossRevenue72h 
-    : safeRevenueStats.estimatedRevenue72h;
-  // ARPPU/ARPDAU removed - calculation needs verification with correct denominators
+    ? summaryStats.grossRevenue 
+    : summaryStats.estimatedRevenue;
+  const displayArppu = revenueDisplayMode === "gross" ? grossArppu : estimatedArppu;
+  const displayArpdau = revenueDisplayMode === "gross" ? grossArpdau : estimatedArpdau;
 
   // Process chart data based on selected range, interval, and display mode
   const processedChartData = useMemo(() => {
@@ -722,30 +749,14 @@ function MonetizationContent() {
             {hasTrackerData && displayRevenue > 0 && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 {revenueDisplayMode === "gross" 
-                  ? `Est: R$${safeRevenueStats.estimatedRevenue?.toLocaleString()}`
-                  : `Gross: R$${safeRevenueStats.grossRevenue?.toLocaleString()}`
+                  ? `Est: R$${summaryStats.estimatedRevenue?.toLocaleString()}`
+                  : `Gross: R$${summaryStats.grossRevenue?.toLocaleString()}`
                 }
               </p>
             )}
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 text-blue-400" />
-              <span className="text-xs text-muted-foreground">
-                {revenueDisplayMode === "gross" ? "Gross 72h" : "Est. 72h"}
-              </span>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData ? (
-                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (
-                formatRobux(displayRevenue72h)
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Last 72 hours</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {chartRange.toUpperCase()} range
+            </p>
           </CardContent>
         </Card>
 
@@ -753,17 +764,17 @@ function MonetizationContent() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-muted-foreground">72H Purchases</span>
+              <span className="text-xs text-muted-foreground">{chartRange.toUpperCase()} Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
-                formatNumber(exactPurchaseCount72h)
+                formatNumber(summaryStats.totalPurchases)
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              Same as chart header
+              Same as Products page
             </p>
           </CardContent>
         </Card>
@@ -778,9 +789,12 @@ function MonetizationContent() {
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
-                formatNumber(safeRevenueStats.payingUsers)
+                formatNumber(summaryStats.payingUsers)
               )}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Unique buyers ({chartRange.toUpperCase()})
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -797,13 +811,15 @@ function MonetizationContent() {
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : revenueStats?.conversionRate != null && revenueStats.conversionRate > 0 ? (
-                `${revenueStats.conversionRate.toFixed(2)}%`
+              ) : pcr != null && pcr > 0 ? (
+                `${pcr.toFixed(2)}%`
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Paying Users / Active Users</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {summaryStats.payingUsers} / {summaryStats.uniqueActiveUsers} users
+            </p>
           </CardContent>
         </Card>
 
@@ -819,16 +835,15 @@ function MonetizationContent() {
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (() => {
-                const arppuValue = revenueDisplayMode === "gross" 
-                  ? revenueStats?.grossArppu 
-                  : revenueStats?.estimatedArppu;
-                return arppuValue != null && arppuValue > 0 
-                  ? formatRobux(arppuValue)
-                  : <span className="text-muted-foreground">—</span>;
-              })()}
+              ) : displayArppu != null && displayArppu > 0 ? (
+                formatRobux(Math.round(displayArppu))
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Revenue / Paying Users</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              R${displayRevenue.toLocaleString()} / {summaryStats.payingUsers} buyers
+            </p>
           </CardContent>
         </Card>
 
@@ -844,16 +859,13 @@ function MonetizationContent() {
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (() => {
-                const arpdauValue = revenueDisplayMode === "gross" 
-                  ? revenueStats?.grossArpdau 
-                  : revenueStats?.estimatedArpdau;
-                return arpdauValue != null && arpdauValue > 0 
-                  ? formatRobux(arpdauValue)
-                  : <span className="text-muted-foreground">—</span>;
-              })()}
+              ) : displayArpdau != null && displayArpdau > 0 ? (
+                formatRobux(Math.round(displayArpdau))
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Revenue / DAU</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Requires DAU tracking</p>
           </CardContent>
         </Card>
       </div>
@@ -1542,38 +1554,59 @@ function MonetizationContent() {
                 </pre>
               </div>
               
-              {/* Client-side stats */}
-              <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                <h4 className="font-medium text-sm mb-2">Client-Side Revenue Stats</h4>
+              {/* Shared Aggregation Stats (SINGLE SOURCE OF TRUTH) */}
+              <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
+                <h4 className="font-medium text-sm mb-2 text-emerald-700 dark:text-emerald-400">
+                  Shared Aggregation (Same as Products Page)
+                </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
 {JSON.stringify({
-  hasTrackerData,
-  error,
+  chartRange,
   selectedGameName,
   revenueDisplayMode,
-  revenueStats: {
-    grossRevenue: safeRevenueStats.grossRevenue,
-    estimatedRevenue: safeRevenueStats.estimatedRevenue,
-    grossRevenue72h: safeRevenueStats.grossRevenue72h,
-    estimatedRevenue72h: safeRevenueStats.estimatedRevenue72h,
-    totalPurchases: safeRevenueStats.totalPurchases,
-    payingUsers: safeRevenueStats.payingUsers,
+  sameHelperUsed: true,
+  productAnalytics: {
+    grossTotalRevenue: productAnalytics?.grossTotalRevenue ?? null,
+    estimatedTotalRevenue: productAnalytics?.estimatedTotalRevenue ?? null,
+    totalPurchases: productAnalytics?.totalPurchases ?? null,
+    totalBuyers: productAnalytics?.totalBuyers ?? null,
+    aggregationSource: productAnalytics?.aggregationSource ?? "unknown",
+    productsCount: productAnalytics?.products?.length ?? 0,
   },
-  metrics: {
-    PCR: revenueStats?.conversionRate ?? null,
-    grossARPPU: revenueStats?.grossArppu ?? null,
-    estimatedARPPU: revenueStats?.estimatedArppu ?? null,
-    grossARPDAU: revenueStats?.grossArpdau ?? null,
-    estimatedARPDAU: revenueStats?.estimatedArpdau ?? null,
-    averageDAU: revenueStats?.averageDau ?? null,
-    daysWithData: revenueStats?.daysWithData ?? null,
+  summaryStats,
+  calculatedMetrics: {
+    PCR: pcr,
+    grossARPPU: grossArppu,
+    estimatedARPPU: estimatedArppu,
+    displayArppu,
+    displayRevenue,
   },
-  chartDataPoints: processedChartData?.length ?? 0,
+  trackerStats: {
+    uniquePlayers: trackerStats?.uniquePlayers ?? null,
+  },
+  hasTrackerData,
+  error,
+}, null, 2)}
+                </pre>
+              </div>
+
+              {/* Legacy revenueStats (for comparison) */}
+              <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                <h4 className="font-medium text-sm mb-2 text-muted-foreground">Legacy revenueStats (OLD - for comparison)</h4>
+                <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
+{JSON.stringify({
+  note: "This is the OLD data source - should match productAnalytics above",
+  revenueStats: revenueStats ? {
+    grossRevenue: revenueStats.grossRevenue,
+    estimatedRevenue: revenueStats.estimatedRevenue,
+    totalPurchases: revenueStats.totalPurchases,
+    payingUsers: revenueStats.payingUsers,
+    conversionRate: revenueStats.conversionRate,
+  } : null,
   chartTotals,
   monetizationCharts: monetizationCharts ? {
     purchaseCount72h: monetizationCharts.purchaseCount72h,
     revenue72h: monetizationCharts.revenue72h,
-    hourlyMonetizationLength: monetizationCharts.hourlyMonetization?.length ?? 0,
   } : null,
 }, null, 2)}
                 </pre>
