@@ -968,7 +968,7 @@ function SettingsPageContent() {
               Reset Test Data
             </DialogTitle>
             <DialogDescription>
-              This will permanently delete all your connected games and tracking data. This action cannot be undone.
+              This will delete tracker events, purchases, sessions, CCU snapshots, and analytics history for your connected games. This cannot be undone.
             </DialogDescription>
           </DialogHeader>
           
@@ -978,11 +978,10 @@ function SettingsPageContent() {
               <AlertDescription>
                 <strong>What will be deleted:</strong>
                 <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
-                  <li>All connected games</li>
-                  <li>All tracking events</li>
-                  <li>All CCU snapshots</li>
+                  <li>All tracking events (purchases, sessions, joins)</li>
+                  <li>All CCU snapshots and server heartbeats</li>
                   <li>All game analytics history</li>
-                  <li>All synced products</li>
+                  <li>All synced product stats</li>
                 </ul>
               </AlertDescription>
             </Alert>
@@ -990,10 +989,11 @@ function SettingsPageContent() {
             <Alert className="border-green-500/50 bg-green-500/10">
               <CheckCircle className="h-4 w-4 text-green-500" />
               <AlertDescription className="text-green-700 dark:text-green-400">
-                <strong>What will NOT be deleted:</strong>
+                <strong>What stays intact:</strong>
                 <ul className="list-disc list-inside mt-2 space-y-1 text-sm">
-                  <li>Your account</li>
-                  <li>Billing & subscription</li>
+                  <li>Connected games and API keys</li>
+                  <li>Your account and profile</li>
+                  <li>Billing and subscription</li>
                   <li>AI credits</li>
                   <li>Roblox account connection</li>
                 </ul>
