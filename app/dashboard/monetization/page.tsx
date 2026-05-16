@@ -455,43 +455,6 @@ function MonetizationContent() {
         time,
         ...data,
       }));
-    }
-
-    // Hourly interval: generate all hour buckets in range
-    const hourlyBuckets = new Map<string, {
-      totalRevenue: number; devproductRevenue: number; gamepassRevenue: number;
-      purchases: number; gamepassPurchases: number; devproductPurchases: number;
-    }>();
-    
-    // Pre-fill all hour slots with zeros
-    for (let h = new Date(cutoffTime); h <= now; h = new Date(h.getTime() + 3600000)) {
-      const hourKey = h.toISOString().slice(0, 13) + ":00:00.000Z";
-      hourlyBuckets.set(hourKey, {
-        totalRevenue: 0, devproductRevenue: 0, gamepassRevenue: 0,
-        purchases: 0, gamepassPurchases: 0, devproductPurchases: 0,
-      });
-    }
-    
-    filteredData.forEach((d) => {
-      const hourKey = new Date(d.time).toISOString().slice(0, 13) + ":00:00.000Z";
-      const existing = hourlyBuckets.get(hourKey);
-      if (existing) {
-        const normalized = normalizePoint(d);
-        existing.totalRevenue += normalized.totalRevenue;
-        existing.devproductRevenue += normalized.devproductRevenue;
-        existing.gamepassRevenue += normalized.gamepassRevenue;
-        existing.purchases += normalized.purchases;
-        existing.gamepassPurchases += normalized.gamepassPurchases;
-        existing.devproductPurchases += normalized.devproductPurchases;
-      }
-    });
-    
-    return Array.from(hourlyBuckets.entries())
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([time, data]) => ({
-        time,
-        ...data,
-      }));
   }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, revenueDisplayMode]);
 
   // Calculate totals for current view - use actual purchase counts from API
