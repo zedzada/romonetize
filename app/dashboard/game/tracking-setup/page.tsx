@@ -52,7 +52,7 @@ warn("[RoMonetize] No API key configured. Go to My Game to connect your Roblox g
 `;
   }
 
-  return `-- RoMonetize Tracking Script v3.0
+  return `-- RoMonetize Tracking Script v3.1
 -- Place this script in ServerScriptService
 -- DO NOT SHARE THIS SCRIPT - it contains your secret API key
 -- Features: Player tracking, purchases, CCU heartbeats every 60 seconds
@@ -621,7 +621,12 @@ export default function TrackingSetupPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-lg">Tracking Script</CardTitle>
+              <div className="flex items-center gap-2 mb-1">
+                <CardTitle className="text-lg">Tracking Script</CardTitle>
+                <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 font-mono text-xs">
+                  Tracker v3.1
+                </Badge>
+              </div>
               <CardDescription>Copy this script into ServerScriptService</CardDescription>
             </div>
             <Button variant="outline" size="sm" onClick={handleCopy} disabled={!fullApiKey}>
@@ -633,13 +638,44 @@ export default function TrackingSetupPage() {
               ) : (
                 <>
                   <Copy className="w-4 h-4 mr-2" />
-                  Copy Script
+                  Copy Full Script
                 </>
               )}
             </Button>
           </div>
+          
+          {/* Feature checklist */}
+          <div className="mt-4 pt-4 border-t border-border">
+            <p className="text-xs text-muted-foreground mb-2 font-medium">Features included:</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-sm">
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                <span>Player join/leave tracking</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                <span>Gamepass purchases</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
+                <span>Developer product purchases</span>
+              </div>
+              <div className="flex items-center gap-2 text-muted-foreground">
+                <CheckCircle2 className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
+                <span>CCU heartbeat every 60 seconds</span>
+              </div>
+            </div>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-3">
+          {/* Update notice */}
+          <div className="flex gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-muted-foreground">
+              <strong className="text-foreground">Using an old script?</strong> If your script was installed before this update, replace it with the latest full script to enable CCU heartbeat tracking.
+            </p>
+          </div>
+          
           <div className="bg-muted dark:bg-zinc-950 rounded-lg p-4 overflow-x-auto max-h-96">
             <pre className="text-sm text-foreground font-mono whitespace-pre">{luaScript}</pre>
           </div>
