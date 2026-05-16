@@ -192,3 +192,48 @@ export function formatArppuArpdau(value: number | null): string {
   if (value === null) return '—';
   return `R$${value.toFixed(2)}`;
 }
+
+// ============================================================
+// NEW PLACEHOLDER HELPERS - Return null until formulas are finalized
+// ============================================================
+
+export interface MetricsInput {
+  totalRevenue: number;
+  payingUsers: number;
+  uniqueActiveUsers: number;
+  totalSessions: number;
+  range: string;
+  // Add more fields here as needed for final formulas
+}
+
+/**
+ * Calculate ARPPU (Average Revenue Per Paying User)
+ * 
+ * PLACEHOLDER: Returns null until final formula is implemented.
+ * Do not use the old broken calculation.
+ * 
+ * @param metrics - Input metrics from analytics
+ * @returns ARPPU value or null if formula not yet implemented
+ */
+export function calculateARPPU(metrics: MetricsInput): number | null {
+  // TODO: Implement final ARPPU formula here
+  // Return null until formula is finalized
+  void metrics; // Suppress unused variable warning
+  return null;
+}
+
+/**
+ * Calculate ARPDAU (Average Revenue Per Daily Active User)
+ * 
+ * PLACEHOLDER: Returns null until final formula is implemented.
+ * Do not use the old broken calculation.
+ * 
+ * @param metrics - Input metrics from analytics
+ * @returns ARPDAU value or null if formula not yet implemented
+ */
+export function calculateARPDAU(metrics: MetricsInput): number | null {
+  // TODO: Implement final ARPDAU formula here
+  // Return null until formula is finalized
+  void metrics; // Suppress unused variable warning
+  return null;
+}

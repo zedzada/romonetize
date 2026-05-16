@@ -760,6 +760,43 @@ export default function MonetizationPage() {
         </Card>
       </div>
 
+      {/* ARPPU / ARPDAU Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="border-border bg-card shadow-sm">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <DollarSign className="w-4 h-4 text-emerald-400" />
+              <span className="text-xs text-muted-foreground">Est. ARPPU</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Formula pending</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border bg-card shadow-sm">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <DollarSign className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs text-muted-foreground">Est. ARPDAU</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Formula pending</p>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Hero Chart: Hourly Revenue / Sales */}
       <Card className="border-border bg-card shadow-sm">
         <CardHeader className="pb-2">
