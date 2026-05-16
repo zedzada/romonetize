@@ -247,7 +247,6 @@ function SettingsPageContent() {
         .single();
       
       if (profileError) {
-        console.error("[v0] Error saving profile:", profileError);
         toast({
           title: "Error saving",
           description: profileError.message,
@@ -276,7 +275,6 @@ function SettingsPageContent() {
         description: "Your profile has been updated successfully.",
       });
     } catch (error) {
-      console.error("[v0] Error saving settings:", error);
       toast({
         title: "Error",
         description: "Failed to save settings. Please try again.",
