@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -234,6 +234,31 @@ function ChartLegend({ items }: { items: Array<{ name: string; color: string; va
 }
 
 export default function MonetizationPage() {
+  return (
+    <Suspense fallback={<MonetizationSkeleton />}>
+      <MonetizationContent />
+    </Suspense>
+  );
+}
+
+function MonetizationSkeleton() {
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <Skeleton className="h-8 w-48" />
+        <Skeleton className="h-10 w-32" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {[...Array(4)].map((_, i) => (
+          <Skeleton key={i} className="h-24" />
+        ))}
+      </div>
+      <Skeleton className="h-[400px]" />
+    </div>
+  );
+}
+
+function MonetizationContent() {
   const searchParams = useSearchParams();
   const debugMode = searchParams.get("debug") === "true";
   const [debugData, setDebugData] = useState<Record<string, unknown> | null>(null);
