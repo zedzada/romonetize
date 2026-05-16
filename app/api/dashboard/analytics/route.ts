@@ -390,19 +390,20 @@ export async function GET(request: NextRequest) {
     sectionErrors.chartEvents = err instanceof Error ? err.message : "Failed to fetch chart events";
   }
   
-  // Fetch limited session events for session chart
+  // Fetch limited session events for session chart (include metadata for duration)
   let sessionEvents: Array<{
     id: string;
     event_type: string;
     player_id: string | null;
     created_at: string;
     game_id: string;
+    metadata: Record<string, unknown> | null;
   }> = [];
   
   try {
     const { data: sessionData, error: sessionError } = await supabase
       .from("events")
-      .select("id, event_type, player_id, created_at, game_id")
+      .select("id, event_type, player_id, created_at, game_id, metadata")
       .eq("game_id", gameId)
       .in("event_type", [...sessionStartTypes, ...sessionEndTypes])
       .gte("created_at", startDate.toISOString())
@@ -422,17 +423,29 @@ export async function GET(request: NextRequest) {
   const allEvents: Array<{ event_type: string; player_id: string | null }> = []; // Empty - we don't need full events anymore
 
   // Get total event count and latest event time for dataHealth (all-time, not just range)
+  // For "Tracked Actions": exclude server-only events (ccu_heartbeat, script_started)
+  const SERVER_ONLY_EVENT_TYPES = ["ccu_heartbeat", "script_started"];
   let totalEventsCount = 0;
+  let totalEventsCountAllTypes = 0; // Including server events, for hasTrackerEvents check
   let latestEventAt: string | null = null;
   try {
-    const { count } = await supabase
+    // Count all events (for hasTrackerEvents check)
+    const { count: allCount } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId);
-    totalEventsCount = count || 0;
+    totalEventsCountAllTypes = allCount || 0;
 
-    // Get latest event time if we have events
-    if (totalEventsCount > 0) {
+    // Count user actions only (excluding ccu_heartbeat, script_started)
+    const { count: actionCount } = await supabase
+      .from("events")
+      .select("*", { count: "exact", head: true })
+      .eq("game_id", gameId)
+      .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`);
+    totalEventsCount = actionCount || 0;
+
+    // Get latest event time if we have events (use allTypes count)
+    if (totalEventsCountAllTypes > 0) {
       const { data: latestEvent } = await supabase
         .from("events")
         .select("created_at")
@@ -450,7 +463,7 @@ export async function GET(request: NextRequest) {
   const missing: string[] = [];
   
   // Check tracker events
-  const hasTrackerEvents = totalEventsCount > 0;
+  const hasTrackerEvents = totalEventsCountAllTypes > 0;
   if (!hasTrackerEvents) {
     missing.push("tracking_script_not_installed");
   }
@@ -588,8 +601,11 @@ export async function GET(request: NextRequest) {
   // Use SQL-aggregated stats instead of JS-calculated ones
   // IMPORTANT: uniquePlayers from SQL RPC may include server events - we recalculate below
   let uniquePlayers = summaryStats.uniquePlayers;
-  const totalSessions = summaryStats.totalSessions;
-  const totalPurchases = summaryStats.totalPurchases;
+  // Override totalSessions from SQL RPC: count player_join + session_start from fetched sessionEvents
+  // The SQL RPC may only count session_start, missing player_join events
+  const totalSessions = sessionEvents.filter(e => sessionStartTypes.includes(e.event_type)).length || summaryStats.totalSessions;
+  // Override totalPurchases: use SQL RPC value, but fallback to purchaseEvents count if RPC returned 0
+  const totalPurchases = summaryStats.totalPurchases || purchaseEvents.length;
   const totalRevenue = summaryStats.totalRevenue;
   
   // RECALCULATE uniquePlayers to exclude server-only events
@@ -733,9 +749,28 @@ export async function GET(request: NextRequest) {
   }> = []; // Empty - would require separate SQL RPC for minute-level aggregation
 
   // === SESSION DURATION ===
-  // Calculate avg session duration from paired session events we fetched
+  // Calculate avg session duration from session_end metadata OR paired start/end events
   const sessionDurations: number[] = [];
   const activeSessions = new Map<string, Date>();
+
+  // Helper: extract duration_seconds from session_end metadata
+  const extractDurationFromMetadata = (metadata: Record<string, unknown> | null): number | null => {
+    if (!metadata) return null;
+    // Check multiple metadata fields where duration may be stored
+    const candidates = [
+      metadata.duration_seconds,
+      metadata.session_duration,
+      metadata.duration,
+    ];
+    for (const val of candidates) {
+      if (typeof val === "number" && val > 0 && val < 86400) return val;
+      if (typeof val === "string") {
+        const parsed = parseFloat(val);
+        if (!isNaN(parsed) && parsed > 0 && parsed < 86400) return parsed;
+      }
+    }
+    return null;
+  };
 
   // Use the limited session events we fetched (not allEvents)
   [...sessionEvents].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()).forEach((e) => {
@@ -743,6 +778,14 @@ export async function GET(request: NextRequest) {
     if (sessionStartTypes.includes(e.event_type)) {
       activeSessions.set(e.player_id, new Date(e.created_at));
     } else if (sessionEndTypes.includes(e.event_type)) {
+      // First try: extract duration from session_end metadata
+      const metadataDuration = extractDurationFromMetadata(e.metadata);
+      if (metadataDuration !== null) {
+        sessionDurations.push(metadataDuration);
+        activeSessions.delete(e.player_id);
+        return;
+      }
+      // Fallback: calculate from paired start/end timestamps
       const start = activeSessions.get(e.player_id);
       if (start) {
         const duration = (new Date(e.created_at).getTime() - start.getTime()) / 1000;
