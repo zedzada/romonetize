@@ -24,8 +24,12 @@ const VALID_EVENT_TYPES = [
   "session_duration",   // Session duration tracking
   "checkpoint_reached", // Player reaches a checkpoint/milestone
   
+  // Product funnel events (for conversion tracking)
+  "product_view",       // Player views a product in UI (optional - for funnel tracking)
+  "product_click",      // Player clicks on a product (optional - for funnel tracking)
+  
   // Monetization events
-  "gamepass_click",     // Player clicks on gamepass
+  "gamepass_click",     // Player clicks on gamepass (legacy - use product_click)
   "gamepass_prompt",    // Gamepass purchase prompt shown
   "gamepass_purchase",  // Gamepass purchased successfully
   "devproduct_prompt",  // Dev product purchase prompt shown
@@ -406,9 +410,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle click events for products
+    // Handle click events for products (product_click and legacy gamepass_click/devproduct_click)
     const clickEvents = validatedEvents.filter(
-      (e) => (e.event_type === "gamepass_click" || e.event_type === "devproduct_click") && e.product_id
+      (e) => (e.event_type === "product_click" || e.event_type === "gamepass_click" || e.event_type === "devproduct_click") && e.product_id
     );
 
     for (const event of clickEvents) {
@@ -433,10 +437,44 @@ export async function POST(request: NextRequest) {
           price_robux: event.robux || 0,
           total_revenue: 0,
           total_purchases: 0,
-total_clicks: 1,
-  });
-  }
-  }
+          total_clicks: 1,
+          total_views: 0,
+        });
+      }
+    }
+    
+    // Handle view events for products (product_view)
+    const viewEvents = validatedEvents.filter(
+      (e) => e.event_type === "product_view" && e.product_id
+    );
+
+    for (const event of viewEvents) {
+      const { data: existingProduct } = await supabaseAdmin
+        .from("products")
+        .select("id, total_views")
+        .eq("game_id", game.id)
+        .eq("roblox_product_id", event.product_id)
+        .single();
+
+      if (existingProduct) {
+        await supabaseAdmin
+          .from("products")
+          .update({ total_views: (existingProduct.total_views || 0) + 1 })
+          .eq("id", existingProduct.id);
+      } else if (event.product_name && event.product_type) {
+        await supabaseAdmin.from("products").insert({
+          game_id: game.id,
+          roblox_product_id: event.product_id,
+          name: event.product_name,
+          product_type: event.product_type,
+          price_robux: event.robux || 0,
+          total_revenue: 0,
+          total_purchases: 0,
+          total_clicks: 0,
+          total_views: 1,
+        });
+      }
+    }
   
   // Handle CCU heartbeat events - upsert to server_heartbeats and insert ccu_snapshots
   // IMPORTANT: Insert snapshot on EVERY heartbeat, do not skip for unchanged CCU or same minute

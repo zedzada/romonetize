@@ -10,6 +10,7 @@ import {
   CREATOR_REVENUE_RATE,
   type ProductPurchaseEvent,
   type ProductClickEvent,
+  type ProductViewEvent,
   type RobloxProductInfo,
   type AggregatedProduct,
 } from "@/lib/utils/product-aggregation";
@@ -303,7 +304,8 @@ export async function GET(request: NextRequest) {
   const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
   const sessionStartTypes = ["player_join", "session_start"];
   const sessionEndTypes = ["player_leave", "session_end"];
-  const clickTypes = ["gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
+  const clickTypes = ["product_click", "gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
+  const viewTypes = ["product_view"];
 
   // 2. Fetch all events for the selected game in range - paginated to avoid caps
   step = "read_events";
@@ -516,6 +518,7 @@ export async function GET(request: NextRequest) {
   const sessionEvents = allEvents.filter((e) => sessionStartTypes.includes(e.event_type));
   const endEvents = allEvents.filter((e) => sessionEndTypes.includes(e.event_type));
   const clickEvents = allEvents.filter((e) => clickTypes.includes(e.event_type));
+  const viewEvents = allEvents.filter((e) => viewTypes.includes(e.event_type));
 
   const allPlayerIds = new Set(allEvents.filter((e) => e.player_id).map((e) => e.player_id));
   const uniquePlayers = allPlayerIds.size;
@@ -968,10 +971,11 @@ export async function GET(request: NextRequest) {
   // - Products page table
   // - Monetization product breakdown
   // - AI Assistant context
-  const productAggregationResult = aggregateProducts(
-    purchaseEvents as ProductPurchaseEvent[],
-    clickEvents as ProductClickEvent[],
-    robloxProductsMap
+const productAggregationResult = aggregateProducts(
+  purchaseEvents as ProductPurchaseEvent[],
+  clickEvents as ProductClickEvent[],
+  robloxProductsMap,
+  viewEvents as ProductViewEvent[]
   );
   
   // Get top 4 products for Overview page (same data as Products page)
@@ -989,6 +993,7 @@ export async function GET(request: NextRequest) {
     estimatedRevenue: p.estimatedRevenue,
     purchases: p.purchases,
     uniqueBuyers: p.buyers,
+    views: p.views,
     clicks: p.clicks,
     conversionRate: p.conversionRate !== null ? p.conversionRate * 100 : null,
     conversionNeedsTracking: p.conversionNeedsTracking,
@@ -1000,10 +1005,16 @@ export async function GET(request: NextRequest) {
   const totalProductRevenue = productAggregationResult.grossTotalRevenue;
   const totalProductPurchases = productAggregationResult.totalPurchases;
   const totalUniqueBuyers = productAggregationResult.totalBuyers;
-  const productsWithClicks = products.filter((p) => p.clicks > 0 && p.conversionRate !== null);
-  const avgConversionRate = productsWithClicks.length > 0
-    ? productsWithClicks.reduce((sum, p) => sum + (p.conversionRate || 0), 0) / productsWithClicks.length
+  // Calculate avg conversion rate from products with valid denominator (clicks or views)
+  const productsWithConversion = products.filter((p) => (p.clicks > 0 || p.views > 0) && p.conversionRate !== null);
+  // Use weighted average: sum(purchases) / sum(clicks or views)
+  const totalConversionDenominator = productsWithConversion.reduce((sum, p) => sum + (p.clicks > 0 ? p.clicks : p.views), 0);
+  const totalConversionNumerator = productsWithConversion.reduce((sum, p) => sum + p.purchases, 0);
+  const avgConversionRate = totalConversionDenominator > 0 
+    ? (totalConversionNumerator / totalConversionDenominator) * 100
     : null;
+  // Needs tracking if there are purchases but no products have valid denominator
+  const avgConversionNeedsTracking = totalProductPurchases > 0 && productsWithConversion.length === 0;
 
   // === CCU STATS (prioritize tracker heartbeats over Roblox API) ===
   let ccuStats = {
@@ -1507,7 +1518,8 @@ trackerStats: hasTrackerEvents ? {
         totalPurchases: totalProductPurchases,
         uniqueBuyers: totalUniqueBuyers,
         avgConversionRate,
-        avgConversionNeedsTracking: productsWithClicks.length === 0 && products.length > 0,
+        // Uses new formula: true if purchases exist but no views/clicks tracked
+        avgConversionNeedsTracking,
         products: products.slice(0, 50), // Top 50
         hasTrackerData: hasTrackerEvents,
         locked: false,
@@ -1570,6 +1582,7 @@ purchaseCount72h: purchases72hCount,
       // Counts
       purchases: p.purchases,
       buyers: p.buyers,
+      views: p.views,
       clicks: p.clicks,
       // Metrics
       conversionRate: p.conversionRate,

@@ -224,9 +224,11 @@ export interface ProductAnalyticsItem {
   // Counts
   purchases: number;
   buyers: number;
+  views: number;
   clicks: number;
-  // Metrics
+  // Metrics - conversion rate calculated as: purchases / clicks (or purchases / views if no clicks)
   conversionRate: number | null;
+  // If true, purchases exist but no views/clicks tracked yet
   conversionNeedsTracking: boolean;
 }
 

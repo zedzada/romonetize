@@ -41,6 +41,18 @@ export interface ProductClickEvent {
   metadata?: Record<string, unknown> | null;
 }
 
+export interface ProductViewEvent {
+  id?: string;
+  event_type: string;
+  player_id: string | null;
+  product_id: string | null;
+  product_name: string | null;
+  product_type: string | null;
+  created_at: string;
+  game_id: string;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface RobloxProductInfo {
   name: string;
   type: string;
@@ -60,9 +72,11 @@ export interface AggregatedProduct {
   // Counts
   purchases: number;
   buyers: number;
+  views: number;
   clicks: number;
-  // Metrics
+  // Metrics - conversion rate calculated as: purchases / clicks (or purchases / views if no clicks)
   conversionRate: number | null;
+  // If true, purchases exist but no views/clicks tracked yet
   conversionNeedsTracking: boolean;
 }
 
@@ -171,20 +185,31 @@ function resolveProductType(
 }
 
 /**
- * Aggregate product stats from purchase and click events
+ * Aggregate product stats from purchase, click, and view events
+ * 
+ * Conversion rate formula:
+ * - If clicks > 0: conversionRate = purchases / clicks
+ * - Else if views > 0: conversionRate = purchases / views
+ * - Else: null (needs tracking)
+ * 
+ * Est. Rev / Buyer formula:
+ * - estimatedRevenuePerBuyer = estimatedRevenue / uniqueBuyers
+ * - If uniqueBuyers is 0, show "—"
  * 
  * @param purchaseEvents - All purchase events (already paginated/complete)
  * @param clickEvents - All click events (already paginated/complete)
+ * @param viewEvents - All view events (already paginated/complete)
  * @param robloxProductsMap - Map of product_id to Roblox product info for name resolution
  */
 export function aggregateProducts(
   purchaseEvents: ProductPurchaseEvent[],
   clickEvents: ProductClickEvent[],
-  robloxProductsMap: Map<string, RobloxProductInfo>
+  robloxProductsMap: Map<string, RobloxProductInfo>,
+  viewEvents: ProductViewEvent[] = []
 ): ProductAggregationResult {
   // Collect all events by product_id for name/type resolution
-  const productEventMap = new Map<string, Array<ProductPurchaseEvent | ProductClickEvent>>();
-  [...purchaseEvents, ...clickEvents].forEach((e) => {
+  const productEventMap = new Map<string, Array<ProductPurchaseEvent | ProductClickEvent | ProductViewEvent>>();
+  [...purchaseEvents, ...clickEvents, ...viewEvents].forEach((e) => {
     const productId = e.product_id;
     if (!productId) return;
     const existing = productEventMap.get(productId) || [];
@@ -199,6 +224,7 @@ export function aggregateProducts(
     type: string;
     grossRevenue: number;
     purchases: number;
+    views: number;
     clicks: number;
     uniqueBuyers: Set<string>;
   }>();
@@ -225,6 +251,7 @@ export function aggregateProducts(
         type: resolveProductType(e.product_id, allEventsForProduct, robloxProductsMap),
         grossRevenue: eventRobux,
         purchases: 1,
+        views: 0,
         clicks: 0,
         uniqueBuyers: buyers,
       });
@@ -247,7 +274,31 @@ export function aggregateProducts(
         type: resolveProductType(e.product_id, allEventsForProduct, robloxProductsMap),
         grossRevenue: 0,
         purchases: 0,
+        views: 0,
         clicks: 1,
+        uniqueBuyers: new Set(),
+      });
+    }
+  });
+  
+  // Process view events
+  viewEvents.forEach((e) => {
+    const key = e.product_id || "unknown";
+    const existing = productMap.get(key);
+    
+    if (existing) {
+      existing.views += 1;
+    } else {
+      const allEventsForProduct = productEventMap.get(key) || [e];
+      
+      productMap.set(key, {
+        id: e.product_id || key,
+        name: resolveProductName(e.product_id, allEventsForProduct, robloxProductsMap),
+        type: resolveProductType(e.product_id, allEventsForProduct, robloxProductsMap),
+        grossRevenue: 0,
+        purchases: 0,
+        views: 1,
+        clicks: 0,
         uniqueBuyers: new Set(),
       });
     }
@@ -256,7 +307,25 @@ export function aggregateProducts(
   // Convert to final array with calculated fields
   const products: AggregatedProduct[] = Array.from(productMap.values())
     .map((p) => {
+      // Est. Rev / Buyer = estimatedRevenue / uniqueBuyers (NOT purchases)
+      // Use full precision for calculation, then round
       const grossRevPerBuyer = p.uniqueBuyers.size > 0 ? p.grossRevenue / p.uniqueBuyers.size : 0;
+      const estimatedRevenue = p.grossRevenue * CREATOR_REVENUE_RATE;
+      const estimatedRevPerBuyer = p.uniqueBuyers.size > 0 ? estimatedRevenue / p.uniqueBuyers.size : 0;
+      
+      // Conversion rate formula:
+      // - If clicks > 0: purchases / clicks
+      // - Else if views > 0: purchases / views
+      // - Else: null (needs tracking)
+      let conversionRate: number | null = null;
+      if (p.clicks > 0) {
+        conversionRate = p.purchases / p.clicks;
+      } else if (p.views > 0) {
+        conversionRate = p.purchases / p.views;
+      }
+      
+      // conversionNeedsTracking: purchases exist but no views/clicks tracked
+      const conversionNeedsTracking = p.purchases > 0 && p.clicks === 0 && p.views === 0;
       
       return {
         productId: p.id,
@@ -265,16 +334,17 @@ export function aggregateProducts(
         // Gross values
         grossRevenue: p.grossRevenue,
         grossRevenuePerBuyer: Math.round(grossRevPerBuyer),
-        // Estimated values (70% of gross)
-        estimatedRevenue: Math.round(p.grossRevenue * CREATOR_REVENUE_RATE),
-        estimatedRevenuePerBuyer: Math.round(grossRevPerBuyer * CREATOR_REVENUE_RATE),
+        // Estimated values (70% of gross) - don't round revenue before dividing
+        estimatedRevenue: Math.round(estimatedRevenue),
+        estimatedRevenuePerBuyer: Math.round(estimatedRevPerBuyer),
         // Counts
         purchases: p.purchases,
         buyers: p.uniqueBuyers.size,
+        views: p.views,
         clicks: p.clicks,
         // Metrics
-        conversionRate: p.clicks > 0 ? p.purchases / p.clicks : null,
-        conversionNeedsTracking: p.clicks === 0 && p.purchases > 0,
+        conversionRate,
+        conversionNeedsTracking,
       };
     })
     .sort((a, b) => b.grossRevenue - a.grossRevenue);
@@ -294,7 +364,7 @@ export function aggregateProducts(
     grossTotalRevenue,
     estimatedTotalRevenue: Math.round(grossTotalRevenue * CREATOR_REVENUE_RATE),
     hitSupabaseLimit: false, // Caller should set this based on pagination
-    totalEventsUsed: purchaseEvents.length + clickEvents.length,
+    totalEventsUsed: purchaseEvents.length + clickEvents.length + viewEvents.length,
   };
 }
 

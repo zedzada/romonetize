@@ -343,10 +343,17 @@ export default function ProductsPage() {
               <span className="text-xs text-muted-foreground">Avg Conv. Rate</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-{hasTrackerEvents && !summaryStats.avgConversionNeedsTracking
+              {hasTrackerEvents && !summaryStats.avgConversionNeedsTracking && summaryStats.avgConversionRate !== null
                 ? formatPercent(summaryStats.avgConversionRate)
-                : (
-                  <span className="text-sm text-muted-foreground font-normal">Needs tracking</span>
+                : summaryStats.avgConversionNeedsTracking ? (
+                  <div>
+                    <span className="text-lg text-muted-foreground font-normal">—</span>
+                    <p className="text-[10px] text-muted-foreground font-normal mt-1">
+                      Requires product_view or product_click events
+                    </p>
+                  </div>
+                ) : (
+                  <span className="text-lg text-muted-foreground font-normal">—</span>
                 )}
             </div>
           </CardContent>
@@ -440,6 +447,10 @@ export default function ProductsPage() {
                         <td className="py-4 px-3 text-right">
                           {conversionRate !== null ? (
                             <span className="font-medium text-foreground">{formatPercent(conversionRate)}</span>
+                          ) : product.conversionNeedsTracking ? (
+                            <span className="text-xs text-muted-foreground" title="Add product_click or product_view events to track conversion">
+                              No click/view events
+                            </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}
