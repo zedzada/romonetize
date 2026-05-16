@@ -12,6 +12,7 @@ import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipSty
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { RevenueModeToggle } from "@/components/dashboard/revenue-mode-toggle";
 import { useRevenueDisplayMode, type RevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
+import { getProductPurchaseMetrics, CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
 import {
   AreaChart,
   Area,
@@ -81,7 +82,7 @@ function requiresDailyInterval(range: ChartRange): boolean {
 }
 
 // Roblox takes 30%, creators get 70%
-const CREATOR_REVENUE_RATE = 0.7;
+// CREATOR_REVENUE_RATE imported from @/lib/utils/product-aggregation
 
 // Custom tooltip for the hero chart - shows mode-specific data with estimated revenue
 function HeroChartTooltip({ 
@@ -356,13 +357,18 @@ function MonetizationContent() {
   // === SINGLE SOURCE OF TRUTH: Use productAnalytics (same as Products page) ===
   // This ensures Monetization shows EXACT SAME data as Products page
   
-  // Revenue and purchase stats from shared aggregation
+  // Revenue and purchase stats from shared helper (single source of truth)
+  const sharedMetrics = getProductPurchaseMetrics({
+    productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
+    revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+  });
+  
   const summaryStats = {
-    grossRevenue: productAnalytics?.grossTotalRevenue ?? 0,
-    estimatedRevenue: productAnalytics?.estimatedTotalRevenue ?? 0,
-    totalPurchases: productAnalytics?.totalPurchases ?? 0,
-    payingUsers: productAnalytics?.totalBuyers ?? 0,
-    uniqueActiveUsers: trackerStats?.uniquePlayers ?? 0,
+    grossRevenue: sharedMetrics.grossTotalRevenue,
+    estimatedRevenue: sharedMetrics.estimatedTotalRevenue,
+    totalPurchases: sharedMetrics.totalPurchases,
+    payingUsers: sharedMetrics.totalBuyers,
+    uniqueActiveUsers: sharedMetrics.uniqueActivePlayers,
   };
   
   // Metrics calculated from shared aggregation
