@@ -109,6 +109,15 @@ export interface RevenueStats {
   // DAU metrics for ARPDAU calculation
   averageDau?: number;
   daysWithData?: number;
+  // === Active user metrics from ACTIVE_USER_EVENT_TYPES (for PCR & ARPDAU) ===
+  trackerActiveUsers?: number;
+  trackerPayingUsers?: number;
+  trackerAverageDau?: number;
+  trackerDaysWithData?: number;
+  trackerActiveUserEventCounts?: Record<string, number>;
+  sampleActiveUserEvents?: string[];
+  trackerPcr?: number | null;
+  trackerGrossArpdau?: number | null;
 }
 
 export interface ProductInfo {

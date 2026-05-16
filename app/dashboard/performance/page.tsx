@@ -1380,13 +1380,27 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div className="h-full flex flex-col items-center justify-center text-center">
                     <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
                     {rawCcuHistory?.rawSnapshots?.length ? (
-                      <>
-                        <h4 className="font-medium text-foreground mb-2">No CCU snapshots in the last {ccuRange === "1h" ? "1 hour" : ccuRange === "24h" ? "24 hours" : ccuRange === "7d" ? "7 days" : ccuRange === "28d" ? "28 days" : "90 days"}</h4>
-                        <p className="text-sm text-muted-foreground max-w-md">
-                          {rawCcuHistory.rawSnapshots.length} snapshot{rawCcuHistory.rawSnapshots.length === 1 ? "" : "s"} exist but none fall within this range.
-                          {ccuRange === "1h" ? " Try 24H or 7D." : ccuRange === "24h" ? " Try 7D or 28D." : " Try a wider range."}
-                        </p>
-                      </>
+                      (() => {
+                        // Find the latest snapshot time
+                        const latestSnap = rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1];
+                        const latestTime = new Date(latestSnap.time);
+                        const minsAgo = Math.round((Date.now() - latestTime.getTime()) / 60000);
+                        const latestLabel = minsAgo < 60 
+                          ? `${minsAgo} minute${minsAgo === 1 ? "" : "s"} ago`
+                          : minsAgo < 1440
+                            ? `${Math.round(minsAgo / 60)} hour${Math.round(minsAgo / 60) === 1 ? "" : "s"} ago`
+                            : `${Math.round(minsAgo / 1440)} day${Math.round(minsAgo / 1440) === 1 ? "" : "s"} ago`;
+                        const rangeLabel = ccuRange === "1h" ? "1 hour" : ccuRange === "24h" ? "24 hours" : ccuRange === "7d" ? "7 days" : ccuRange === "28d" ? "28 days" : "90 days";
+                        return (
+                          <>
+                            <h4 className="font-medium text-foreground mb-2">No CCU snapshots in the last {rangeLabel}</h4>
+                            <p className="text-sm text-muted-foreground max-w-md">
+                              Latest snapshot was {latestLabel}.
+                              {ccuRange === "1h" ? " Try 24H or 7D." : ccuRange === "24h" ? " Try 7D or 28D." : " Try a wider range."}
+                            </p>
+                          </>
+                        );
+                      })()
                     ) : (
                       <>
                         <h4 className="font-medium text-foreground mb-2">No CCU history yet</h4>

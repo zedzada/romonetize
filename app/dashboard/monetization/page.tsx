@@ -485,37 +485,38 @@ function MonetizationContent() {
 
   // === CARD VALUES: Derived from chartTotals (same range as chart) ===
   // This ensures cards and chart ALWAYS show the same numbers for the selected range.
-  // payingUsers and uniqueActiveUsers come from sharedMetrics (API doesn't provide per-bucket player IDs).
+  // payingUsers and activeUsers come from API's tracker-based calculation.
   const summaryStats = useMemo(() => {
-    // Revenue from chart totals (already has revenueDisplayMode applied via processedChartData)
     const grossRevenue = chartTotals.total;
-    // For estimated, chartTotals already has the multiplier applied (0.7x).
-    // For gross, it's 1x. So chartTotals.total IS the display value.
     const displayRevenue = chartTotals.total;
     const totalPurchases = chartTotals.purchases;
     
-    // payingUsers and uniqueActiveUsers are not available per-range in hourly buckets.
-    // Use API-level values (from sharedMetrics) as best approximation.
-    const payingUsers = sharedMetrics.totalBuyers;
-    const uniqueActiveUsers = sharedMetrics.uniqueActivePlayers;
+    // Use tracker-based active users from API (ACTIVE_USER_EVENT_TYPES)
+    // These are the canonical values for PCR and ARPDAU
+    const payingUsers = revenueStats?.trackerPayingUsers ?? sharedMetrics.totalBuyers;
+    const activeUsers = revenueStats?.trackerActiveUsers ?? 0;
 
     return {
       grossRevenue,
       displayRevenue,
       totalPurchases,
       payingUsers,
-      uniqueActiveUsers,
+      activeUsers,
     };
-  }, [chartTotals, sharedMetrics]);
+  }, [chartTotals, sharedMetrics, revenueStats]);
 
-  // Derived KPI metrics from summaryStats
-  const pcr = summaryStats.uniqueActiveUsers > 0
-    ? (summaryStats.payingUsers / summaryStats.uniqueActiveUsers) * 100
+  // PCR = payingUsers / activeUsers * 100 (from tracker ACTIVE_USER_EVENT_TYPES)
+  const pcr = summaryStats.activeUsers > 0
+    ? (summaryStats.payingUsers / summaryStats.activeUsers) * 100
     : null;
   const displayArppu = summaryStats.payingUsers > 0 
     ? summaryStats.displayRevenue / summaryStats.payingUsers 
     : null;
-  const displayArpdau: number | null = null; // Requires DAU data
+  // ARPDAU from API (already calculated with correct formula: short range = revenue/activeUsers, long range = revenue/averageDAU)
+  const grossArpdau = revenueStats?.trackerGrossArpdau ?? null;
+  const displayArpdau = grossArpdau != null && grossArpdau > 0
+    ? (revenueDisplayMode === "gross" ? grossArpdau : Math.round(grossArpdau * CREATOR_REVENUE_RATE))
+    : null;
   const displayRevenue = summaryStats.displayRevenue;
 
   // Calculate Y-axis max based on VISIBLE series only
@@ -858,8 +859,8 @@ function MonetizationContent() {
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              {summaryStats.uniqueActiveUsers > 0 
-                ? `${summaryStats.payingUsers} / ${summaryStats.uniqueActiveUsers}`
+              {summaryStats.activeUsers > 0
+                ? `${summaryStats.payingUsers} / ${summaryStats.activeUsers} active users`
                 : "Requires active player tracking"
               }
             </p>
@@ -908,7 +909,13 @@ function MonetizationContent() {
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Requires active player history</p>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {displayArpdau != null
+                ? `R$${formatRobux(summaryStats.displayRevenue)} / ${revenueStats?.trackerAverageDau ? `${Math.round(revenueStats.trackerAverageDau)} avg DAU` : `${summaryStats.activeUsers} active`}`
+                : summaryStats.activeUsers > 0
+                  ? "No revenue in range"
+                  : "Requires active player events"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -1654,6 +1661,16 @@ function MonetizationContent() {
   hourlyMonetizationLength: monetizationCharts?.hourlyMonetization?.length ?? 0,
   minuteMonetizationLength: monetizationCharts?.minuteMonetization?.length ?? 0,
   effectiveBucketType,
+  // === PCR & ARPDAU debug (from spec) ===
+  payingUsers: summaryStats.payingUsers,
+  activeUsers: summaryStats.activeUsers,
+  activeUserEventCounts: revenueStats?.trackerActiveUserEventCounts ?? {},
+  pcr,
+  revenue: displayRevenue,
+  averageDAU: revenueStats?.trackerAverageDau ?? 0,
+  arpdau: displayArpdau,
+  trackerDaysWithData: revenueStats?.trackerDaysWithData ?? 0,
+  sampleActiveUserEvents: revenueStats?.sampleActiveUserEvents ?? [],
 }, null, 2)}
                 </pre>
               </div>
