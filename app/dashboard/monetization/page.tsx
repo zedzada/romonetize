@@ -36,8 +36,7 @@ import {
   TrendingUp,
   AlertCircle,
   ExternalLink,
-  Coins,
-  Activity,
+Activity,
 } from "lucide-react";
 import Link from "next/link";
 
@@ -241,8 +240,8 @@ export default function MonetizationPage() {
   // Use shared revenue display mode (persisted to localStorage)
   const { mode: revenueDisplayMode, setMode: setRevenueDisplayMode } = useRevenueDisplayMode();
   
-  // Check plan access
-  const { hasProAccess, loading: planLoading } = usePlanAccess();
+  // Check plan access - use canAccessMonetization for proper gating
+  const { canAccessMonetization, loading: planLoading } = usePlanAccess();
   
   // Theme-aware chart colors
   const chartTheme = useChartTheme();
@@ -308,12 +307,7 @@ export default function MonetizationPage() {
   const displayRevenue72h = revenueDisplayMode === "gross" 
     ? safeRevenueStats.grossRevenue72h 
     : safeRevenueStats.estimatedRevenue72h;
-  const displayArppu = revenueDisplayMode === "gross" 
-    ? safeRevenueStats.grossArppu 
-    : safeRevenueStats.estimatedArppu;
-  const displayArpdau = revenueDisplayMode === "gross" 
-    ? safeRevenueStats.grossArpdau 
-    : safeRevenueStats.estimatedArpdau;
+  // ARPPU/ARPDAU removed - calculation needs verification with correct denominators
 
   // Process chart data based on selected range, interval, and display mode
   const processedChartData = useMemo(() => {
@@ -506,7 +500,7 @@ export default function MonetizationPage() {
   };
 
   // Plan gating - show upgrade screen for free users
-  if (!planLoading && !hasProAccess) {
+  if (!planLoading && !canAccessMonetization) {
     return (
       <div className="space-y-6">
         <div>
@@ -640,8 +634,8 @@ export default function MonetizationPage() {
         </p>
       )}
 
-      {/* Revenue Stats Cards - 6 column grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      {/* Revenue Stats Cards - 4 column grid */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -722,47 +716,7 @@ export default function MonetizationPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Coins className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-muted-foreground">
-                {revenueDisplayMode === "gross" ? "ARPPU" : "Est. ARPPU"}
-              </span>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData || !displayArppu ? (
-                <span className="text-lg font-medium text-muted-foreground">—</span>
-              ) : (
-                formatRobux(displayArppu)
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1" title="Total revenue in period divided by distinct paying users in period. Period ARPPU = totalRevenue / distinctPayingUsers">
-              Period Revenue / Paying Users
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-muted-foreground">
-                {revenueDisplayMode === "gross" ? "ARPDAU" : "Est. ARPDAU"}
-              </span>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData || !displayArpdau ? (
-                <span className="text-lg font-medium text-muted-foreground">—</span>
-              ) : (
-                formatRobux(displayArpdau)
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1" title="Total revenue in period divided by average daily active users. Period ARPDAU = totalRevenue / avgDAU">
-              Period Revenue / Avg. DAU
-            </p>
-          </CardContent>
-        </Card>
+        {/* ARPPU/ARPDAU cards hidden until calculation is verified against correct denominators */}
       </div>
 
       {/* Hero Chart: Hourly Revenue / Sales */}

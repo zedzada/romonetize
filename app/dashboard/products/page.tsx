@@ -65,8 +65,8 @@ function toAnalyticsRange(range: ProductsRange): DateRange {
 export default function ProductsPage() {
   const [chartRange, setChartRange] = useState<ProductsRange>("28d");
   
-  // Check plan access
-  const { hasProAccess, loading: planLoading } = usePlanAccess();
+  // Check plan access - use canAccessProducts for proper gating
+  const { canAccessProducts, loading: planLoading } = usePlanAccess();
   
   // Use shared revenue display mode (consistent across all pages)
   const { mode: revenueDisplayMode } = useRevenueDisplayMode();
@@ -123,7 +123,7 @@ export default function ProductsPage() {
   };
 
   // Plan gating - show upgrade screen for free users
-  if (!planLoading && !hasProAccess) {
+  if (!planLoading && !canAccessProducts) {
     return (
       <div className="space-y-6">
         <div>

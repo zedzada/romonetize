@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
+import { resolvePlanFromProfile, getPlanDisplayName, type PlanInfo } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,7 +74,7 @@ function SettingsPageContent() {
   const [passwordResetSent, setPasswordResetSent] = useState(false);
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
   const [isOAuthUser, setIsOAuthUser] = useState(false);
-  const [userPlan, setUserPlan] = useState("free");
+  const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -174,15 +175,17 @@ function SettingsPageContent() {
           loadNotificationSettings(user.id);
           
           // Fetch full profile from profiles table (single source of truth)
+          // Include subscription_status for accurate plan resolution
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
-            .select("roblox_user_id, roblox_username, plan, display_username, discord_username")
+            .select("roblox_user_id, roblox_username, plan, subscription_status, display_username, discord_username")
             .eq("id", user.id)
             .single();
 
           if (!profileError && profileData) {
             setRobloxProfile(profileData);
-            setUserPlan(profileData.plan || "free");
+            // Use shared plan helper for consistent resolution
+            setPlanInfo(resolvePlanFromProfile(profileData));
             
             // Set profile with database values (empty string if null)
             // Display Username from database (if set)
@@ -218,19 +221,30 @@ function SettingsPageContent() {
     try {
       const supabase = createClient();
       
-      // Update profile with editable fields
-      const { error: profileError } = await supabase
+      // Save the display_username value
+      const displayUsernameToSave = username.trim() || null;
+      
+      // Update profile with editable fields using upsert to ensure row exists
+      const { data: savedProfile, error: profileError } = await supabase
         .from("profiles")
-        .update({
-          display_username: username || null,
-          roblox_username: profile.robloxUsername || null,
-          discord_username: profile.discordUsername || null,
+        .upsert({
+          id: user.id,
+          display_username: displayUsernameToSave,
+          roblox_username: profile.robloxUsername?.trim() || null,
+          discord_username: profile.discordUsername?.trim() || null,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id);
+        }, { onConflict: "id" })
+        .select("display_username")
+        .single();
       
       if (profileError) {
         console.error("[v0] Error saving profile:", profileError);
+        toast({
+          title: "Error saving",
+          description: profileError.message,
+          variant: "destructive",
+        });
+        return;
       }
       
       // Save notification settings to Supabase
@@ -239,9 +253,9 @@ function SettingsPageContent() {
       // Dispatch event for sidebar/profile to refresh immediately
       window.dispatchEvent(new CustomEvent("profile-updated", {
         detail: {
-          display_username: username || null,
-          roblox_username: profile.robloxUsername || null,
-          discord_username: profile.discordUsername || null,
+          display_username: displayUsernameToSave,
+          roblox_username: profile.robloxUsername?.trim() || null,
+          discord_username: profile.discordUsername?.trim() || null,
         }
       }));
       
@@ -254,6 +268,11 @@ function SettingsPageContent() {
       });
     } catch (error) {
       console.error("[v0] Error saving settings:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save settings. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
@@ -416,12 +435,11 @@ function SettingsPageContent() {
     }
   };
 
-  const getPlanDisplayName = () => {
-    switch (userPlan) {
-      case "studio": return "Studio Plan";
-      case "pro": return "Pro Plan";
-      default: return "Free Plan";
-    }
+  // Use shared plan helper - userPlan is derived from planInfo
+  const userPlan = planInfo?.plan || "free";
+
+  const getDisplayPlanName = () => {
+    return getPlanDisplayName(userPlan);
   };
 
   const getPlanPrice = () => {
@@ -822,7 +840,7 @@ function SettingsPageContent() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-blue-400/10 border border-primary/20">
-                <div className="text-lg font-bold text-foreground">{getPlanDisplayName()}</div>
+                <div className="text-lg font-bold text-foreground">{getDisplayPlanName()}</div>
                 <div className="text-sm text-muted-foreground">{getPlanPrice()}</div>
               </div>
               <ul className="space-y-2 text-sm">
