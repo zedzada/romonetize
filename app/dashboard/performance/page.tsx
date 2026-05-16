@@ -105,6 +105,7 @@ export default function PerformancePage() {
   
   // CCU History chart controls (independent of other charts)
   const [ccuRange, setCcuRange] = useState<CCUHistoryRange>("24h");
+  const [autoRangeApplied, setAutoRangeApplied] = useState(false);
   
   // Manual cron trigger state (debug mode only)
   const [isRunningCron, setIsRunningCron] = useState(false);
@@ -501,6 +502,34 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     return { data, currentCcu, peakCcu, avgCcu, snapshotCount: data.length, dominantSource };
   }, [rawCcuHistory, ccuRange]);
+
+  // Auto-select useful range on first load
+  // If current range (24h default) has 0 snapshots but total snapshots exist, try wider ranges
+  useEffect(() => {
+    if (autoRangeApplied || !rawCcuHistory?.rawSnapshots?.length) return;
+    
+    const now = Date.now();
+    const ranges: { range: CCUHistoryRange; ms: number }[] = [
+      { range: "24h", ms: 24 * 60 * 60 * 1000 },
+      { range: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
+      { range: "28d", ms: 28 * 24 * 60 * 60 * 1000 },
+      { range: "90d", ms: 90 * 24 * 60 * 60 * 1000 },
+    ];
+    
+    for (const { range, ms } of ranges) {
+      const cutoff = now - ms;
+      const hasData = rawCcuHistory.rawSnapshots.some(s => new Date(s.time).getTime() >= cutoff);
+      if (hasData) {
+        if (range !== ccuRange) {
+          setCcuRange(range);
+        }
+        setAutoRangeApplied(true);
+        return;
+      }
+    }
+    // If no range has data (all snapshots older than 90d), keep current range
+    setAutoRangeApplied(true);
+  }, [rawCcuHistory, ccuRange, autoRangeApplied]);
   
   // Filter chart data based on selected range and fill missing buckets up to NOW
   const { performanceCharts, ccuStats, chartDebugInfo } = useMemo(() => {
@@ -1123,20 +1152,40 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* CCU snapshots (from Roblox API / cron) */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">CCU Snapshots:</span>
+                    <span className="text-amber-400">CCU Snapshots &amp; Range Debug:</span>
                   </div>
+                  <div>selectedGameId: <span className="text-foreground text-[10px]">{selectedGameId?.slice(0, 12) || "none"}</span></div>
+                  <div>selectedGameName: <span className="text-foreground">{game?.name?.slice(0, 25) || "none"}</span></div>
+                  <div>robloxGameId: <span className="text-foreground">{game?.roblox_game_id || "none"}</span></div>
+                  <div>robloxStatsSyncFound: <span className={robloxStats ? "text-green-400" : "text-red-400"}>{robloxStats ? "YES" : "NO"}</span></div>
+                  <div>robloxStatsSource: <span className="text-foreground">{robloxStats?.source ?? "none"}</span></div>
+                  <div>robloxStatsUpdatedAt: <span className="text-foreground">{robloxStats?.updatedAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(robloxStats.updatedAt)) : "none"}</span></div>
                   <div>currentCcuFromApi: <span className="text-foreground">{robloxStats?.ccu ?? "null"}</span></div>
-                  <div>snapshotsCount: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
-                  <div>chartRange: <span className="text-foreground">{ccuRange}</span></div>
+                  <div>ccuTotalSnapshots: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
+                  <div>ccuSnapshotsInSelectedRange: <span className="text-foreground">{processedCcuHistory.snapshotCount}</span></div>
+                  <div>selectedRange: <span className="text-foreground">{ccuRange}</span></div>
+                  <div>rangeStartUtc: <span className="text-foreground text-[10px]">{(() => {
+                    const rangeMs = ccuRange === "1h" ? 3600000 : ccuRange === "24h" ? 86400000 : ccuRange === "7d" ? 604800000 : ccuRange === "28d" ? 2419200000 : 7776000000;
+                    return new Date(Date.now() - rangeMs).toISOString();
+                  })()}</span></div>
+                  <div>rangeEndUtc: <span className="text-foreground text-[10px]">{new Date().toISOString()}</span></div>
                   <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.data.length}</span></div>
+                  <div>autoRangeApplied: <span className={autoRangeApplied ? "text-green-400" : "text-yellow-400"}>{autoRangeApplied ? "YES" : "pending"}</span></div>
                   {rawCcuHistory?.rawSnapshots?.length ? (
                     <>
-                      <div>oldestSnapshot: <span className="text-foreground">
+                      <div>oldestSnapshotAt: <span className="text-foreground">
                         {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(rawCcuHistory.rawSnapshots[0].time))}
                       </span></div>
-                      <div>latestSnapshot: <span className="text-foreground">
+                      <div>latestSnapshotAt: <span className="text-foreground">
                         {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1].time))}
                       </span></div>
+                      <div>snapshotSourceCounts: <span className="text-foreground text-[10px]">{JSON.stringify(
+                        rawCcuHistory.rawSnapshots.reduce((acc: Record<string, number>, s) => {
+                          const src = s.source || "unknown";
+                          acc[src] = (acc[src] || 0) + 1;
+                          return acc;
+                        }, {})
+                      )}</span></div>
                     </>
                   ) : null}
                   
@@ -1351,9 +1400,10 @@ const handleSyncAndRefresh = useCallback(async () => {
                     <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
                     {rawCcuHistory?.rawSnapshots?.length ? (
                       <>
-                        <h4 className="font-medium text-foreground mb-2">No data in selected range</h4>
+                        <h4 className="font-medium text-foreground mb-2">No CCU snapshots in the last {ccuRange === "1h" ? "1 hour" : ccuRange === "24h" ? "24 hours" : ccuRange === "7d" ? "7 days" : ccuRange === "28d" ? "28 days" : "90 days"}</h4>
                         <p className="text-sm text-muted-foreground max-w-md">
-                          {rawCcuHistory.rawSnapshots.length} snapshot{rawCcuHistory.rawSnapshots.length === 1 ? "" : "s"} exist but none fall within the {ccuRange.toUpperCase()} window. Try a wider range.
+                          {rawCcuHistory.rawSnapshots.length} snapshot{rawCcuHistory.rawSnapshots.length === 1 ? "" : "s"} exist but none fall within this range.
+                          {ccuRange === "1h" ? " Try 24H or 7D." : ccuRange === "24h" ? " Try 7D or 28D." : " Try a wider range."}
                         </p>
                       </>
                     ) : (
