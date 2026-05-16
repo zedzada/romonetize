@@ -9,6 +9,21 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
 // Check if Supabase is configured
 const isSupabaseConfigured = !!(supabaseUrl && supabaseAnonKey)
 
+// Security headers for all responses
+function addSecurityHeaders(response: NextResponse): NextResponse {
+  // Prevent clickjacking
+  response.headers.set('X-Frame-Options', 'DENY')
+  // Prevent MIME type sniffing
+  response.headers.set('X-Content-Type-Options', 'nosniff')
+  // Control referrer information
+  response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  // Minimal permissions
+  response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+  // XSS protection (legacy but still useful)
+  response.headers.set('X-XSS-Protection', '1; mode=block')
+  return response
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({
     request,
@@ -17,7 +32,7 @@ export async function updateSession(request: NextRequest) {
   // If Supabase is not configured, allow all routes (no auth protection)
   if (!isSupabaseConfigured) {
     console.warn('[v0] Supabase not configured - skipping auth middleware')
-    return supabaseResponse
+    return addSecurityHeaders(supabaseResponse)
   }
 
   try {
@@ -48,13 +63,14 @@ export async function updateSession(request: NextRequest) {
     if (request.nextUrl.pathname.startsWith('/dashboard') && !user) {
       const url = request.nextUrl.clone()
       url.pathname = '/'
-      return NextResponse.redirect(url)
+      const redirectResponse = NextResponse.redirect(url)
+      return addSecurityHeaders(redirectResponse)
     }
 
-    return supabaseResponse
+    return addSecurityHeaders(supabaseResponse)
   } catch (error) {
     console.error('[v0] Supabase middleware error:', error)
     // On error, allow the request to continue
-    return supabaseResponse
+    return addSecurityHeaders(supabaseResponse)
   }
 }

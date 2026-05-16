@@ -21,22 +21,26 @@ const CRON_SECRET = process.env.CRON_SECRET;
 export async function GET(request: NextRequest) {
   const startedAt = new Date().toISOString();
   
-  // Auth: Accept any of:
-  // 1. Authorization: Bearer CRON_SECRET (manual test)
-  // 2. Any request in development
-  // NOTE: Vercel Cron does NOT send custom Authorization headers automatically.
-  // It sends requests from Vercel's IP range. In production, we trust all requests
-  // to this endpoint since it's not sensitive (only reads games and inserts snapshots).
-  // For true security, we'd check Vercel's CRON_SECRET header or IP range.
+  // Auth: Verify CRON_SECRET
+  // 1. Authorization: Bearer CRON_SECRET (manual test or Vercel Cron)
+  // 2. x-cron-secret header (alternative for Vercel Cron)
+  // 3. Allow in development without auth for testing
   const authHeader = request.headers.get("Authorization");
-  const isManualTest = authHeader === `Bearer ${CRON_SECRET}`;
+  const cronSecretHeader = request.headers.get("x-cron-secret");
   const isDev = process.env.NODE_ENV !== "production";
   
-  // In production, allow requests without auth (Vercel Cron won't send our custom header)
-  // The endpoint is idempotent and safe - it just collects CCU data
-  if (!isManualTest && !isDev) {
-    // Still allow it - Vercel Cron is calling us
-    console.log("[CCU Cron] Request from Vercel Cron (no auth header)");
+  const isValidAuth = 
+    authHeader === `Bearer ${CRON_SECRET}` ||
+    cronSecretHeader === CRON_SECRET ||
+    isDev;
+  
+  // In production, require CRON_SECRET for security
+  if (!isValidAuth && CRON_SECRET) {
+    console.warn("[CCU Cron] Unauthorized request rejected");
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 
   // Use service role client for cron jobs

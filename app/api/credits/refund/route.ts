@@ -21,6 +21,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
     }
 
+    // Rate limit refunds: max 5 per hour per user to prevent abuse
+    // Check recent refund transactions
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { count: recentRefunds } = await supabaseAdmin
+      .from("ai_credit_transactions")
+      .select("*", { count: "exact", head: true })
+      .eq("user_id", user.id)
+      .eq("type", "refund")
+      .gte("created_at", oneHourAgo);
+
+    if ((recentRefunds || 0) >= 5) {
+      return NextResponse.json(
+        { error: "Too many refund requests. Please try again later." },
+        { status: 429 }
+      );
+    }
+
     const body = await request.json();
     const { type, reason } = body as { type: "text" | "image" | "textImage"; reason?: string };
 

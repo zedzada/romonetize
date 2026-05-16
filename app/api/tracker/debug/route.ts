@@ -110,7 +110,8 @@ export async function GET() {
         name: selectedGame.name,
         roblox_game_id: selectedGame.roblox_game_id,
         universe_id: selectedGame.universe_id,
-        api_key: selectedGame.api_key, // Full key for script generation
+        // Only show full api_key in development, otherwise show prefix only
+        api_key: process.env.NODE_ENV === "development" ? selectedGame.api_key : undefined,
         api_key_prefix: selectedGame.api_key ? selectedGame.api_key.slice(0, 8) + "..." : null,
         last_event_at: selectedGame.last_event_at,
         status: selectedGame.status,
