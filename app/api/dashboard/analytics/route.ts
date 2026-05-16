@@ -10,6 +10,63 @@ type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
 // Roblox takes 30% of revenue, creators receive 70%
 const CREATOR_REVENUE_RATE = 0.7;
 
+// Supabase default row limit - must paginate if more rows expected
+const SUPABASE_PAGE_SIZE = 1000;
+
+// Helper to fetch all rows with pagination (bypasses 1000 row limit)
+async function fetchAllRows<T>(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  table: string,
+  query: {
+    select: string;
+    filters: Array<{ column: string; operator: string; value: unknown }>;
+    order?: { column: string; ascending: boolean };
+  }
+): Promise<T[]> {
+  const allRows: T[] = [];
+  let from = 0;
+  let hasMore = true;
+  
+  while (hasMore) {
+    let queryBuilder = supabase
+      .from(table)
+      .select(query.select)
+      .range(from, from + SUPABASE_PAGE_SIZE - 1);
+    
+    // Apply filters
+    for (const filter of query.filters) {
+      if (filter.operator === "eq") {
+        queryBuilder = queryBuilder.eq(filter.column, filter.value);
+      } else if (filter.operator === "in") {
+        queryBuilder = queryBuilder.in(filter.column, filter.value as unknown[]);
+      } else if (filter.operator === "gte") {
+        queryBuilder = queryBuilder.gte(filter.column, filter.value);
+      } else if (filter.operator === "lte") {
+        queryBuilder = queryBuilder.lte(filter.column, filter.value);
+      }
+    }
+    
+    // Apply order
+    if (query.order) {
+      queryBuilder = queryBuilder.order(query.order.column, { ascending: query.order.ascending });
+    }
+    
+    const { data, error } = await queryBuilder;
+    
+    if (error) throw error;
+    
+    if (data && data.length > 0) {
+      allRows.push(...(data as T[]));
+      from += SUPABASE_PAGE_SIZE;
+      hasMore = data.length === SUPABASE_PAGE_SIZE;
+    } else {
+      hasMore = false;
+    }
+  }
+  
+  return allRows;
+}
+
 function getRangeConfig(range: DateRange): { hours: number; bucketMinutes: number } {
   switch (range) {
     case "1h":
@@ -530,18 +587,34 @@ export async function GET(request: NextRequest) {
   const now72h = new Date();
   const start72h = new Date(now72h.getTime() - 72 * 60 * 60 * 1000);
   
-  // Query purchase_success events from the last 72 hours (regardless of range filter)
-  let purchases72h: typeof purchaseEvents = [];
+  // Get exact count of 72h purchases (not limited by 1000 row fetch)
+  let purchases72hCount = 0;
   try {
-    const { data: events72h } = await supabase
+    const { count } = await supabase
       .from("events")
-      .select("id, event_type, player_id, product_id, product_name, product_type, robux, created_at, game_id, metadata")
+      .select("*", { count: "exact", head: true })
       .eq("game_id", gameId)
       .in("event_type", purchaseTypes)
-      .gte("created_at", start72h.toISOString())
-      .order("created_at", { ascending: false });
+      .gte("created_at", start72h.toISOString());
     
-    purchases72h = events72h || [];
+    purchases72hCount = count ?? 0;
+  } catch (err) {
+    sectionErrors.purchases72hCount = err instanceof Error ? err.message : "Failed to count 72h purchases";
+  }
+  
+  // Query all purchase_success events from the last 72 hours with pagination
+  // This ensures we get ALL rows for accurate revenue calculation, not just first 1000
+  let purchases72h: typeof purchaseEvents = [];
+  try {
+    purchases72h = await fetchAllRows<typeof purchaseEvents[0]>(supabase, "events", {
+      select: "id, event_type, player_id, product_id, product_name, product_type, robux, created_at, game_id, metadata",
+      filters: [
+        { column: "game_id", operator: "eq", value: gameId },
+        { column: "event_type", operator: "in", value: purchaseTypes },
+        { column: "created_at", operator: "gte", value: start72h.toISOString() },
+      ],
+      order: { column: "created_at", ascending: false },
+    });
   } catch (err) {
     sectionErrors.revenue72h = err instanceof Error ? err.message : "Failed to fetch 72h revenue";
   }
@@ -1634,8 +1707,8 @@ trackerStats: hasTrackerEvents ? {
   // 24h minute-level monetization data (always from last 24 hours, grouped per minute)
   minuteMonetization,
   revenue72h,
-  purchaseCount72h: purchases72h.length,
-  } : null),
+purchaseCount72h: purchases72hCount,
+    } : null),
 // Product analytics - locked for free users
   productAnalytics: monetizationLocked ? { products: [], locked: true } : {
   products: products.map(p => ({
@@ -1704,10 +1777,12 @@ trackerStats: hasTrackerEvents ? {
           finalRevenue: totalRevenue,
         },
         // 72h Revenue debug (like Roblox Dashboard)
-        revenue72hDebug: {
-          windowStart: start72h.toISOString(),
-          purchaseCount72h: purchases72h.length,
-          revenue72h,
+revenue72hDebug: {
+        windowStart: start72h.toISOString(),
+        purchaseCount72hExact: purchases72hCount,
+        purchaseCount72hFetched: purchases72h.length,
+        hitSupabaseLimit: purchases72h.length === SUPABASE_PAGE_SIZE,
+        revenue72h,
           recentPurchases: purchases72h.slice(0, 10).map(e => ({
             event_type: e.event_type,
             player_id: e.player_id,
