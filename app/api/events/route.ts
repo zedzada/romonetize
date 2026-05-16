@@ -438,19 +438,36 @@ total_clicks: 1,
   }
   }
   
-  // Handle CCU heartbeat events - upsert to server_heartbeats and aggregate CCU
+  // Handle CCU heartbeat events - upsert to server_heartbeats and insert ccu_snapshots
+  // IMPORTANT: Insert snapshot on EVERY heartbeat, do not skip for unchanged CCU or same minute
   const ccuHeartbeatEvents = events.filter(
     (e) => e.event_type === "ccu_heartbeat"
   );
 
+  // Track results for explicit response
+  let ccuHeartbeatResult: { 
+    success: boolean; 
+    game_id?: string;
+    server_id?: string;
+    server_ccu?: number;
+    total_active_ccu?: number;
+    snapshot_inserted?: boolean;
+    error?: string;
+  } | null = null;
+
   for (const event of ccuHeartbeatEvents) {
-    const serverId = (event as Record<string, unknown>).server_id as string | undefined;
-    const placeId = (event as Record<string, unknown>).place_id as string | undefined;
-    const universeId = (event as Record<string, unknown>).universe_id as string | undefined;
-    const serverCcu = (event as Record<string, unknown>).ccu as number | undefined;
+    // Support both root level and metadata fields
+    const rawEvent = event as Record<string, unknown>;
+    const metadata = (rawEvent.metadata || {}) as Record<string, unknown>;
+    
+    const serverId = (rawEvent.server_id || metadata.server_id) as string | undefined;
+    const placeId = (rawEvent.place_id || metadata.place_id) as string | undefined;
+    const universeId = (rawEvent.universe_id || metadata.universe_id) as string | undefined;
+    const serverCcu = (rawEvent.ccu ?? metadata.ccu) as number | undefined;
     
     if (!serverId) {
       console.warn(`[api/events] CCU heartbeat missing server_id for game_id=${game.id}`);
+      ccuHeartbeatResult = { success: false, error: "Missing server_id" };
       continue;
     }
 
@@ -471,6 +488,7 @@ total_clicks: 1,
 
     if (heartbeatError) {
       console.error(`[api/events] Failed to upsert server heartbeat: ${heartbeatError.message}`);
+      ccuHeartbeatResult = { success: false, error: `server_heartbeat upsert: ${heartbeatError.message}` };
       continue;
     }
 
@@ -484,23 +502,38 @@ total_clicks: 1,
 
     if (serversError) {
       console.error(`[api/events] Failed to fetch active servers: ${serversError.message}`);
+      ccuHeartbeatResult = { success: false, error: `active servers query: ${serversError.message}` };
       continue;
     }
 
     // Sum CCU across all active servers
     const totalCcu = (activeServers || []).reduce((sum, s) => sum + (s.ccu || 0), 0);
 
-    // Insert aggregated CCU snapshot
-    await supabaseAdmin
+    // Insert CCU snapshot - ALWAYS insert, never skip
+    // Use minimal columns that exist in ccu_snapshots table: game_id, ccu, source, created_at
+    const { error: snapshotError } = await supabaseAdmin
       .from("ccu_snapshots")
       .insert({
         game_id: game.id,
         ccu: totalCcu,
+        server_id: serverId, // Also store server_id if column exists
         source: "romonetize_tracker",
         created_at: new Date().toISOString(),
       });
 
-    // Also update current_players on the games table
+    if (snapshotError) {
+      console.error(`[api/events] Failed to insert ccu_snapshot: ${snapshotError.message}`);
+      ccuHeartbeatResult = { 
+        success: false, 
+        game_id: game.id,
+        server_id: serverId,
+        server_ccu: serverCcu,
+        error: `ccu_snapshot insert: ${snapshotError.message}` 
+      };
+      continue;
+    }
+
+    // Update current_players on the games table
     await supabaseAdmin
       .from("games")
       .update({
@@ -509,7 +542,25 @@ total_clicks: 1,
       })
       .eq("id", game.id);
 
-    console.log(`[api/events] CCU heartbeat: game_id=${game.id}, server_id=${serverId}, server_ccu=${serverCcu}, total_ccu=${totalCcu}`);
+    ccuHeartbeatResult = {
+      success: true,
+      game_id: game.id,
+      server_id: serverId,
+      server_ccu: serverCcu,
+      total_active_ccu: totalCcu,
+      snapshot_inserted: true,
+    };
+
+    console.log(`[api/events] CCU heartbeat OK: game_id=${game.id}, server_id=${serverId}, server_ccu=${serverCcu}, total_ccu=${totalCcu}`);
+  }
+
+  // If this was a CCU heartbeat request, return explicit heartbeat response
+  if (ccuHeartbeatEvents.length > 0 && ccuHeartbeatResult) {
+    return NextResponse.json({
+      success: ccuHeartbeatResult.success,
+      event_type: "ccu_heartbeat",
+      ...ccuHeartbeatResult,
+    });
   }
   
   // Log server-side for debugging (only prefix of API key)
