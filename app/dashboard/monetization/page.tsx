@@ -1652,6 +1652,8 @@ function MonetizationContent() {
   firstBucket: processedChartData[0]?.time ?? null,
   lastBucket: processedChartData[processedChartData.length - 1]?.time ?? null,
   hourlyMonetizationLength: monetizationCharts?.hourlyMonetization?.length ?? 0,
+  minuteMonetizationLength: monetizationCharts?.minuteMonetization?.length ?? 0,
+  effectiveBucketType,
 }, null, 2)}
                 </pre>
               </div>
