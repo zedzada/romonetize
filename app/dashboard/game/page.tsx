@@ -482,59 +482,217 @@ function GamePageContent() {
     setSyncingStats(false);
   };
 
-  // Tracking script
-  const trackingScript = selectedGame ? `-- RoMonetize Analytics Tracker
--- Add this to ServerScriptService
+  // Tracking script v3.1 with CCU heartbeat
+  const trackingScript = selectedGame ? `-- RoMonetize Tracking Script v3.1
+-- Place this script in ServerScriptService
+-- DO NOT SHARE THIS SCRIPT - it contains your secret API key
+-- Features: Player tracking, purchases, CCU heartbeats every 60 seconds
 
 local HttpService = game:GetService("HttpService")
 local MarketplaceService = game:GetService("MarketplaceService")
 local Players = game:GetService("Players")
 
--- Configuration
+--------------------------------------------------------------------------------
+-- CONFIGURATION
+--------------------------------------------------------------------------------
 local API_KEY = "${selectedGame.api_key}"
-local GAME_ID = "${selectedGame.id}"
 local API_URL = "https://romonetize.com/api/events"
 
--- Track event function
-local function trackEvent(eventType, playerId, data)
-    local payload = {
-        api_key = API_KEY,
-        game_id = GAME_ID,
-        event_type = eventType,
-        player_id = tostring(playerId),
-        metadata = data or {}
-    }
+-- Detect if running in studio (events still sent for testing)
+local isStudio = game:GetService("RunService"):IsStudio()
+
+--------------------------------------------------------------------------------
+-- HTTP SEND HELPER
+--------------------------------------------------------------------------------
+local function sendEvent(body)
+    local jsonBody = HttpService:JSONEncode(body)
     
-    pcall(function()
-        HttpService:PostAsync(API_URL, HttpService:JSONEncode(payload), Enum.HttpContentType.ApplicationJson)
+    local success, response = pcall(function()
+        return HttpService:RequestAsync({
+            Url = API_URL,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["x-api-key"] = API_KEY
+            },
+            Body = jsonBody
+        })
     end)
+    
+    if not success then
+        warn("[RoMonetize] HTTP request failed:", response)
+    elseif not response.Success then
+        warn("[RoMonetize] API error:", response.StatusCode, response.Body)
+    end
+    
+    return success and response.Success
 end
 
--- Track purchases
-MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, passId, purchased)
-    if purchased then
-        trackEvent("purchase_success", player.UserId, {
-            product_id = tostring(passId),
-            product_type = "gamepass"
-        })
-    end
-end)
+--------------------------------------------------------------------------------
+-- PLAYER SESSION TRACKING
+--------------------------------------------------------------------------------
+local playerSessions = {}
 
-MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, purchased)
-    if purchased then
-        trackEvent("purchase_success", userId, {
-            product_id = tostring(productId),
-            product_type = "devproduct"
-        })
-    end
-end)
+local function generateSessionId()
+    return HttpService:GenerateGUID(false)
+end
 
--- Track player joins
 Players.PlayerAdded:Connect(function(player)
-    trackEvent("player_join", player.UserId)
+    local sessionId = generateSessionId()
+    playerSessions[player.UserId] = {
+        sessionId = sessionId,
+        joinTime = os.time()
+    }
+    
+    sendEvent({
+        apiKey = API_KEY,
+        api_key = API_KEY,
+        event_type = "player_join",
+        player_id = tostring(player.UserId),
+        session_id = sessionId,
+        metadata = {
+            username = player.Name,
+            display_name = player.DisplayName,
+            account_age = player.AccountAge,
+            timestamp = os.time(),
+            studio = isStudio
+        }
+    })
 end)
 
-print("[RoMonetize] Tracker initialized!")` : "";
+Players.PlayerRemoving:Connect(function(player)
+    local session = playerSessions[player.UserId]
+    if session then
+        local duration = os.time() - session.joinTime
+        
+        sendEvent({
+            apiKey = API_KEY,
+            api_key = API_KEY,
+            event_type = "session_end",
+            player_id = tostring(player.UserId),
+            session_id = session.sessionId,
+            metadata = {
+                duration_seconds = duration,
+                timestamp = os.time(),
+                studio = isStudio
+            }
+        })
+        
+        playerSessions[player.UserId] = nil
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- PURCHASE TRACKING (Gamepasses & Dev Products)
+--------------------------------------------------------------------------------
+MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gamePassId, wasPurchased)
+    if wasPurchased then
+        local session = playerSessions[player.UserId]
+        
+        local gamePassInfo = nil
+        pcall(function()
+            gamePassInfo = MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
+        end)
+        
+        sendEvent({
+            apiKey = API_KEY,
+            api_key = API_KEY,
+            event_type = "purchase_success",
+            player_id = tostring(player.UserId),
+            session_id = session and session.sessionId or nil,
+            product_id = tostring(gamePassId),
+            product_name = gamePassInfo and gamePassInfo.Name or nil,
+            product_type = "gamepass",
+            robux = gamePassInfo and gamePassInfo.PriceInRobux or nil,
+            metadata = {
+                timestamp = os.time(),
+                studio = isStudio
+            }
+        })
+    end
+end)
+
+MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, productId, wasPurchased)
+    if wasPurchased then
+        local session = playerSessions[userId]
+        
+        local productInfo = nil
+        pcall(function()
+            productInfo = MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
+        end)
+        
+        sendEvent({
+            apiKey = API_KEY,
+            api_key = API_KEY,
+            event_type = "purchase_success",
+            player_id = tostring(userId),
+            session_id = session and session.sessionId or nil,
+            product_id = tostring(productId),
+            product_name = productInfo and productInfo.Name or nil,
+            product_type = "devproduct",
+            robux = productInfo and productInfo.PriceInRobux or nil,
+            metadata = {
+                timestamp = os.time(),
+                studio = isStudio
+            }
+        })
+    end
+end)
+
+--------------------------------------------------------------------------------
+-- CCU HEARTBEAT (every 60 seconds)
+--------------------------------------------------------------------------------
+local function sendCCUHeartbeat()
+    local playerCount = #Players:GetPlayers()
+    
+    local body = {
+        apiKey = API_KEY,
+        api_key = API_KEY,
+        event_type = "ccu_heartbeat",
+        server_id = game.JobId,
+        place_id = tostring(game.PlaceId),
+        universe_id = tostring(game.GameId),
+        ccu = playerCount,
+        metadata = {
+            timestamp = os.time(),
+            studio = isStudio
+        }
+    }
+    
+    local jsonBody = HttpService:JSONEncode(body)
+    
+    local success, response = pcall(function()
+        return HttpService:RequestAsync({
+            Url = API_URL,
+            Method = "POST",
+            Headers = {
+                ["Content-Type"] = "application/json",
+                ["x-api-key"] = API_KEY
+            },
+            Body = jsonBody
+        })
+    end)
+    
+    if success and response.Success then
+        print("[RoMonetize] CCU heartbeat sent: players=" .. playerCount)
+    elseif success then
+        warn("[RoMonetize] CCU heartbeat failed: HTTP " .. tostring(response.StatusCode) .. " - " .. tostring(response.Body))
+    else
+        warn("[RoMonetize] CCU heartbeat failed:", tostring(response))
+    end
+end
+
+-- Start CCU heartbeat loop (initial after 5 seconds, then every 60 seconds)
+task.spawn(function()
+    task.wait(5)
+    while true do
+        sendCCUHeartbeat()
+        task.wait(60)
+    end
+end)
+
+print("[RoMonetize] Tracker initialized with CCU heartbeat")
+print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU heartbeats")` : "";
 
   return (
     <div className="space-y-6">
@@ -671,14 +829,48 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                       Tracking Setup
                                     </Button>
                                   </DialogTrigger>
-                                  <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+                                  <DialogContent className="w-[95vw] max-w-[1000px] max-h-[85vh] overflow-y-auto">
                                     <DialogHeader>
-                                      <DialogTitle>Tracking Setup for {game.name}</DialogTitle>
+                                      <div className="flex items-center gap-3">
+                                        <DialogTitle>Tracking Setup for {game.name}</DialogTitle>
+                                        <span className="px-2 py-0.5 bg-blue-500/10 text-blue-600 border border-blue-500/20 rounded text-xs font-mono">
+                                          Tracker v3.1
+                                        </span>
+                                      </div>
                                       <DialogDescription>
                                         Add this script to your Roblox game to start tracking analytics
                                       </DialogDescription>
                                     </DialogHeader>
-                                    <div className="space-y-4 mt-4">
+                                    
+                                    {/* Feature checklist */}
+                                    <div className="flex flex-wrap gap-x-4 gap-y-1 py-3 border-b border-border text-sm">
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <CheckCircle className="w-4 h-4 text-green-500" />
+                                        Player joins
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <CheckCircle className="w-4 h-4 text-green-500" />
+                                        Sessions
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <CheckCircle className="w-4 h-4 text-green-500" />
+                                        Purchases
+                                      </div>
+                                      <div className="flex items-center gap-1.5 text-muted-foreground">
+                                        <CheckCircle className="w-4 h-4 text-purple-500" />
+                                        CCU heartbeat every 60 seconds
+                                      </div>
+                                    </div>
+                                    
+                                    <div className="space-y-4 mt-2">
+                                      {/* Update notice */}
+                                      <div className="flex gap-3 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                                        <AlertCircle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                                        <p className="text-sm text-muted-foreground">
+                                          <strong className="text-foreground">Using an old script?</strong> If your script was installed before this update, replace it with the latest full script to enable CCU heartbeat tracking.
+                                        </p>
+                                      </div>
+                                      
                                       {/* API Key */}
                                       <div className="space-y-2">
                                         <label className="text-sm font-medium text-foreground">API Key</label>
@@ -719,7 +911,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                         <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
                                           <li>Copy the script below</li>
                                           <li>Create a new Script in <code className="bg-secondary px-1 rounded">ServerScriptService</code></li>
-                                          <li>Paste the code (API key and Game ID are already filled in)</li>
+                                          <li>Paste the code (API key is already filled in)</li>
                                           <li>Enable HTTP Requests in Game Settings &gt; Security</li>
                                           <li>Test your game - activity will appear in the dashboard!</li>
                                         </ol>
@@ -727,7 +919,7 @@ print("[RoMonetize] Tracker initialized!")` : "";
 
                                       {/* Script */}
                                       <div className="bg-[#1e1e1e] rounded-lg border border-border overflow-hidden">
-                                        <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-border">
+                                        <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-border sticky top-0 z-10">
                                           <span className="text-sm font-medium text-gray-300">RoMonetizeTracker.lua</span>
                                           <Button 
                                             variant="ghost" 
@@ -738,11 +930,11 @@ print("[RoMonetize] Tracker initialized!")` : "";
                                             {copied === "script" ? (
                                               <><Check className="w-3 h-3 mr-1 text-green-400" /> Copied!</>
                                             ) : (
-                                              <><Copy className="w-3 h-3 mr-1" /> Copy Script</>
+                                              <><Copy className="w-3 h-3 mr-1" /> Copy Full Script</>
                                             )}
                                           </Button>
                                         </div>
-                                        <pre className="p-4 font-mono text-xs text-gray-300 overflow-x-auto max-h-64 overflow-y-auto">
+                                        <pre className="p-4 font-mono text-xs text-gray-300 overflow-x-auto overflow-y-auto max-h-[520px]">
                                           <code>{trackingScript}</code>
                                         </pre>
                                       </div>
