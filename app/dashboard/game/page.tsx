@@ -829,7 +829,7 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                                       Tracking Setup
                                     </Button>
                                   </DialogTrigger>
-                                  <DialogContent className="w-[95vw] max-w-6xl max-h-[85vh] overflow-y-auto">
+                                  <DialogContent className="w-[92vw] max-w-[1400px] max-h-[90vh] overflow-y-auto">
                                     <DialogHeader>
                                       <div className="flex items-center gap-3">
                                         <DialogTitle>Tracking Setup for {game.name}</DialogTitle>
@@ -934,7 +934,7 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                                             )}
                                           </Button>
                                         </div>
-                                        <pre className="p-4 font-mono text-xs text-gray-300 overflow-auto whitespace-pre h-[600px]">
+                                        <pre className="p-4 font-mono text-sm text-gray-300 overflow-auto whitespace-pre h-[65vh]">
                                           <code>{trackingScript}</code>
                                         </pre>
                                       </div>
