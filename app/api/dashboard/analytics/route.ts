@@ -608,7 +608,7 @@ export async function GET(request: NextRequest) {
     
     if (!playerCountError && playerCountData) {
       // Get distinct player IDs
-      const distinctPlayers = new Set(playerCountData.map(e => e.player_id));
+      const distinctPlayers = new Set(playerCountData.map((e: { player_id: string | null }) => e.player_id));
       recalculatedUniquePlayers = distinctPlayers.size;
       // Use recalculated value if we got data, otherwise fall back to SQL RPC
       if (recalculatedUniquePlayers > 0 || playerCountData.length > 0) {
