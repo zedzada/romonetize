@@ -35,9 +35,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Toaster } from "@/components/ui/toaster";
 import { getUserGames, getSelectedGame, selectGame } from "@/lib/actions/games";
-
-// Plan types for feature gating
-type UserPlan = "free" | "pro" | "studio";
+import { resolvePlanFromProfile, getPlanDisplayName, type UserPlan, type PlanInfo } from "@/lib/plan";
 
 // Define which sidebar items are gated for free users
 const PRO_GATED_ITEMS = ["Monetization", "Products"];
@@ -82,6 +80,7 @@ export default function DashboardLayout({
     full_name: string | null;
     plan: UserPlan;
     email: string | null;
+    planInfo: PlanInfo | null;
   } | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -154,9 +153,10 @@ export default function DashboardLayout({
       }
 
       const supabase = createClient();
+      // Fetch plan AND subscription_status for accurate plan resolution
       const { data: profileData, error } = await supabase
         .from("profiles")
-        .select("id, email, plan, display_username")
+        .select("id, email, plan, display_username, subscription_status")
         .eq("id", user.id)
         .single();
 
@@ -172,18 +172,23 @@ export default function DashboardLayout({
         
         await supabase.from("profiles").insert(newProfile);
         
+        const planInfo = resolvePlanFromProfile(null);
         setProfile({
           display_username: null,
           full_name: null,
           plan: "free",
           email: user.email || null,
+          planInfo,
         });
       } else {
+        // Use shared plan helper for consistent resolution
+        const planInfo = resolvePlanFromProfile(profileData);
         setProfile({
           display_username: profileData.display_username || null,
           full_name: null,
-          plan: (profileData.plan as UserPlan) || "free",
+          plan: planInfo.plan,
           email: profileData.email || user.email || null,
+          planInfo,
         });
       }
     }
@@ -285,20 +290,15 @@ export default function DashboardLayout({
     return "User";
   };
 
-  // Get plan display text
-  const getPlanDisplayName = () => {
-    const plan = profile?.plan || "free";
-    switch (plan) {
-      case "pro": return "Pro Plan";
-      case "studio": return "Studio Plan";
-      default: return "Free Plan";
-    }
+  // Get plan display text - uses shared helper for consistency
+  const getDisplayPlanName = () => {
+    return getPlanDisplayName(profile?.plan || "free");
   };
 
-  // Check if user has pro or higher plan
-  const hasProAccess = () => {
-    const plan = profile?.plan || "free";
-    return plan === "pro" || plan === "studio";
+  // Check if user has access to pro features (monetization/products)
+  // Uses planInfo from shared helper for accurate gating
+  const hasProFeatureAccess = () => {
+    return profile?.planInfo?.canAccessMonetization ?? false;
   };
 
   const getInitials = () => {
@@ -328,7 +328,7 @@ export default function DashboardLayout({
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
           {sidebarItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== "/dashboard" && pathname.startsWith(item.href));
-            const isLocked = item.proOnly && !hasProAccess();
+            const isLocked = item.proOnly && !hasProFeatureAccess();
             
             return (
               <Link
@@ -363,7 +363,7 @@ export default function DashboardLayout({
                 </div>
                 <div className="flex-1 text-left">
                   <div className="text-sm font-medium text-foreground truncate max-w-[140px]">{getDisplayName()}</div>
-                  <div className="text-xs text-muted-foreground">{getPlanDisplayName()}</div>
+                  <div className="text-xs text-muted-foreground">{getDisplayPlanName()}</div>
                 </div>
                 <ChevronDown className="w-4 h-4 text-muted-foreground" />
               </button>
@@ -549,7 +549,7 @@ export default function DashboardLayout({
               <nav className="p-4 space-y-1">
                 {sidebarItems.map((item) => {
                   const isActive = pathname === item.href;
-                  const isLocked = item.proOnly && !hasProAccess();
+                  const isLocked = item.proOnly && !hasProFeatureAccess();
                   
                   return (
                     <Link

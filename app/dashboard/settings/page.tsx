@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
 import { User as SupabaseUser } from "@supabase/supabase-js";
+import { resolvePlanFromProfile, getPlanDisplayName, type PlanInfo } from "@/lib/plan";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -73,7 +74,7 @@ function SettingsPageContent() {
   const [passwordResetSent, setPasswordResetSent] = useState(false);
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
   const [isOAuthUser, setIsOAuthUser] = useState(false);
-  const [userPlan, setUserPlan] = useState("free");
+  const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [resetModalOpen, setResetModalOpen] = useState(false);
   const [resetConfirmText, setResetConfirmText] = useState("");
   const [resetting, setResetting] = useState(false);
@@ -174,15 +175,17 @@ function SettingsPageContent() {
           loadNotificationSettings(user.id);
           
           // Fetch full profile from profiles table (single source of truth)
+          // Include subscription_status for accurate plan resolution
           const { data: profileData, error: profileError } = await supabase
             .from("profiles")
-            .select("roblox_user_id, roblox_username, plan, display_username, discord_username")
+            .select("roblox_user_id, roblox_username, plan, subscription_status, display_username, discord_username")
             .eq("id", user.id)
             .single();
 
           if (!profileError && profileData) {
             setRobloxProfile(profileData);
-            setUserPlan(profileData.plan || "free");
+            // Use shared plan helper for consistent resolution
+            setPlanInfo(resolvePlanFromProfile(profileData));
             
             // Set profile with database values (empty string if null)
             // Display Username from database (if set)
@@ -432,12 +435,11 @@ function SettingsPageContent() {
     }
   };
 
-  const getPlanDisplayName = () => {
-    switch (userPlan) {
-      case "studio": return "Studio Plan";
-      case "pro": return "Pro Plan";
-      default: return "Free Plan";
-    }
+  // Use shared plan helper - userPlan is derived from planInfo
+  const userPlan = planInfo?.plan || "free";
+
+  const getDisplayPlanName = () => {
+    return getPlanDisplayName(userPlan);
   };
 
   const getPlanPrice = () => {
@@ -838,7 +840,7 @@ function SettingsPageContent() {
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="p-4 rounded-lg bg-gradient-to-br from-primary/10 to-blue-400/10 border border-primary/20">
-                <div className="text-lg font-bold text-foreground">{getPlanDisplayName()}</div>
+                <div className="text-lg font-bold text-foreground">{getDisplayPlanName()}</div>
                 <div className="text-sm text-muted-foreground">{getPlanPrice()}</div>
               </div>
               <ul className="space-y-2 text-sm">

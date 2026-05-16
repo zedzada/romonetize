@@ -5,20 +5,22 @@ import { Lock, TrendingUp, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { resolvePlanFromProfile, type PlanInfo, type UserPlan } from "@/lib/plan";
 
 interface PlanLockProps {
   feature: string;
   description?: string;
 }
 
-// Hook to check if user has pro or higher access
+// Hook to check if user has pro or higher access - uses shared plan helper
 export function usePlanAccess() {
-  const [plan, setPlan] = useState<string>("free");
+  const [planInfo, setPlanInfo] = useState<PlanInfo | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function checkPlan() {
       if (!isSupabaseConfigured) {
+        setPlanInfo(resolvePlanFromProfile(null));
         setLoading(false);
         return;
       }
@@ -27,27 +29,38 @@ export function usePlanAccess() {
       const { data: { user } } = await supabase.auth.getUser();
 
       if (user) {
+        // Fetch both plan and subscription_status for accurate resolution
         const { data: profile } = await supabase
           .from("profiles")
-          .select("plan")
+          .select("plan, subscription_status")
           .eq("id", user.id)
           .single();
 
-        if (profile) {
-          setPlan(profile.plan || "free");
-        }
+        setPlanInfo(resolvePlanFromProfile(profile));
+      } else {
+        setPlanInfo(resolvePlanFromProfile(null));
       }
       setLoading(false);
     }
 
     checkPlan();
+    
+    // Listen for plan updates (from billing page, settings, etc.)
+    const handlePlanUpdate = () => checkPlan();
+    window.addEventListener("plan-updated", handlePlanUpdate);
+    return () => window.removeEventListener("plan-updated", handlePlanUpdate);
   }, []);
+
+  const plan = planInfo?.plan ?? "free";
 
   return {
     plan,
+    planInfo,
     loading,
-    hasProAccess: plan === "pro" || plan === "studio",
-    hasStudioAccess: plan === "studio",
+    hasProAccess: planInfo?.canAccessMonetization ?? false,
+    hasStudioAccess: planInfo?.plan === "studio" && (planInfo?.canAccessMonetization ?? false),
+    canAccessMonetization: planInfo?.canAccessMonetization ?? false,
+    canAccessProducts: planInfo?.canAccessProducts ?? false,
   };
 }
 
