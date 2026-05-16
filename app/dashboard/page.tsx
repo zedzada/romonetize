@@ -1,5 +1,6 @@
 "use client";
 
+import { Suspense } from "react";
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -41,7 +42,7 @@ import { useRevenueDisplayMode, getRevenueModeShortLabel } from "@/hooks/use-rev
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 import { getProductPurchaseMetrics } from "@/lib/utils/product-aggregation";
 
-export default function DashboardPage() {
+function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const showDebug = searchParams.get("debug") === "true";
@@ -1023,5 +1024,13 @@ export default function DashboardPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense>
+      <DashboardPageInner />
+    </Suspense>
   );
 }

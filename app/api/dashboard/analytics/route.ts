@@ -647,11 +647,61 @@ export async function GET(request: NextRequest) {
   // IMPORTANT: uniquePlayers from SQL RPC may include server events - we recalculate below
   let uniquePlayers = summaryStats.uniquePlayers;
   // Override totalSessions from SQL RPC: count player_join + session_start from fetched sessionEvents
-  // The SQL RPC may only count session_start, missing player_join events
-  const totalSessions = sessionEvents.filter(e => sessionStartTypes.includes(e.event_type)).length || summaryStats.totalSessions;
-  // Override totalPurchases: use SQL RPC value, but fallback to purchaseEvents count if RPC returned 0
-  const totalPurchases = summaryStats.totalPurchases || purchaseEvents.length;
-  const totalRevenue = summaryStats.totalRevenue;
+  // === TOTAL SESSIONS: Robust fallback chain ===
+  // Priority: 1) SQL RPC total_sessions (if > 0)
+  //           2) Direct COUNT of player_join + session_start events in range
+  //           3) Filtered count from limited sessionEvents (last resort)
+  let totalSessions = summaryStats.totalSessions;
+  
+  if (totalSessions === 0) {
+    // SQL RPC returned 0 - try direct COUNT (handles player_join + session_start)
+    try {
+      const { count: sessionCount } = await supabase
+        .from("events")
+        .select("*", { count: "exact", head: true })
+        .eq("game_id", gameId)
+        .in("event_type", sessionStartTypes)
+        .gte("created_at", startDate.toISOString());
+      
+      if (sessionCount && sessionCount > 0) {
+        totalSessions = sessionCount;
+      }
+    } catch {
+      // Ignore - fall through to sessionEvents filter
+    }
+  }
+  
+  if (totalSessions === 0) {
+    // Last resort: count from the limited 2000-row sessionEvents fetch
+    totalSessions = sessionEvents.filter(e => sessionStartTypes.includes(e.event_type)).length;
+  }
+
+  // === TOTAL PURCHASES: SQL RPC first, then purchaseEvents count ===
+  let totalPurchases = summaryStats.totalPurchases;
+  
+  if (totalPurchases === 0 && purchaseEvents.length > 0) {
+    totalPurchases = purchaseEvents.length;
+  } else if (totalPurchases === 0) {
+    // Direct COUNT fallback when both RPC and purchaseEvents are empty
+    try {
+      const { count: purchaseCount } = await supabase
+        .from("events")
+        .select("*", { count: "exact", head: true })
+        .eq("game_id", gameId)
+        .in("event_type", purchaseTypes)
+        .gte("created_at", startDate.toISOString());
+      
+      if (purchaseCount && purchaseCount > 0) {
+        totalPurchases = purchaseCount;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+  
+  const totalRevenue = summaryStats.totalRevenue || (purchaseEvents.length > 0
+    ? purchaseEvents.reduce((sum, e) => sum + Number(e.robux ?? 0), 0)
+    : 0);
   
   // RECALCULATE uniquePlayers to exclude server-only events
   // This ensures consistency with newPlayers/returningPlayers calculation
