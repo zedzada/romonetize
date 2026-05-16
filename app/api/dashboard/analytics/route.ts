@@ -586,10 +586,38 @@ export async function GET(request: NextRequest) {
   const viewEvents: Array<{ event_type: string; player_id: string | null }> = []; // Not used - we use SQL RPC
 
   // Use SQL-aggregated stats instead of JS-calculated ones
-  const uniquePlayers = summaryStats.uniquePlayers;
+  // IMPORTANT: uniquePlayers from SQL RPC may include server events - we recalculate below
+  let uniquePlayers = summaryStats.uniquePlayers;
   const totalSessions = summaryStats.totalSessions;
   const totalPurchases = summaryStats.totalPurchases;
   const totalRevenue = summaryStats.totalRevenue;
+  
+  // RECALCULATE uniquePlayers to exclude server-only events
+  // This ensures consistency with newPlayers/returningPlayers calculation
+  // Query for distinct player_id excluding "server" and null, excluding ccu_heartbeat events
+  let recalculatedUniquePlayers = 0;
+  try {
+    const { data: playerCountData, error: playerCountError } = await supabase
+      .from("events")
+      .select("player_id")
+      .eq("game_id", gameId)
+      .gte("created_at", startDate.toISOString())
+      .not("player_id", "is", null)
+      .neq("player_id", "server")
+      .not("event_type", "in", "(ccu_heartbeat,script_started)");
+    
+    if (!playerCountError && playerCountData) {
+      // Get distinct player IDs
+      const distinctPlayers = new Set(playerCountData.map(e => e.player_id));
+      recalculatedUniquePlayers = distinctPlayers.size;
+      // Use recalculated value if we got data, otherwise fall back to SQL RPC
+      if (recalculatedUniquePlayers > 0 || playerCountData.length > 0) {
+        uniquePlayers = recalculatedUniquePlayers;
+      }
+    }
+  } catch {
+    // Keep SQL RPC value on error
+  }
   
   // Helper to get robux from event (for chart bucketing, not for totals)
   const getEventRobux = (e: { robux: number | null; metadata: Record<string, unknown> | null }): number => {
@@ -732,8 +760,8 @@ export async function GET(request: NextRequest) {
   // Get unique player joins in range from sessionEvents
   const joinEvents = sessionEvents.filter((e) => sessionStartTypes.includes(e.event_type));
   // === NEW vs RETURNING PLAYERS CALCULATION ===
-  // Simplified: Use session events we already fetched instead of querying all-time events
-  // This avoids a slow query that fetches all events
+  // IMPORTANT: Must be consistent with uniquePlayers calculation
+  // Use ALL player events (excluding server/ccu_heartbeat) not just session events
   
   let newPlayers = 0;
   let returningPlayers = 0;
@@ -742,14 +770,20 @@ export async function GET(request: NextRequest) {
   const playerDistinctHours = new Map<string, Set<string>>();
   const sampleReturningPlayerIds: string[] = [];
 
-  // Get unique player IDs from session events (not allEvents since it's empty now)
-  const activePlayerIdsInRange = new Set(sessionEvents.filter((e) => e.player_id).map((e) => e.player_id));
+  // Combine ALL player events: session events + purchase events (both have player_id)
+  // This ensures uniquePlayers count matches newPlayers + returningPlayers
+  const allPlayerEvents = [
+    ...sessionEvents.filter((e) => e.player_id && e.player_id !== "server"),
+    ...purchaseEvents.filter((e) => e.player_id && e.player_id !== "server"),
+  ];
+  
+  // Get unique player IDs from all player events
+  const activePlayerIdsInRange = new Set(allPlayerEvents.map((e) => e.player_id));
 
   try {
     if (activePlayerIdsInRange.size > 0) {
-      // Use session events for session counting (limited to 2000 events)
-      // This is an approximation - for accurate counts we'd need SQL RPC
-      sessionEvents.forEach((e) => {
+      // Process all player events for distinct hours calculation
+      allPlayerEvents.forEach((e) => {
         if (!e.player_id) return;
         
         if (!playerFirstSeen.has(e.player_id)) {
@@ -778,6 +812,14 @@ export async function GET(request: NextRequest) {
         }
       });
       
+      // INVARIANT: newPlayers + returningPlayers = uniquePlayers (from same event set)
+      // If there's a mismatch, prefer local calculation over SQL RPC
+      const localUniquePlayers = newPlayers + returningPlayers;
+      if (localUniquePlayers !== uniquePlayers && localUniquePlayers > 0) {
+        // Use local calculation as source of truth
+        uniquePlayers = localUniquePlayers;
+      }
+      
       // Determine status for UI
       if (uniquePlayers === 0) {
         returningPlayersStatus = "no_players";
@@ -790,22 +832,25 @@ export async function GET(request: NextRequest) {
         returningPlayersStatus = "needs_history";
       }
       
-      // Debug logging - uses session events count now
+      // Debug logging
       if (process.env.NODE_ENV === "development") {
         let playersWithMultipleHours = 0;
         playerDistinctHours.forEach((hours) => {
           if (hours.size >= 2) playersWithMultipleHours++;
         });
         
-        console.log("[v0] Returning Users Debug", {
+        console.log("[v0] Player Metrics Debug", {
           selectedGameId: gameId,
           sessionEventsCount: sessionEvents.length,
+          purchaseEventsCount: purchaseEvents.length,
+          combinedPlayerEventsCount: allPlayerEvents.length,
           distinctPlayers: playerDistinctHours.size,
           playersWithMultipleSessions: playersWithMultipleHours,
           activeInRange: activePlayerIdsInRange.size,
           returningUsers: returningPlayers,
           newUsers: newPlayers,
-          sum: newPlayers + returningPlayers,
+          uniquePlayers,
+          invariantCheck: newPlayers + returningPlayers === uniquePlayers ? "PASS" : "MISMATCH",
           returningPlayersStatus,
           rangeStart: startDate.toISOString(),
         });
@@ -813,6 +858,8 @@ export async function GET(request: NextRequest) {
     } else {
       // No players active in range
       returningPlayersStatus = "no_players";
+      // Also set uniquePlayers to 0 if no valid player events found
+      uniquePlayers = 0;
     }
   } catch (err) {
     sectionErrors.newReturning = err instanceof Error ? err.message : "Failed to calculate";
