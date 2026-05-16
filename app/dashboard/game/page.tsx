@@ -161,7 +161,7 @@ function GamePageContent() {
           group_name: g.group_name ?? undefined,
           root_place_id: g.root_place_id ?? undefined,
           role_name: g.role_name ?? undefined,
-          role_rank: g.role_rank ?? undefined,
+          role_rank: (g as unknown as Record<string, unknown>).role_rank as number | undefined,
           icon_url: g.icon_url ?? undefined,
         }));
         setConnectedGames(mappedGames);
