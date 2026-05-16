@@ -388,7 +388,7 @@ export default function TrackingSetupPage() {
 
   const handleCopy = async () => {
     if (!fullApiKey) return;
-    const universeId = game?.universe_id || game?.roblox_game_id;
+    const universeId = game?.universe_id || game?.roblox_game_id || null;
     const script = generateLuaScript(fullApiKey, universeId);
     await navigator.clipboard.writeText(script);
     setCopied(true);

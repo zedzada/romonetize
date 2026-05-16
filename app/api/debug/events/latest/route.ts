@@ -84,7 +84,7 @@ export async function GET() {
       lastEventAt: game.last_event_at,
       eventCount: events?.length || 0,
       eventTypeCounts,
-      latestEvents: (events || []).map((e) => ({
+      latestEvents: (events || []).map((e: { id: string; created_at: string; event_type: string; player_id: string | null; product_id: string | null; product_name: string | null; product_type: string | null; robux: number | null; metadata: Record<string, unknown> | null }) => ({
         id: e.id,
         created_at: e.created_at,
         event_type: e.event_type,
