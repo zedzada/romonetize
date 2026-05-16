@@ -355,14 +355,13 @@ function MonetizationContent() {
 
   // === SINGLE SOURCE OF TRUTH: Use productAnalytics (same as Products page) ===
   // This ensures Monetization shows EXACT SAME data as Products page
-  const safeProductAnalytics = productAnalytics ?? {};
   
   // Revenue and purchase stats from shared aggregation
   const summaryStats = {
-    grossRevenue: safeProductAnalytics.grossTotalRevenue ?? 0,
-    estimatedRevenue: safeProductAnalytics.estimatedTotalRevenue ?? 0,
-    totalPurchases: safeProductAnalytics.totalPurchases ?? 0,
-    payingUsers: safeProductAnalytics.totalBuyers ?? 0,
+    grossRevenue: productAnalytics?.grossTotalRevenue ?? 0,
+    estimatedRevenue: productAnalytics?.estimatedTotalRevenue ?? 0,
+    totalPurchases: productAnalytics?.totalPurchases ?? 0,
+    payingUsers: productAnalytics?.totalBuyers ?? 0,
     uniqueActiveUsers: trackerStats?.uniquePlayers ?? 0,
   };
   
@@ -1567,12 +1566,12 @@ function MonetizationContent() {
   revenueDisplayMode,
   sameHelperUsed: true,
   productAnalytics: {
-    grossTotalRevenue: safeProductAnalytics.grossTotalRevenue ?? null,
-    estimatedTotalRevenue: safeProductAnalytics.estimatedTotalRevenue ?? null,
-    totalPurchases: safeProductAnalytics.totalPurchases ?? null,
-    totalBuyers: safeProductAnalytics.totalBuyers ?? null,
-    aggregationSource: safeProductAnalytics.aggregationSource ?? "unknown",
-    productsCount: safeProductAnalytics.products?.length ?? 0,
+    grossTotalRevenue: productAnalytics?.grossTotalRevenue ?? null,
+    estimatedTotalRevenue: productAnalytics?.estimatedTotalRevenue ?? null,
+    totalPurchases: productAnalytics?.totalPurchases ?? null,
+    totalBuyers: productAnalytics?.totalBuyers ?? null,
+    aggregationSource: productAnalytics?.aggregationSource ?? "unknown",
+    productsCount: productAnalytics?.products?.length ?? 0,
   },
   summaryStats,
   calculatedMetrics: {
