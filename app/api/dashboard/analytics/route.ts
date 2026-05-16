@@ -307,19 +307,23 @@ export async function GET(request: NextRequest) {
   const clickTypes = ["product_click", "gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
   const viewTypes = ["product_view"];
 
-  // 2. Use SQL RPC for summary stats instead of fetching all events
+  // 2. Use SQL RPC v2 for summary stats with product type breakdown
   // This is the optimized approach that won't timeout
   step = "read_summary_stats";
   let summaryStats = {
     totalRevenue: 0,
+    gamepassRevenue: 0,
+    devproductRevenue: 0,
     totalPurchases: 0,
+    gamepassPurchases: 0,
+    devproductPurchases: 0,
     totalBuyers: 0,
     totalSessions: 0,
     uniquePlayers: 0,
   };
   
   try {
-    const { data: statsData, error: statsError } = await supabase.rpc("aggregate_summary_stats", {
+    const { data: statsData, error: statsError } = await supabase.rpc("aggregate_summary_stats_v2", {
       p_game_id: gameId,
       p_range_start: startDate.toISOString(),
       p_range_end: now.toISOString(),
@@ -330,7 +334,11 @@ export async function GET(request: NextRequest) {
     } else if (statsData && statsData.length > 0) {
       summaryStats = {
         totalRevenue: Number(statsData[0].total_revenue) || 0,
+        gamepassRevenue: Number(statsData[0].gamepass_revenue) || 0,
+        devproductRevenue: Number(statsData[0].devproduct_revenue) || 0,
         totalPurchases: Number(statsData[0].total_purchases) || 0,
+        gamepassPurchases: Number(statsData[0].gamepass_purchases) || 0,
+        devproductPurchases: Number(statsData[0].devproduct_purchases) || 0,
         totalBuyers: Number(statsData[0].total_buyers) || 0,
         totalSessions: Number(statsData[0].total_sessions) || 0,
         uniquePlayers: Number(statsData[0].unique_players) || 0,
@@ -586,23 +594,29 @@ export async function GET(request: NextRequest) {
     return Number(topLevelRobux ?? metadataRobux ?? 0);
   };
 
-  // === 72h REVENUE (using SQL RPC for fast aggregation) ===
+  // === 72h REVENUE (using SQL RPC v2 with product type breakdown) ===
   const now72h = new Date();
   const start72h = new Date(now72h.getTime() - 72 * 60 * 60 * 1000);
   
-  // Use SQL RPC for 72h hourly revenue aggregation
+  // Use SQL RPC v2 for 72h hourly revenue aggregation with product type breakdown
   let revenue72h = 0;
   let purchases72hCount = 0;
+  let gamepassRevenue72h = 0;
+  let devproductRevenue72h = 0;
+  let gamepassPurchases72h = 0;
+  let devproductPurchases72h = 0;
   const hourlyMonetization: Array<{
     time: string;
     totalRevenue: number;
     devproductRevenue: number;
     gamepassRevenue: number;
     purchases: number;
+    gamepassPurchases: number;
+    devproductPurchases: number;
   }> = [];
   
   try {
-    const { data: hourlyData, error: hourlyError } = await supabase.rpc("aggregate_hourly_revenue", {
+    const { data: hourlyData, error: hourlyError } = await supabase.rpc("aggregate_hourly_revenue_v2", {
       p_game_id: gameId,
       p_range_start: start72h.toISOString(),
       p_range_end: now72h.toISOString(),
@@ -612,25 +626,46 @@ export async function GET(request: NextRequest) {
       sectionErrors.hourlyRevenue = hourlyError.message;
     } else if (hourlyData) {
       // Build hourly buckets map (initialize all 72 hours with zeros)
-      const hourlyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
+      const hourlyBuckets = new Map<string, { 
+        total: number; 
+        devproduct: number; 
+        gamepass: number; 
+        purchases: number;
+        gamepassPurchases: number;
+        devproductPurchases: number;
+      }>();
       for (let i = 0; i < 72; i++) {
         const bucketTime = new Date(now72h.getTime() - i * 60 * 60 * 1000);
         const bucketKey = bucketTime.toISOString().slice(0, 13) + ":00:00.000Z";
-        hourlyBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0 });
+        hourlyBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0, gamepassPurchases: 0, devproductPurchases: 0 });
       }
       
-      // Fill in SQL results
-      hourlyData.forEach((row: { time_bucket: string; revenue: number; purchases: number }) => {
+      // Fill in SQL results with product type breakdown
+      hourlyData.forEach((row: { 
+        time_bucket: string; 
+        total_revenue: number;
+        gamepass_revenue: number;
+        devproduct_revenue: number;
+        total_purchases: number;
+        gamepass_purchases: number;
+        devproduct_purchases: number;
+      }) => {
         const bucketKey = new Date(row.time_bucket).toISOString().slice(0, 13) + ":00:00.000Z";
         const existing = hourlyBuckets.get(bucketKey);
         if (existing) {
-          existing.total = Number(row.revenue) || 0;
-          existing.purchases = Number(row.purchases) || 0;
-          // Note: SQL doesn't split by product type, so we leave devproduct/gamepass as 0
-          // This is acceptable for the chart - total is what matters
+          existing.total = Number(row.total_revenue) || 0;
+          existing.gamepass = Number(row.gamepass_revenue) || 0;
+          existing.devproduct = Number(row.devproduct_revenue) || 0;
+          existing.purchases = Number(row.total_purchases) || 0;
+          existing.gamepassPurchases = Number(row.gamepass_purchases) || 0;
+          existing.devproductPurchases = Number(row.devproduct_purchases) || 0;
         }
-        revenue72h += Number(row.revenue) || 0;
-        purchases72hCount += Number(row.purchases) || 0;
+        revenue72h += Number(row.total_revenue) || 0;
+        gamepassRevenue72h += Number(row.gamepass_revenue) || 0;
+        devproductRevenue72h += Number(row.devproduct_revenue) || 0;
+        purchases72hCount += Number(row.total_purchases) || 0;
+        gamepassPurchases72h += Number(row.gamepass_purchases) || 0;
+        devproductPurchases72h += Number(row.devproduct_purchases) || 0;
       });
       
       // Convert to sorted array (oldest first)
@@ -643,6 +678,8 @@ export async function GET(request: NextRequest) {
             devproductRevenue: data.devproduct,
             gamepassRevenue: data.gamepass,
             purchases: data.purchases,
+            gamepassPurchases: data.gamepassPurchases,
+            devproductPurchases: data.devproductPurchases,
           });
         });
     }
@@ -867,14 +904,12 @@ export async function GET(request: NextRequest) {
   }
 
   // === REVENUE STATS ===
-  const payingPlayerIds = new Set(purchaseEvents.filter((e) => e.player_id).map((e) => e.player_id));
-  const payingUsers = payingPlayerIds.size;
-  const gamepassRevenue = purchaseEvents
-    .filter((e) => e.product_type === "gamepass" || e.event_type === "gamepass_purchase")
-    .reduce((sum, e) => sum + getEventRobux(e), 0);
-  const devproductRevenue = purchaseEvents
-    .filter((e) => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
-    .reduce((sum, e) => sum + getEventRobux(e), 0);
+  // Use SQL RPC values for accurate product type breakdown (not limited to 2000 events)
+  const payingUsers = summaryStats.totalBuyers;
+  const gamepassRevenue = summaryStats.gamepassRevenue;
+  const devproductRevenue = summaryStats.devproductRevenue;
+  const gamepassPurchases = summaryStats.gamepassPurchases;
+  const devproductPurchases = summaryStats.devproductPurchases;
 
   // Use shared helper for consistent ARPPU/ARPDAU calculations
   // Combine session and purchase events for metrics (since we don't have allEvents)
@@ -1510,8 +1545,15 @@ trackerStats: hasTrackerEvents ? {
         arppu,
         // Non-revenue metrics unchanged
         totalPurchases,
+        gamepassPurchases,
+        devproductPurchases,
         payingUsers,
         conversionRate,
+        // 72h product type breakdown
+        gamepassRevenue72h,
+        devproductRevenue72h,
+        gamepassPurchases72h,
+        devproductPurchases72h,
         // Additional metrics for transparency
         averageDau: averageDau > 0 ? Math.round(averageDau) : 0,
         daysWithData,
@@ -1580,11 +1622,17 @@ trackerStats: hasTrackerEvents ? {
   revenueByProductType,
   topProducts: monetizationTopProducts,
   // 72h hourly monetization data (always from last 72 hours, grouped hourly)
+  // Now includes product type breakdown for chart filtering
   hourlyMonetization,
   // 24h minute-level monetization data (always from last 24 hours, grouped per minute)
   minuteMonetization,
+  // 72h totals with product type breakdown
   revenue72h,
-purchaseCount72h: purchases72hCount,
+  gamepassRevenue72h,
+  devproductRevenue72h,
+  purchaseCount72h: purchases72hCount,
+  gamepassPurchases72h,
+  devproductPurchases72h,
     } : null),
 // Product analytics - locked for free users
   // SINGLE SOURCE OF TRUTH for all product data - same data for Overview, Products, Monetization pages

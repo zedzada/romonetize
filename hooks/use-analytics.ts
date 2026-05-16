@@ -97,8 +97,15 @@ export interface RevenueStats {
   arppu: number;
   // Non-revenue metrics
   totalPurchases: number;
+  gamepassPurchases: number;
+  devproductPurchases: number;
   payingUsers: number;
   conversionRate: number;
+  // 72h product type breakdown
+  gamepassRevenue72h: number;
+  devproductRevenue72h: number;
+  gamepassPurchases72h: number;
+  devproductPurchases72h: number;
 }
 
 export interface ProductInfo {
@@ -186,6 +193,8 @@ export interface HourlyMonetizationPoint {
   devproductRevenue: number;
   gamepassRevenue: number;
   purchases: number;
+  gamepassPurchases?: number;
+  devproductPurchases?: number;
 }
 
 export interface MonetizationCharts {
@@ -207,8 +216,13 @@ export interface MonetizationCharts {
   hourlyMonetization: HourlyMonetizationPoint[];
   // 24h minute-level monetization data (for real-time 1m interval)
   minuteMonetization: HourlyMonetizationPoint[];
+  // 72h totals with product type breakdown
   revenue72h: number;
+  gamepassRevenue72h: number;
+  devproductRevenue72h: number;
   purchaseCount72h: number;
+  gamepassPurchases72h: number;
+  devproductPurchases72h: number;
 }
 
 export interface ProductAnalyticsItem {
