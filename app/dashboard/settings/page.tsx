@@ -66,6 +66,7 @@ function SettingsPageContent() {
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [username, setUsername] = useState("");
   const [robloxProfile, setRobloxProfile] = useState<RobloxProfile | null>(null);
+  const [connectedGamesCount, setConnectedGamesCount] = useState(0);
   const [connectingRoblox, setConnectingRoblox] = useState(false);
   const [robloxError, setRobloxError] = useState<string | null>(null);
   const [robloxSuccess, setRobloxSuccess] = useState(false);
@@ -206,6 +207,14 @@ function SettingsPageContent() {
               discordUsername: "",
             });
           }
+          
+          // Also check for connected games as fallback for Roblox connection status
+          const { count: gamesCount } = await supabase
+            .from("games")
+            .select("id", { count: "exact", head: true })
+            .eq("user_id", user.id);
+          
+          setConnectedGamesCount(gamesCount || 0);
         }
       }).catch((error) => {
         console.error("[v0] Error getting user:", error);
@@ -560,69 +569,77 @@ function SettingsPageContent() {
                 </Alert>
               )}
 
-              <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
-                    <Gamepad2 className="w-5 h-5 text-primary" />
-                  </div>
-                  <div>
-                    <div className="font-medium text-foreground flex items-center gap-2">
-                      Roblox
-                      {robloxProfile?.roblox_user_id && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
-                          <Check className="w-3 h-3" />
-                          Connected
-                        </span>
-                      )}
+              {/* Roblox is "connected" if user has roblox_user_id OR has connected games */}
+              {(() => {
+                const isRobloxConnected = !!(robloxProfile?.roblox_user_id || connectedGamesCount > 0);
+                const displayUsername = robloxProfile?.roblox_username || (connectedGamesCount > 0 ? `${connectedGamesCount} game${connectedGamesCount > 1 ? 's' : ''} connected` : null);
+                
+                return (
+                  <div className="flex items-center justify-between p-3 rounded-lg bg-secondary/30">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                        <Gamepad2 className="w-5 h-5 text-primary" />
+                      </div>
+                      <div>
+                        <div className="font-medium text-foreground flex items-center gap-2">
+                          Roblox
+                          {isRobloxConnected && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-500/10 text-green-600 dark:text-green-400 border border-green-500/20">
+                              <Check className="w-3 h-3" />
+                              Connected
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          {displayUsername 
+                            ? (robloxProfile?.roblox_username ? `@${displayUsername}` : displayUsername)
+                            : "Connect to sync your games and analytics"}
+                        </div>
+                      </div>
                     </div>
-                    <div className="text-sm text-muted-foreground">
-                      {robloxProfile?.roblox_username 
-                        ? `@${robloxProfile.roblox_username}` 
-                        : "Connect to sync your games and analytics"}
-                    </div>
+                    {isRobloxConnected ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={handleConnectRoblox}
+                        disabled={connectingRoblox}
+                        className="gap-2"
+                      >
+                        {connectingRoblox ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Reconnecting...
+                          </>
+                        ) : (
+                          <>
+                            <Link className="w-4 h-4" />
+                            Reconnect Roblox Account
+                          </>
+                        )}
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        onClick={handleConnectRoblox}
+                        disabled={connectingRoblox}
+                        className="gap-2"
+                      >
+                        {connectingRoblox ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <Link className="w-4 h-4" />
+                            Connect Roblox Account
+                          </>
+                        )}
+                      </Button>
+                    )}
                   </div>
-                </div>
-                {robloxProfile?.roblox_user_id ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleDisconnectRoblox}
-                    disabled={connectingRoblox}
-                    className="gap-2"
-                  >
-                    {connectingRoblox ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Disconnecting...
-                      </>
-                    ) : (
-                      <>
-                        <Unlink className="w-4 h-4" />
-                        Disconnect
-                      </>
-                    )}
-                  </Button>
-                ) : (
-                  <Button
-                    size="sm"
-                    onClick={handleConnectRoblox}
-                    disabled={connectingRoblox}
-                    className="gap-2"
-                  >
-                    {connectingRoblox ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Connecting...
-                      </>
-                    ) : (
-                      <>
-                        <Link className="w-4 h-4" />
-                        Connect Roblox Account
-                      </>
-                    )}
-                  </Button>
-                )}
-              </div>
+                );
+              })()}
               
               <p className="text-xs text-muted-foreground">
                 We&apos;ll request access to your profile and game data to enable analytics and monetization features.
