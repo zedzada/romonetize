@@ -918,7 +918,7 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                                       </div>
 
                                       {/* Script */}
-                                      <div className="bg-[#1e1e1e] rounded-lg border border-border overflow-hidden">
+                                      <div className="bg-[#1e1e1e] rounded-lg border border-border overflow-hidden w-full min-w-0">
                                         <div className="flex items-center justify-between px-4 py-2 bg-[#2d2d2d] border-b border-border sticky top-0 z-10">
                                           <span className="text-sm font-medium text-gray-300">RoMonetizeTracker.lua</span>
                                           <Button 
@@ -934,7 +934,7 @@ print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU h
                                             )}
                                           </Button>
                                         </div>
-                                        <pre className="p-4 font-mono text-sm text-gray-300 overflow-auto whitespace-pre h-[65vh]">
+                                        <pre className="h-[58vh] w-full overflow-auto whitespace-pre text-sm font-mono p-4 text-gray-300">
                                           <code>{trackingScript}</code>
                                         </pre>
                                       </div>
