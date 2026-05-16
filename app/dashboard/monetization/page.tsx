@@ -760,32 +760,6 @@ export default function MonetizationPage() {
         </Card>
       </div>
 
-      {/* Payer Conversion Rate - single card in full width row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Card className="border-border bg-card shadow-sm">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-muted-foreground">Payer Conversion Rate</span>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData ? (
-                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : safeRevenueStats.conversionRate > 0 ? (
-                formatPercent(safeRevenueStats.conversionRate)
-              ) : (
-                <span className="text-muted-foreground">—</span>
-              )}
-            </div>
-            {hasTrackerData && safeRevenueStats.conversionRate > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Paying Users / Active Users
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
       {/* Hero Chart: Hourly Revenue / Sales */}
       <Card className="border-border bg-card shadow-sm">
         <CardHeader className="pb-2">
