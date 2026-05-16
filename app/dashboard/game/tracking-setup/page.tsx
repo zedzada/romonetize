@@ -31,8 +31,13 @@ interface TrackerDebugData {
     player_id: string | null;
     created_at: string;
   }>;
-  trackingActive: boolean;
-  reason: string;
+trackingActive: boolean;
+  reason?: string;
+  // CCU heartbeat status
+  heartbeatActive?: boolean;
+  latestHeartbeatAt?: string | null;
+  activeServerCount?: number;
+  latestHeartbeatCcu?: number | null;
 }
 
 // Production URL for the tracking endpoint
@@ -456,6 +461,20 @@ export default function TrackingSetupPage() {
                 </Badge>
               )}
             </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">CCU Heartbeat</p>
+              {debugData?.heartbeatActive ? (
+                <Badge variant="default" className="bg-purple-500/10 text-purple-600 border-purple-500/20">
+                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                  Active ({debugData.activeServerCount} server{debugData.activeServerCount !== 1 ? "s" : ""})
+                </Badge>
+              ) : (
+                <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 border-amber-500/20">
+                  <AlertCircle className="w-3 h-3 mr-1" />
+                  Waiting for heartbeat
+                </Badge>
+              )}
+            </div>
           </div>
 
           {/* Event Info */}
@@ -470,6 +489,18 @@ export default function TrackingSetupPage() {
                 {lastEvent ? (
                   <>
                     {lastEvent.event_type} at {new Date(lastEvent.created_at).toLocaleString()}
+                  </>
+                ) : (
+                  "None"
+                )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-muted-foreground">Last heartbeat:</span>
+              <span className="font-mono text-sm">
+                {debugData?.latestHeartbeatAt ? (
+                  <>
+                    {new Date(debugData.latestHeartbeatAt).toLocaleString()} (CCU: {debugData.latestHeartbeatCcu ?? 0})
                   </>
                 ) : (
                   "None"

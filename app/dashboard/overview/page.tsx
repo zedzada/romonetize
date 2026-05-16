@@ -221,7 +221,7 @@ export default function OverviewPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart className="w-4 h-4 text-blue-500" />
-              <span className="text-xs text-muted-foreground">Purchases</span>
+              <span className="text-xs text-muted-foreground">7D Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
@@ -230,7 +230,7 @@ export default function OverviewPage() {
                 formatNumber(safeRevenueStats.totalPurchases ?? 0)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Total transactions</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Last 7 days</p>
           </CardContent>
         </Card>
 

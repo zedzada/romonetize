@@ -297,13 +297,14 @@ export default function ProductsPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart className="w-4 h-4 text-purple-500" />
-              <span className="text-xs text-muted-foreground">Total Purchases</span>
+              <span className="text-xs text-muted-foreground">{chartRange.toUpperCase()} Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {hasTrackerEvents ? formatNumber(safeProductStats.totalPurchases) : (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               )}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Last {chartRange === "7d" ? "7 days" : chartRange === "28d" ? "28 days" : "90 days"}</p>
           </CardContent>
         </Card>
 
