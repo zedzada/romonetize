@@ -94,6 +94,7 @@ print("[RoMonetize] GameId:", game.GameId)
 -- SEND EVENT FUNCTION (using RequestAsync for full response visibility)
 --------------------------------------------------------------------------------
 local function sendEvent(eventType, data)
+    print("[RoMonetize] ========================================")
     print("[RoMonetize] Sending event:", eventType)
     
     local body = {
@@ -111,6 +112,7 @@ local function sendEvent(eventType, data)
     }
     
     local jsonBody = HttpService:JSONEncode(body)
+    print("[RoMonetize] Payload:", jsonBody)
     
     local success, response = pcall(function()
         return HttpService:RequestAsync({
@@ -125,22 +127,17 @@ local function sendEvent(eventType, data)
     end)
     
     if success then
-        print("[RoMonetize] Response success:", response.Success)
-        print("[RoMonetize] Status:", response.StatusCode)
-        print("[RoMonetize] Body:", response.Body)
+        print("[RoMonetize] Event sent:", eventType, "status:", response.StatusCode)
+        print("[RoMonetize] Response body:", response.Body)
         
-        if response.Success then
-            print("[RoMonetize] Event sent successfully:", eventType)
-        else
-            warn("[RoMonetize] Event failed with status:", response.StatusCode)
-            warn("[RoMonetize] Response body:", response.Body)
+        if not response.Success then
+            warn("[RoMonetize] Event failed:", eventType, "status:", response.StatusCode)
         end
     else
-        warn("[RoMonetize] HTTP request failed!")
-        warn("[RoMonetize] Error:", tostring(response))
-        warn("[RoMonetize] This usually means HTTP Requests are disabled.")
-        warn("[RoMonetize] Go to Game Settings > Security > Allow HTTP Requests > Enable")
+        warn("[RoMonetize] Event failed:", eventType, tostring(response))
+        warn("[RoMonetize] Enable HTTP Requests: Game Settings > Security > Allow HTTP Requests")
     end
+    print("[RoMonetize] ========================================")
 end
 
 --------------------------------------------------------------------------------
@@ -267,6 +264,8 @@ end)
 --------------------------------------------------------------------------------
 local function sendCCUHeartbeat()
     local playerCount = #Players:GetPlayers()
+    print("[RoMonetize] ========================================")
+    print("[RoMonetize] Sending ccu_heartbeat. Players:", playerCount)
     
     local body = {
         apiKey = API_KEY,
@@ -283,6 +282,7 @@ local function sendCCUHeartbeat()
     }
     
     local jsonBody = HttpService:JSONEncode(body)
+    print("[RoMonetize] Payload:", jsonBody)
     
     local success, response = pcall(function()
         return HttpService:RequestAsync({
@@ -297,12 +297,15 @@ local function sendCCUHeartbeat()
     end)
     
     if success and response.Success then
-        print("[RoMonetize] CCU heartbeat sent: players=" .. playerCount)
+        print("[RoMonetize] CCU heartbeat sent:", "players=" .. playerCount, "status:", response.StatusCode)
+        print("[RoMonetize] Response body:", response.Body)
     elseif success then
-        warn("[RoMonetize] CCU heartbeat failed: HTTP " .. tostring(response.StatusCode) .. " - " .. tostring(response.Body))
+        warn("[RoMonetize] CCU heartbeat failed:", "status:", response.StatusCode)
+        warn("[RoMonetize] Response body:", response.Body)
     else
         warn("[RoMonetize] CCU heartbeat failed:", tostring(response))
     end
+    print("[RoMonetize] ========================================")
 end
 
 -- Start CCU heartbeat loop (initial after 5 seconds, then every 60 seconds)
