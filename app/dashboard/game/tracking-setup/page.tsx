@@ -314,7 +314,7 @@ task.spawn(function()
     end
 end)
 
-print("[RoMonetize] Tracking script loaded successfully!")
+print("[RoMonetize] Tracker initialized with CCU heartbeat")
 print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU heartbeats")
 `;
 }
@@ -647,18 +647,18 @@ export default function TrackingSetupPage() {
           {/* Feature checklist */}
           <div className="mt-4 pt-4 border-t border-border">
             <p className="text-xs text-muted-foreground mb-2 font-medium">Features included:</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5 text-sm">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                <span>Player join/leave tracking</span>
+                <span>Player joins</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                <span>Gamepass purchases</span>
+                <span>Sessions</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
-                <span>Developer product purchases</span>
+                <span>Purchases</span>
               </div>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="w-3.5 h-3.5 text-purple-500 flex-shrink-0" />
@@ -676,7 +676,7 @@ export default function TrackingSetupPage() {
             </p>
           </div>
           
-          <div className="bg-muted dark:bg-zinc-950 rounded-lg p-4 overflow-x-auto max-h-96">
+          <div className="bg-muted dark:bg-zinc-950 rounded-lg p-4 overflow-x-auto overflow-y-auto max-h-[600px]">
             <pre className="text-sm text-foreground font-mono whitespace-pre">{luaScript}</pre>
           </div>
         </CardContent>
