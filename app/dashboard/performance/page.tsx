@@ -205,17 +205,23 @@ export default function PerformancePage() {
 const handleSyncAndRefresh = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // Sync CCU with 5 second timeout - don't hang forever
+      // Call the full Roblox sync endpoint (stores CCU, visits, favorites, likes, dislikes)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s for full sync
       
-      await fetch("/api/roblox/sync-all-ccu", {
+      const syncResponse = await fetch("/api/roblox/sync-selected-game", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ includeProducts: false }),
         signal: controller.signal,
       }).finally(() => clearTimeout(timeoutId));
       
-      // Refresh analytics data
+      if (!syncResponse.ok) {
+        const errorData = await syncResponse.json().catch(() => ({}));
+        console.error("[v0] Roblox sync failed:", errorData);
+      }
+      
+      // Refresh analytics data to pick up the new sync
       await refresh();
       setLastPollTime(new Date());
       setPollCount((c) => c + 1);

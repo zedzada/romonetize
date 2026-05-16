@@ -51,14 +51,21 @@ export async function syncRobloxData(gameId: string): Promise<SyncResult> {
     .eq("id", gameId);
 
   try {
-    // Get universe ID from place ID (roblox_game_id)
-    const universeId = await getUniverseIdFromPlaceId(game.roblox_game_id);
+    // roblox_game_id IS the universe ID (stored from games.roblox.com/v2/users/{userId}/games)
+    // Use it directly - do NOT pass it to getUniverseIdFromPlaceId (that expects a place ID)
+    let universeId = game.universe_id || game.roblox_game_id;
+    
+    // Only fall back to place ID lookup if we have a root_place_id but no universe ID
+    if (!universeId && game.root_place_id) {
+      universeId = await getUniverseIdFromPlaceId(game.root_place_id);
+    }
+    
     if (!universeId) {
       await supabase
         .from("games")
         .update({ roblox_sync_status: "error" })
         .eq("id", gameId);
-      return { success: false, error: "Could not find Universe ID for this game. Make sure the Place ID is correct." };
+      return { success: false, error: "Could not determine Universe ID. Make sure the game has a roblox_game_id or root_place_id." };
     }
 
     // Fetch game stats (pass API key if available for enhanced access)
