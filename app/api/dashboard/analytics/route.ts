@@ -1810,9 +1810,11 @@ trackerStats: hasTrackerEvents ? {
           }, 0),
           finalRevenue: totalRevenue,
         },
-        // 72h Revenue debug (like Roblox Dashboard) - now using SQL RPC
-        revenue72hDebug: {
-          windowStart: start72h.toISOString(),
+        // Revenue debug (range-based) - now using SQL RPC for full selected range
+        revenueRangeDebug: {
+          windowStart: rangeStart.toISOString(),
+          windowEnd: rangeNow.toISOString(),
+          rangeHours,
           purchaseCount72h: purchases72hCount,
           revenue72h,
           aggregationMethod: "sql_rpc",
