@@ -12,11 +12,9 @@ export const metadata: Metadata = {
   description: 'Track purchases, revenue, conversion funnels, and monetization performance in your Roblox games.',
   icons: {
     icon: [
-      { url: '/favicon.ico', sizes: 'any' },
-      { url: '/icon-32x32.png', sizes: '32x32', type: 'image/png' },
-      { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icon.png', type: 'image/png' },
     ],
-    apple: '/apple-icon.png',
+    apple: '/icon.png',
   },
 }
 
