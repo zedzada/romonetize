@@ -188,11 +188,33 @@ export async function getMonetizationStats(gameId?: string): Promise<{
   // Payer conversion rate
   const payerConversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : 0;
 
-  // ARPPU (Average Revenue Per Paying User)
+  // ARPPU (Average Revenue Per Paying User) = Revenue / Distinct Paying Users
   const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
 
-  // ARPDAU (Average Revenue Per Daily Active User) - simplified
-  const arpdau = uniquePlayers > 0 ? totalRevenue / uniquePlayers : 0;
+  // Calculate Average DAU for ARPDAU
+  // Group all events by day and count distinct players per day
+  const dailyActivePlayers = new Map<string, Set<string>>();
+  events.forEach((e) => {
+    if (!e.player_id || !e.created_at) return;
+    const day = new Date(e.created_at).toISOString().slice(0, 10); // YYYY-MM-DD
+    if (!dailyActivePlayers.has(day)) {
+      dailyActivePlayers.set(day, new Set());
+    }
+    dailyActivePlayers.get(day)!.add(e.player_id);
+  });
+  
+  // Calculate average daily active users
+  const daysWithData = dailyActivePlayers.size;
+  let averageDau = 0;
+  if (daysWithData > 0) {
+    const totalDailyPlayers = Array.from(dailyActivePlayers.values())
+      .reduce((sum, players) => sum + players.size, 0);
+    averageDau = totalDailyPlayers / daysWithData;
+  }
+
+  // ARPDAU (Average Revenue Per Daily Active User) = Revenue / Average DAU
+  // For ranges < 24h, use total unique players in the period as DAU proxy
+  const arpdau = averageDau > 0 ? totalRevenue / averageDau : 0;
 
   // Hourly revenue (last 72 hours)
   const now = new Date();
