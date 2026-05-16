@@ -218,19 +218,30 @@ function SettingsPageContent() {
     try {
       const supabase = createClient();
       
-      // Update profile with editable fields
-      const { error: profileError } = await supabase
+      // Save the display_username value
+      const displayUsernameToSave = username.trim() || null;
+      
+      // Update profile with editable fields using upsert to ensure row exists
+      const { data: savedProfile, error: profileError } = await supabase
         .from("profiles")
-        .update({
-          display_username: username || null,
-          roblox_username: profile.robloxUsername || null,
-          discord_username: profile.discordUsername || null,
+        .upsert({
+          id: user.id,
+          display_username: displayUsernameToSave,
+          roblox_username: profile.robloxUsername?.trim() || null,
+          discord_username: profile.discordUsername?.trim() || null,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id);
+        }, { onConflict: "id" })
+        .select("display_username")
+        .single();
       
       if (profileError) {
         console.error("[v0] Error saving profile:", profileError);
+        toast({
+          title: "Error saving",
+          description: profileError.message,
+          variant: "destructive",
+        });
+        return;
       }
       
       // Save notification settings to Supabase
@@ -239,9 +250,9 @@ function SettingsPageContent() {
       // Dispatch event for sidebar/profile to refresh immediately
       window.dispatchEvent(new CustomEvent("profile-updated", {
         detail: {
-          display_username: username || null,
-          roblox_username: profile.robloxUsername || null,
-          discord_username: profile.discordUsername || null,
+          display_username: displayUsernameToSave,
+          roblox_username: profile.robloxUsername?.trim() || null,
+          discord_username: profile.discordUsername?.trim() || null,
         }
       }));
       
@@ -254,6 +265,11 @@ function SettingsPageContent() {
       });
     } catch (error) {
       console.error("[v0] Error saving settings:", error);
+      toast({
+        title: "Error",
+        description: "Failed to save settings. Please try again.",
+        variant: "destructive",
+      });
     } finally {
       setSaving(false);
     }
