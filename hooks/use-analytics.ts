@@ -106,6 +106,9 @@ export interface RevenueStats {
   devproductRevenue72h: number;
   gamepassPurchases72h: number;
   devproductPurchases72h: number;
+  // DAU metrics for ARPDAU calculation
+  averageDau?: number;
+  daysWithData?: number;
 }
 
 export interface ProductInfo {
