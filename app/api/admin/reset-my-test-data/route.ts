@@ -4,17 +4,23 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * POST /api/admin/reset-my-test-data
  * 
- * Safe reset endpoint for authenticated users to clear their test data.
- * Only resets connected games and analytics data for the current user.
+ * Safe reset endpoint for authenticated users to clear their test/analytics data.
+ * Only resets analytics data for the current user's games.
+ * 
+ * DELETES (analytics data only):
+ * - events (purchase_success, player_join, session_end, ccu_heartbeat, etc.)
+ * - ccu_snapshots
+ * - server_heartbeats
+ * - game_snapshots
+ * - products (tracked product stats)
  * 
  * DOES NOT DELETE:
- * - auth.users
- * - public.profiles
- * - public.subscriptions
- * - public.ai_credit_balances
- * - public.ai_credit_transactions
+ * - games (connected games stay, API keys stay)
+ * - profiles
+ * - subscriptions
+ * - ai_credit_balances / ai_credit_transactions
  * - Stripe/billing data
- * - Roblox account connection (kept in profiles)
+ * - Roblox account connection
  */
 export async function POST() {
   try {
@@ -32,9 +38,9 @@ export async function POST() {
 
     const userId = user.id;
     const deleted: Record<string, number> = {
-      games: 0,
       events: 0,
       ccuSnapshots: 0,
+      serverHeartbeats: 0,
       gameSnapshots: 0,
       products: 0,
     };
@@ -43,7 +49,7 @@ export async function POST() {
     // Step 1: Get all game IDs owned by this user
     const { data: userGames, error: gamesError } = await supabase
       .from("games")
-      .select("id, roblox_game_id")
+      .select("id, name, roblox_game_id")
       .eq("user_id", userId);
 
     if (gamesError) {
@@ -58,13 +64,15 @@ export async function POST() {
     if (!userGames || userGames.length === 0) {
       return NextResponse.json({
         success: true,
-        message: "No games found to reset",
+        message: "No games found. Nothing to reset.",
         deleted,
         skipped,
+        gamesPreserved: 0,
       });
     }
 
     const gameIds = userGames.map(g => g.id);
+    const gameNames = userGames.map(g => g.name || g.roblox_game_id || g.id);
 
     // Step 2: Delete events for these games
     const { error: eventsError, count: eventsCount } = await supabase
@@ -92,7 +100,20 @@ export async function POST() {
       deleted.ccuSnapshots = ccuCount || 0;
     }
 
-    // Step 4: Delete game snapshots for these games
+    // Step 4: Delete server heartbeats for these games
+    const { error: heartbeatsError, count: heartbeatsCount } = await supabase
+      .from("server_heartbeats")
+      .delete({ count: "exact" })
+      .in("game_id", gameIds);
+
+    if (heartbeatsError) {
+      console.error("[reset-my-test-data] Error deleting server_heartbeats:", heartbeatsError);
+      skipped.push("server_heartbeats");
+    } else {
+      deleted.serverHeartbeats = heartbeatsCount || 0;
+    }
+
+    // Step 5: Delete game snapshots for these games
     const { error: snapshotsError, count: snapshotsCount } = await supabase
       .from("game_snapshots")
       .delete({ count: "exact" })
@@ -105,7 +126,7 @@ export async function POST() {
       deleted.gameSnapshots = snapshotsCount || 0;
     }
 
-    // Step 5: Delete products for these games
+    // Step 6: Delete products for these games
     const { error: productsError, count: productsCount } = await supabase
       .from("products")
       .delete({ count: "exact" })
@@ -118,26 +139,17 @@ export async function POST() {
       deleted.products = productsCount || 0;
     }
 
-    // Step 6: Finally, delete the games themselves
-    const { error: deleteGamesError, count: gamesCount } = await supabase
-      .from("games")
-      .delete({ count: "exact" })
-      .eq("user_id", userId);
+    // NOTE: We do NOT delete games - they stay connected with API keys intact
+    // User can immediately re-run tracker script without re-adding games
 
-    if (deleteGamesError) {
-      console.error("[reset-my-test-data] Error deleting games:", deleteGamesError);
-      return NextResponse.json(
-        { error: "Failed to delete games. Some data may have been partially deleted." },
-        { status: 500 }
-      );
-    }
-
-    deleted.games = gamesCount || 0;
+    const totalDeleted = Object.values(deleted).reduce((a, b) => a + b, 0);
 
     return NextResponse.json({
       success: true,
-      message: `Reset complete. Deleted ${deleted.games} games and associated data.`,
+      message: `Reset complete. Deleted ${totalDeleted} records. Your ${gameIds.length} connected game(s) are preserved.`,
       deleted,
+      gamesPreserved: gameIds.length,
+      gameNames,
       skipped: skipped.length > 0 ? skipped : undefined,
     });
 
