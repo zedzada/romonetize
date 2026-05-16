@@ -165,8 +165,12 @@ export type CCUHistoryInterval = "1m" | "hourly" | "daily";
 export interface CCUHistory {
   currentCcu: number | null;
   // Raw snapshots - client handles bucketing and time formatting
-  rawSnapshots: Array<{ time: string; ccu: number }>;
-}
+  rawSnapshots: Array<{ time: string; ccu: number; source?: string }>;
+  // Data source identifier
+  source?: string;
+  // Cron debug status
+  cronStatus?: Record<string, unknown>;
+  }
 
 export interface OverviewStats {
   totalRevenue: number;
@@ -286,6 +290,7 @@ export interface AnalyticsData {
     name: string;
     roblox_game_id: string;
     universe_id: string | null;
+    icon_url?: string | null;
   } | null;
   range: DateRange;
   // Plan-based monetization gating

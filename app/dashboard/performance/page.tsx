@@ -762,7 +762,7 @@ const handleSyncAndRefresh = useCallback(async () => {
               <div className="flex items-center gap-3">
                 <GameIcon 
                   name={game.name} 
-                  thumbnailUrl={game.icon_url}
+                  thumbnailUrl={(game as Record<string, unknown>).icon_url as string | undefined}
                   robloxGameId={game.roblox_game_id}
                   size="md"
                 />
@@ -1109,7 +1109,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div className="col-span-full text-amber-400">Game Identity (must match):</div>
                   <div>selectedGameId: <span className={`text-foreground ${selectedGameId !== analyticsDebugInfo?.responseSelectedGameId ? "text-red-400" : ""}`}>{selectedGameId?.slice(0, 8) || "none"}...</span></div>
                   <div>responseGameId: <span className={`text-foreground ${selectedGameId !== analyticsDebugInfo?.responseSelectedGameId ? "text-red-400" : ""}`}>{analyticsDebugInfo?.responseSelectedGameId?.slice(0, 8) || "none"}...</span></div>
-                  <div>gameName: <span className="text-foreground">{analyticsDebugInfo?.selectedGameName?.slice(0, 20) || selectedGame?.name?.slice(0, 20) || "none"}</span></div>
+                  <div>gameName: <span className="text-foreground">{analyticsDebugInfo?.selectedGameName?.slice(0, 20) || game?.name?.slice(0, 20) || "none"}</span></div>
                   <div>isStale: <span className={analyticsDebugInfo?.isResponseStale ? "text-red-400" : "text-green-400"}>{analyticsDebugInfo?.isResponseStale ? "YES" : "no"}</span></div>
                   
                   {/* SWR Cache state */}
@@ -1156,10 +1156,10 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
                     <span className="text-amber-400">Snapshot Diagnostics (15 min window):</span>
                   </div>
-                  <div>now: <span className="text-foreground">{rawCcuHistory?.cronStatus?.now ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.now)) : "—"}</span></div>
-                  <div>latestSnapshotAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestSnapshotAt)) : "none"}</span></div>
-                  <div>minutesSinceLatest: <span className={rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot && rawCcuHistory.cronStatus.minutesSinceLatestSnapshot > 2 ? "text-yellow-400" : "text-green-400"}>{rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot ?? "—"}</span></div>
-                  <div>snapshotsLast15Min: <span className={rawCcuHistory?.cronStatus?.snapshotsLast15Minutes && rawCcuHistory.cronStatus.snapshotsLast15Minutes >= 10 ? "text-green-400" : "text-yellow-400"}>{rawCcuHistory?.cronStatus?.snapshotsLast15Minutes ?? 0} / {rawCcuHistory?.cronStatus?.expectedSnapshotsLast15Minutes ?? "—"}</span></div>
+                  <div>now: <span className="text-foreground">{rawCcuHistory?.cronStatus?.now ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(String(rawCcuHistory.cronStatus.now))) : "—"}</span></div>
+                  <div>latestSnapshotAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(String(rawCcuHistory.cronStatus.latestSnapshotAt))) : "none"}</span></div>
+                  <div>minutesSinceLatest: <span className={Number(rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot) > 2 ? "text-yellow-400" : "text-green-400"}>{rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot ?? "—"}</span></div>
+                  <div>snapshotsLast15Min: <span className={Number(rawCcuHistory?.cronStatus?.snapshotsLast15Minutes) >= 10 ? "text-green-400" : "text-yellow-400"}>{rawCcuHistory?.cronStatus?.snapshotsLast15Minutes ?? 0} / {rawCcuHistory?.cronStatus?.expectedSnapshotsLast15Minutes ?? "—"}</span></div>
                   
                   {/* Cron Status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
@@ -1167,8 +1167,12 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </div>
                   <div>cronConfigured: <span className={rawCcuHistory?.cronStatus?.cronConfigured ? "text-green-400" : "text-red-400"}>{rawCcuHistory?.cronStatus?.cronConfigured ? "YES" : "NO"}</span></div>
                   <div>cronRunsLast15Min: <span className="text-foreground">{rawCcuHistory?.cronStatus?.cronRunsLast15Minutes ?? 0}</span></div>
-                  <div>latestCronRun: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronRun ? `${new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestCronRun.started_at))} (${rawCcuHistory.cronStatus.latestCronRun.ok ? "ok" : "fail"}, ${rawCcuHistory.cronStatus.latestCronRun.snapshots_inserted} inserted)` : "none"}</span></div>
-                  <div>latestCronSnapshot: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestCronSnapshotAt)) : "none"}</span></div>
+                  <div>latestCronRun: <span className="text-foreground">{(() => {
+                    const run = rawCcuHistory?.cronStatus?.latestCronRun as { started_at?: string; ok?: boolean; snapshots_inserted?: number } | null;
+                    if (!run?.started_at) return "none";
+                    return `${new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(new Date(run.started_at))} (${run.ok ? "ok" : "fail"}, ${run.snapshots_inserted ?? 0} inserted)`;
+                  })()}</span></div>
+                  <div>latestCronSnapshot: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestCronSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(String(rawCcuHistory.cronStatus.latestCronSnapshotAt))) : "none"}</span></div>
                   
                   {/* Browser Polling status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
@@ -1176,7 +1180,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </div>
                   <div>lastBrowserPollAt: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
                   <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
-                  <div>latestBrowserSnapshot: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestBrowserSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(rawCcuHistory.cronStatus.latestBrowserSnapshotAt)) : "none"}</span></div>
+                  <div>latestBrowserSnapshot: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestBrowserSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(String(rawCcuHistory.cronStatus.latestBrowserSnapshotAt))) : "none"}</span></div>
                 </div>
                 
                 {/* Manual Cron Trigger Button */}
