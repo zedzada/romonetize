@@ -103,12 +103,13 @@ export async function GET(request: Request) {
     const distinctPlayerIds = new Set((playerIdsRaw || []).map((e: { player_id: string }) => e.player_id));
     const distinctPlayers = distinctPlayerIds.size;
 
-    // Specific event type counts
+    // Specific event type counts - use all purchase event types
+    const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
     const { count: purchaseSuccessCount } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId)
-      .eq("event_type", "purchase_success");
+      .in("event_type", purchaseTypes);
 
     const { count: playerJoinCount } = await supabase
       .from("events")

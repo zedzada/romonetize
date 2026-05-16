@@ -474,12 +474,13 @@ export async function getGameStats(
     .select("*", { count: "exact", head: true })
     .eq("game_id", gameId);
 
-  // Get total revenue from purchase_success events
+  // Get total revenue from all purchase event types
+  const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
   const { data: revenueData } = await supabase
     .from("events")
     .select("robux")
     .eq("game_id", gameId)
-    .eq("event_type", "purchase_success");
+    .in("event_type", purchaseTypes);
 
   const totalRevenue = revenueData?.reduce((sum, e) => sum + (e.robux || 0), 0) || 0;
 
