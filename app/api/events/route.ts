@@ -24,8 +24,13 @@ const VALID_EVENT_TYPES = [
   "session_duration",   // Session duration tracking
   "checkpoint_reached", // Player reaches a checkpoint/milestone
   
+  // Product funnel events (for conversion tracking)
+  "product_view",       // Player views a product in UI (optional - for funnel tracking)
+  "product_click",      // Player clicks on a product (optional - for funnel tracking)
+  
   // Monetization events
-  "gamepass_click",     // Player clicks on gamepass
+  "gamepass_click",     // Player clicks on gamepass (legacy - use product_click)
+  "devproduct_click",   // Player clicks on devproduct (legacy - use product_click)
   "gamepass_prompt",    // Gamepass purchase prompt shown
   "gamepass_purchase",  // Gamepass purchased successfully
   "devproduct_prompt",  // Dev product purchase prompt shown
@@ -406,9 +411,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Handle click events for products
+    // Handle click events for products (product_click and legacy gamepass_click/devproduct_click)
     const clickEvents = validatedEvents.filter(
-      (e) => (e.event_type === "gamepass_click" || e.event_type === "devproduct_click") && e.product_id
+      (e) => (e.event_type === "product_click" || e.event_type === "gamepass_click" || e.event_type === "devproduct_click") && e.product_id
     );
 
     for (const event of clickEvents) {
@@ -433,24 +438,75 @@ export async function POST(request: NextRequest) {
           price_robux: event.robux || 0,
           total_revenue: 0,
           total_purchases: 0,
-total_clicks: 1,
-  });
-  }
-  }
+          total_clicks: 1,
+          total_views: 0,
+        });
+      }
+    }
+    
+    // Handle view events for products (product_view)
+    const viewEvents = validatedEvents.filter(
+      (e) => e.event_type === "product_view" && e.product_id
+    );
+
+    for (const event of viewEvents) {
+      const { data: existingProduct } = await supabaseAdmin
+        .from("products")
+        .select("id, total_views")
+        .eq("game_id", game.id)
+        .eq("roblox_product_id", event.product_id)
+        .single();
+
+      if (existingProduct) {
+        await supabaseAdmin
+          .from("products")
+          .update({ total_views: (existingProduct.total_views || 0) + 1 })
+          .eq("id", existingProduct.id);
+      } else if (event.product_name && event.product_type) {
+        await supabaseAdmin.from("products").insert({
+          game_id: game.id,
+          roblox_product_id: event.product_id,
+          name: event.product_name,
+          product_type: event.product_type,
+          price_robux: event.robux || 0,
+          total_revenue: 0,
+          total_purchases: 0,
+          total_clicks: 0,
+          total_views: 1,
+        });
+      }
+    }
   
-  // Handle CCU heartbeat events - upsert to server_heartbeats and aggregate CCU
+  // Handle CCU heartbeat events - upsert to server_heartbeats and insert ccu_snapshots
+  // IMPORTANT: Insert snapshot on EVERY heartbeat, do not skip for unchanged CCU or same minute
   const ccuHeartbeatEvents = events.filter(
     (e) => e.event_type === "ccu_heartbeat"
   );
 
+  // Track results for explicit response
+  let ccuHeartbeatResult: { 
+    success: boolean; 
+    game_id?: string;
+    server_id?: string;
+    server_ccu?: number;
+    total_active_ccu?: number;
+    snapshot_inserted?: boolean;
+    error?: string;
+  } | null = null;
+
   for (const event of ccuHeartbeatEvents) {
-    const serverId = (event as Record<string, unknown>).server_id as string | undefined;
-    const placeId = (event as Record<string, unknown>).place_id as string | undefined;
-    const universeId = (event as Record<string, unknown>).universe_id as string | undefined;
-    const serverCcu = (event as Record<string, unknown>).ccu as number | undefined;
+    // Support both root level and metadata fields
+    const rawEvent = event as Record<string, unknown>;
+    const metadata = (rawEvent.metadata || {}) as Record<string, unknown>;
+    
+    const serverId = (rawEvent.server_id || metadata.server_id) as string | undefined;
+    const placeId = (rawEvent.place_id || metadata.place_id) as string | undefined;
+    const universeId = (rawEvent.universe_id || metadata.universe_id) as string | undefined;
+    const serverCcu = (rawEvent.ccu ?? metadata.ccu) as number | undefined;
     
     if (!serverId) {
       console.warn(`[api/events] CCU heartbeat missing server_id for game_id=${game.id}`);
+      ccuHeartbeatResult = { success: false, error: "Missing server_id" };
       continue;
     }
 
@@ -471,6 +527,7 @@ total_clicks: 1,
 
     if (heartbeatError) {
       console.error(`[api/events] Failed to upsert server heartbeat: ${heartbeatError.message}`);
+      ccuHeartbeatResult = { success: false, error: `server_heartbeat upsert: ${heartbeatError.message}` };
       continue;
     }
 
@@ -484,23 +541,38 @@ total_clicks: 1,
 
     if (serversError) {
       console.error(`[api/events] Failed to fetch active servers: ${serversError.message}`);
+      ccuHeartbeatResult = { success: false, error: `active servers query: ${serversError.message}` };
       continue;
     }
 
     // Sum CCU across all active servers
     const totalCcu = (activeServers || []).reduce((sum, s) => sum + (s.ccu || 0), 0);
 
-    // Insert aggregated CCU snapshot
-    await supabaseAdmin
+    // Insert CCU snapshot - ALWAYS insert, never skip
+    // Use minimal columns that exist in ccu_snapshots table: game_id, ccu, source, created_at
+    const { error: snapshotError } = await supabaseAdmin
       .from("ccu_snapshots")
       .insert({
         game_id: game.id,
         ccu: totalCcu,
+        server_id: serverId, // Also store server_id if column exists
         source: "romonetize_tracker",
         created_at: new Date().toISOString(),
       });
 
-    // Also update current_players on the games table
+    if (snapshotError) {
+      console.error(`[api/events] Failed to insert ccu_snapshot: ${snapshotError.message}`);
+      ccuHeartbeatResult = { 
+        success: false, 
+        game_id: game.id,
+        server_id: serverId,
+        server_ccu: serverCcu,
+        error: `ccu_snapshot insert: ${snapshotError.message}` 
+      };
+      continue;
+    }
+
+    // Update current_players on the games table
     await supabaseAdmin
       .from("games")
       .update({
@@ -509,7 +581,25 @@ total_clicks: 1,
       })
       .eq("id", game.id);
 
-    console.log(`[api/events] CCU heartbeat: game_id=${game.id}, server_id=${serverId}, server_ccu=${serverCcu}, total_ccu=${totalCcu}`);
+    ccuHeartbeatResult = {
+      success: true,
+      game_id: game.id,
+      server_id: serverId,
+      server_ccu: serverCcu,
+      total_active_ccu: totalCcu,
+      snapshot_inserted: true,
+    };
+
+    console.log(`[api/events] CCU heartbeat OK: game_id=${game.id}, server_id=${serverId}, server_ccu=${serverCcu}, total_ccu=${totalCcu}`);
+  }
+
+  // If this was a CCU heartbeat request, return explicit heartbeat response
+  if (ccuHeartbeatEvents.length > 0 && ccuHeartbeatResult) {
+    return NextResponse.json({
+      success: ccuHeartbeatResult.success,
+      event_type: "ccu_heartbeat",
+      ...ccuHeartbeatResult,
+    });
   }
   
   // Log server-side for debugging (only prefix of API key)

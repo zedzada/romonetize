@@ -84,7 +84,10 @@ export default function ProductsPage() {
   } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
 
   // Safe defaults per spec
+  // PRIORITY: productAnalytics is the SINGLE SOURCE OF TRUTH from shared aggregation
+  // Only fall back to productStats for legacy compatibility
   const safeProductStats = productStats ?? {};
+  const safeProductAnalytics = productAnalytics ?? {};
   const safeSyncedProducts = Array.isArray(syncedProducts?.products)
     ? syncedProducts.products
     : [];
@@ -92,14 +95,24 @@ export default function ProductsPage() {
   const hasTrackerEvents = dataHealth?.hasTrackerEvents ?? false;
   const hasSyncedProducts = safeSyncedProducts.length > 0;
 
-  // Merged products: prioritize productAnalytics, fall back to productStats.products
-  // This ensures products from purchase_success events appear even if Roblox sync is empty
+  // Products from shared aggregation - SINGLE SOURCE OF TRUTH
+  // This ensures Products page shows EXACT SAME data as Monetization page
   const trackerProducts = 
-    (productAnalytics?.products && productAnalytics.products.length > 0)
-      ? productAnalytics.products
+    (safeProductAnalytics.products && safeProductAnalytics.products.length > 0)
+      ? safeProductAnalytics.products
       : Array.isArray(safeProductStats.products)
         ? safeProductStats.products
         : [];
+  
+  // Summary stats - prefer productAnalytics (shared aggregation) over productStats
+  const summaryStats = {
+    grossTotalRevenue: safeProductAnalytics.grossTotalRevenue ?? safeProductStats.grossTotalRevenue ?? safeProductStats.totalRevenue ?? 0,
+    estimatedTotalRevenue: safeProductAnalytics.estimatedTotalRevenue ?? safeProductStats.estimatedTotalRevenue ?? Math.round((safeProductStats.totalRevenue ?? 0) * CREATOR_REVENUE_RATE),
+    totalPurchases: safeProductAnalytics.totalPurchases ?? safeProductStats.totalPurchases ?? 0,
+    totalBuyers: safeProductAnalytics.totalBuyers ?? safeProductStats.uniqueBuyers ?? 0,
+    avgConversionRate: safeProductStats.avgConversionRate ?? null,
+    avgConversionNeedsTracking: safeProductStats.avgConversionNeedsTracking ?? false,
+  };
 
   const hasTrackerProducts = trackerProducts.length > 0;
   
@@ -269,8 +282,9 @@ export default function ProductsPage() {
               </span>
             </div>
             {(() => {
-              const grossRevenue = safeProductStats.grossTotalRevenue ?? safeProductStats.totalRevenue ?? 0;
-              const estimatedRevenue = safeProductStats.estimatedTotalRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+              // Use summaryStats from shared aggregation (SINGLE SOURCE OF TRUTH)
+              const grossRevenue = summaryStats.grossTotalRevenue;
+              const estimatedRevenue = summaryStats.estimatedTotalRevenue;
               const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
               const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
               const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
@@ -300,7 +314,7 @@ export default function ProductsPage() {
               <span className="text-xs text-muted-foreground">{chartRange.toUpperCase()} Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents ? formatNumber(safeProductStats.totalPurchases) : (
+              {hasTrackerEvents ? formatNumber(summaryStats.totalPurchases) : (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               )}
             </div>
@@ -315,7 +329,7 @@ export default function ProductsPage() {
               <span className="text-xs text-muted-foreground">Unique Buyers</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents ? formatNumber(safeProductStats.uniqueBuyers) : (
+              {hasTrackerEvents ? formatNumber(summaryStats.totalBuyers) : (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               )}
             </div>
@@ -329,10 +343,17 @@ export default function ProductsPage() {
               <span className="text-xs text-muted-foreground">Avg Conv. Rate</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents && !safeProductStats.avgConversionNeedsTracking 
-                ? formatPercent(safeProductStats.avgConversionRate) 
-                : (
-                  <span className="text-sm text-muted-foreground font-normal">Needs tracking</span>
+              {hasTrackerEvents && !summaryStats.avgConversionNeedsTracking && summaryStats.avgConversionRate !== null
+                ? formatPercent(summaryStats.avgConversionRate)
+                : summaryStats.avgConversionNeedsTracking ? (
+                  <div>
+                    <span className="text-lg text-muted-foreground font-normal">—</span>
+                    <p className="text-[10px] text-muted-foreground font-normal mt-1">
+                      Requires product_view or product_click events
+                    </p>
+                  </div>
+                ) : (
+                  <span className="text-lg text-muted-foreground font-normal">—</span>
                 )}
             </div>
           </CardContent>
@@ -426,6 +447,10 @@ export default function ProductsPage() {
                         <td className="py-4 px-3 text-right">
                           {conversionRate !== null ? (
                             <span className="font-medium text-foreground">{formatPercent(conversionRate)}</span>
+                          ) : product.conversionNeedsTracking ? (
+                            <span className="text-xs text-muted-foreground" title="Add product_click or product_view events to track conversion">
+                              No click/view events
+                            </span>
                           ) : (
                             <span className="text-muted-foreground">—</span>
                           )}

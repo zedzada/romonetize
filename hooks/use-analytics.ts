@@ -192,7 +192,17 @@ export interface MonetizationCharts {
   revenueOverTime: Array<{ date: string; revenue: number }>;
   purchasesOverTime: Array<{ date: string; purchases: number }>;
   revenueByProductType: Array<{ productType: string; revenue: number }>;
-  topProducts: Array<{ productId: string; productName: string; productType: string; revenue: number; purchases: number; buyers: number }>;
+  // Top products with both gross and estimated values
+  topProducts: Array<{ 
+    productId: string; 
+    productName: string; 
+    productType: string; 
+    revenue: number; // Legacy: gross revenue
+    grossRevenue?: number;
+    estimatedRevenue?: number;
+    purchases: number; 
+    buyers: number;
+  }>;
   // 72h hourly monetization data
   hourlyMonetization: HourlyMonetizationPoint[];
   // 24h minute-level monetization data (for real-time 1m interval)
@@ -205,18 +215,48 @@ export interface ProductAnalyticsItem {
   productId: string;
   productName: string;
   productType: string;
-  priceRobux: number;
-  revenue: number;
+  // Gross values (before 30% Roblox fee)
+  grossRevenue: number;
+  grossRevenuePerBuyer: number;
+  // Estimated values (after 30% Roblox fee - creator payout)
+  estimatedRevenue: number;
+  estimatedRevenuePerBuyer: number;
+  // Counts
   purchases: number;
   buyers: number;
   views: number;
   clicks: number;
+  // Metrics - conversion rate calculated as: purchases / clicks (or purchases / views if no clicks)
   conversionRate: number | null;
-  revenuePerBuyer: number;
+  // If true, purchases exist but no views/clicks tracked yet
+  conversionNeedsTracking: boolean;
+}
+
+export interface ProductAnalyticsTopProduct {
+  productId: string;
+  productName: string;
+  productType: string;
+  grossRevenue: number;
+  estimatedRevenue: number;
+  purchases: number;
+  buyers: number;
 }
 
 export interface ProductAnalytics {
   products: ProductAnalyticsItem[];
+  // Top 4 products for Overview page (same data as products, just sliced)
+  topProducts: ProductAnalyticsTopProduct[];
+  // Summary totals
+  totalPurchases: number;
+  totalBuyers: number;
+  grossTotalRevenue: number;
+  estimatedTotalRevenue: number;
+  // Debug info
+  aggregationSource: string;
+  totalEventsUsed: number;
+  hitSupabaseLimit: boolean;
+  selectedRange: string;
+  locked: boolean;
 }
 
 export interface AnalyticsData {
@@ -259,17 +299,33 @@ interface UseAnalyticsOptions {
   enabled?: boolean;
 }
 
-// Custom fetcher that includes request timestamp for staleness detection
+// Custom fetcher with 8 second timeout to prevent infinite skeleton
 const fetcher = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error("Failed to fetch analytics");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+  
+  try {
+    const response = await fetch(url, { 
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error("Failed to fetch analytics");
+    }
+    const json = await response.json();
+    if (!json.success) {
+      throw new Error(json.error || "Analytics request failed");
+    }
+    return json.data as AnalyticsData;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Request timed out - showing cached data");
+    }
+    throw err;
   }
-  const json = await response.json();
-  if (!json.success) {
-    throw new Error(json.error || "Analytics request failed");
-  }
-  return json.data as AnalyticsData;
 };
 
 /**

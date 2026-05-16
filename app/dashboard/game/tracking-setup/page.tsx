@@ -314,8 +314,54 @@ task.spawn(function()
     end
 end)
 
+--------------------------------------------------------------------------------
+-- OPTIONAL: PRODUCT FUNNEL TRACKING HELPERS
+-- Call these from your shop UI to track conversion rates
+--------------------------------------------------------------------------------
+
+-- Track when a player views a product in your shop UI
+-- Call this when a product becomes visible to the player
+_G.RoMonetizeTrackProductView = function(player, productId, productName, productType, robux)
+    sendEvent("product_view", {
+        player_id = tostring(player.UserId),
+        session_id = sessionId,
+        product_id = tostring(productId),
+        product_name = productName,
+        product_type = productType or "gamepass",
+        robux = robux or 0,
+        metadata = {
+            product_id = tostring(productId),
+            product_name = productName,
+            product_type = productType or "gamepass",
+            robux = robux or 0,
+            username = player.Name
+        }
+    })
+end
+
+-- Track when a player clicks on a product (before purchase prompt)
+-- Call this when the player interacts with a product button
+_G.RoMonetizeTrackProductClick = function(player, productId, productName, productType, robux)
+    sendEvent("product_click", {
+        player_id = tostring(player.UserId),
+        session_id = sessionId,
+        product_id = tostring(productId),
+        product_name = productName,
+        product_type = productType or "gamepass",
+        robux = robux or 0,
+        metadata = {
+            product_id = tostring(productId),
+            product_name = productName,
+            product_type = productType or "gamepass",
+            robux = robux or 0,
+            username = player.Name
+        }
+    })
+end
+
 print("[RoMonetize] Tracker initialized with CCU heartbeat")
-print("[RoMonetize] Listening for player_join, session_end, purchases, and CCU heartbeats")
+print("[RoMonetize] Listening for player_join, session_end, purchases, product views/clicks, and CCU heartbeats")
+print("[RoMonetize] Optional: Use _G.RoMonetizeTrackProductView() and _G.RoMonetizeTrackProductClick() for conversion tracking")
 `;
 }
 
