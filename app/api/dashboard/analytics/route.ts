@@ -607,8 +607,36 @@ export async function GET(request: NextRequest) {
   // to avoid blocking page render. Client should call /api/roblox/sync-selected-game
   // separately if fresh data is needed. This keeps initial load fast.
   // 
-  // The useAnalytics hook auto-refreshes every 60s which will pick up
-  // any background syncs that completed.
+  // HOWEVER: If robloxStats is still null and we have a universeId, 
+  // do a quick inline fetch (just public stats, no products/thumbnail)
+  // so first-time users see data immediately without clicking Sync.
+  if (!robloxStats && universeId) {
+    try {
+      const quickStats = await getRobloxGameStats(universeId);
+      if (quickStats.source === "roblox_api") {
+        const totalVotes = (quickStats.likes || 0) + (quickStats.dislikes || 0);
+        const likeRatio = totalVotes > 0 ? (quickStats.likes || 0) / totalVotes : null;
+        
+        robloxStats = {
+          ccu: quickStats.currentPlayers ?? null,
+          visits: quickStats.totalVisits ?? null,
+          favorites: quickStats.favorites ?? null,
+          likes: quickStats.likes ?? null,
+          dislikes: quickStats.dislikes ?? null,
+          likeRatio,
+          updatedAt: quickStats.lastFetched || new Date().toISOString(),
+          source: "live_api",
+        };
+        
+        // Remove the "not synced" missing flag since we just fetched live
+        const idx = missing.indexOf("roblox_stats_not_synced");
+        if (idx !== -1) missing.splice(idx, 1);
+      }
+    } catch (err) {
+      console.error("[Analytics] Quick Roblox fetch failed:", err);
+      // Non-fatal - just leave robloxStats as null
+    }
+  }
 
   // Final check - if still no data, mark as unavailable
   if (!robloxStats) {
@@ -1423,13 +1451,19 @@ let ccuHistory: {
   try {
     // PRIMARY: Fetch from ccu_snapshots table (populated by tracker heartbeats and sync)
     // Include source field for tooltip display
-    // Use captured_at for time filtering (preferred), fallback to created_at for older rows
-    const { data: ccuSnapshotsData } = await supabase
+    // Fetch ALL snapshots in last 90 days, ordered by timestamp
+    // Use created_at as the primary filter (always populated), then prefer captured_at for display
+    const { data: ccuSnapshotsData, error: ccuQueryError } = await supabase
       .from("ccu_snapshots")
       .select("ccu, captured_at, created_at, source")
       .eq("game_id", gameId)
-      .or(`captured_at.gte.${ccuHistoryStart.toISOString()},and(captured_at.is.null,created_at.gte.${ccuHistoryStart.toISOString()})`)
-      .order("captured_at", { ascending: true, nullsFirst: false });
+      .gte("created_at", ccuHistoryStart.toISOString())
+      .order("created_at", { ascending: true })
+      .limit(5000);
+    
+    if (ccuQueryError) {
+      console.error("[Analytics] CCU snapshots query error:", ccuQueryError);
+    }
     
     if (ccuSnapshotsData && ccuSnapshotsData.length > 0) {
       ccuHistory.rawSnapshots = ccuSnapshotsData
