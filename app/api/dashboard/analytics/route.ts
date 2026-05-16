@@ -310,6 +310,18 @@ export async function GET(request: NextRequest) {
   const sessionEndTypes = ["player_leave", "session_end"];
   const clickTypes = ["product_click", "gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
   const viewTypes = ["product_view"];
+  
+  // Active user event types (for PCR & ARPDAU)
+  // Any player event that indicates a real human player was active.
+  // Excludes: ccu_heartbeat, script_started, null player_id, player_id="server"
+  const ACTIVE_USER_EVENT_TYPES = [
+    "player_join",
+    "session_start",
+    "session_end",
+    "purchase_success",
+    "devproduct_purchase",
+    "gamepass_purchase",
+  ];
 
   // 2. Use SQL RPC v2 for summary stats with product type breakdown
   // This is the optimized approach that won't timeout
@@ -462,6 +474,79 @@ export async function GET(request: NextRequest) {
     }
   } catch (err) {
     sectionErrors.sessionEvents = err instanceof Error ? err.message : "Failed to fetch session events";
+  }
+  
+  // === ACTIVE USERS QUERY (for PCR & ARPDAU) ===
+  // Fetch distinct player_ids from ACTIVE_USER_EVENT_TYPES in range
+  // Also fetch per-day breakdown for ARPDAU's averageDAU calculation
+  let trackerActiveUsers = 0;
+  let trackerPayingUsers = 0;
+  let trackerAverageDau = 0;
+  let trackerDaysWithData = 0;
+  const trackerActiveUserEventCounts: Record<string, number> = {};
+  let sampleActiveUserEvents: string[] = [];
+  
+  try {
+    // Query 1: Distinct active users in range
+    const { data: activeUserData, error: activeUserError } = await supabase
+      .from("events")
+      .select("player_id, event_type, created_at")
+      .eq("game_id", gameId)
+      .in("event_type", ACTIVE_USER_EVENT_TYPES)
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", now.toISOString())
+      .not("player_id", "is", null)
+      .neq("player_id", "server")
+      .order("created_at", { ascending: true })
+      .limit(10000);
+    
+    if (activeUserError) {
+      sectionErrors.activeUsers = activeUserError.message;
+    } else if (activeUserData && activeUserData.length > 0) {
+      // Count distinct active players
+      const activePlayerIds = new Set<string>();
+      const payingPlayerIds = new Set<string>();
+      const dailyActivePlayers = new Map<string, Set<string>>();
+      
+      activeUserData.forEach((e: { player_id: string | null; event_type: string; created_at: string }) => {
+        if (!e.player_id || e.player_id === "server") return;
+        
+        activePlayerIds.add(e.player_id);
+        
+        // Count by event type
+        trackerActiveUserEventCounts[e.event_type] = (trackerActiveUserEventCounts[e.event_type] || 0) + 1;
+        
+        // Track paying users
+        if (purchaseTypes.includes(e.event_type)) {
+          payingPlayerIds.add(e.player_id);
+        }
+        
+        // Track daily active users
+        const day = e.created_at.slice(0, 10); // YYYY-MM-DD
+        if (!dailyActivePlayers.has(day)) {
+          dailyActivePlayers.set(day, new Set());
+        }
+        dailyActivePlayers.get(day)!.add(e.player_id);
+      });
+      
+      trackerActiveUsers = activePlayerIds.size;
+      trackerPayingUsers = payingPlayerIds.size;
+      trackerDaysWithData = dailyActivePlayers.size;
+      
+      // Calculate average DAU
+      if (trackerDaysWithData > 0) {
+        const totalDailyPlayers = Array.from(dailyActivePlayers.values())
+          .reduce((sum, players) => sum + players.size, 0);
+        trackerAverageDau = totalDailyPlayers / trackerDaysWithData;
+      }
+      
+      // Sample events for debug
+      sampleActiveUserEvents = activeUserData.slice(0, 5).map((e: { player_id: string | null; event_type: string; created_at: string }) => 
+        `${e.event_type}:${e.player_id?.slice(0, 8)}@${e.created_at.slice(11, 19)}`
+      );
+    }
+  } catch (err) {
+    sectionErrors.activeUsers = err instanceof Error ? err.message : "Failed to fetch active users";
   }
   
   // For data health checks, use counts instead of fetching all events
@@ -1911,6 +1996,28 @@ trackerStats: hasTrackerEvents ? {
         // Additional metrics for transparency
         averageDau: averageDau > 0 ? Math.round(averageDau) : 0,
         daysWithData,
+        // === NEW: Active user metrics from ACTIVE_USER_EVENT_TYPES ===
+        // These are the canonical values for PCR & ARPDAU on the Monetization page
+        trackerActiveUsers,
+        trackerPayingUsers,
+        trackerAverageDau: trackerAverageDau > 0 ? Math.round(trackerAverageDau * 100) / 100 : 0,
+        trackerDaysWithData,
+        trackerActiveUserEventCounts,
+        sampleActiveUserEvents,
+        // Pre-calculated PCR: payingUsers / activeUsers * 100
+        trackerPcr: trackerActiveUsers > 0 ? (trackerPayingUsers / trackerActiveUsers) * 100 : null,
+        // Pre-calculated ARPDAU
+        // For ranges < 24h: ARPDAU = revenue / activeUsersInRange
+        // For ranges >= 24h: ARPDAU = revenue / averageDailyActiveUsers
+        trackerGrossArpdau: (() => {
+          const rangeHours = rangeConfig.hours;
+          if (rangeHours <= 24) {
+            // Short range: use activeUsersInRange as DAU proxy
+            return trackerActiveUsers > 0 ? totalRevenue / trackerActiveUsers : null;
+          }
+          // Long range: use average DAU
+          return trackerAverageDau > 0 ? totalRevenue / trackerAverageDau : null;
+        })(),
       } : null),
       // Product stats (for Products tab)
       // For free users, return locked state
