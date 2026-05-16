@@ -15,6 +15,7 @@ interface ProfileModalProps {
 interface ProfileData {
   plan: string;
   email: string | null;
+  display_username: string | null;
 }
 
 export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
@@ -39,13 +40,15 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
           // Fetch profile from Supabase (single source of truth)
           const { data: profileData } = await supabase
             .from("profiles")
-            .select("plan, email")
+            .select("plan, email, display_username")
             .eq("id", user.id)
             .single();
 
           if (profileData) {
             setProfile(profileData);
             setEmail(profileData.email || user.email || "");
+            // Use custom display_username if set, otherwise fallback to OAuth metadata
+            setDisplayName(profileData.display_username || user.user_metadata?.full_name || user.user_metadata?.name || "");
           } else {
             // Profile doesn't exist - create one
             const newProfile = {
@@ -54,12 +57,11 @@ export function ProfileModal({ isOpen, onClose }: ProfileModalProps) {
               plan: "free",
             };
             await supabase.from("profiles").insert(newProfile);
-            setProfile({ plan: "free", email: user.email || null });
+            setProfile({ plan: "free", email: user.email || null, display_username: null });
             setEmail(user.email || "");
+            // Use user metadata for display name
+            setDisplayName(user.user_metadata?.full_name || user.user_metadata?.name || "");
           }
-          
-          // Use user metadata for display name
-          setDisplayName(user.user_metadata?.full_name || user.user_metadata?.name || "");
         }
         setLoading(false);
       }).catch((error) => {
