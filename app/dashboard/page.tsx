@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   DollarSign,
   MousePointerClick,
@@ -38,9 +38,12 @@ import { triggerStatsRefresh, useStatsRefresh } from "@/hooks/use-stats-refresh"
 import { LockedStatCard } from "@/components/dashboard/locked-stat-card";
 import { useRevenueDisplayMode, getRevenueModeShortLabel } from "@/hooks/use-revenue-display-mode";
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
+import { getProductPurchaseMetrics } from "@/lib/utils/product-aggregation";
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const showDebug = searchParams.get("debug") === "true";
   const { toast } = useToast();
   const [aiMessage, setAiMessage] = useState("");
   const [aiResponse, setAiResponse] = useState(
@@ -61,10 +64,17 @@ export default function DashboardPage() {
   const [isConnecting, setIsConnecting] = useState(false);
 
   // Use central analytics hook for Roblox stats and plan gating
-  const { robloxStats, revenueStats, refresh: refreshAnalytics, monetizationLocked } = useAnalytics({ enabled: gameIds.length > 0 });
+  const { robloxStats, revenueStats, productAnalytics, refresh: refreshAnalytics, monetizationLocked } = useAnalytics({ enabled: gameIds.length > 0 });
   
   // Use shared revenue display mode (consistent with Monetization/Products pages)
   const { mode: revenueDisplayMode } = useRevenueDisplayMode();
+
+  // Shared purchase metrics - SINGLE SOURCE OF TRUTH for revenue/purchase numbers
+  // Same helper used by Products page and Monetization page
+  const sharedMetrics = getProductPurchaseMetrics({
+    productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
+    revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+  });
 
   // Fetch dashboard stats and alerts (fresh from Supabase)
   const fetchStats = useCallback(async (showLoadingState = true) => {
@@ -84,7 +94,8 @@ export default function DashboardPage() {
       setLastRefresh(new Date());
       // Update AI response based on data
       if (statsResult.stats && statsResult.stats.totalEvents > 0) {
-        const estimatedRev = statsResult.stats.estimatedRevenue ?? Math.round(statsResult.stats.totalRevenue * 0.7);
+        const estimatedRev = sharedMetrics.estimatedTotalRevenue || statsResult.stats.estimatedRevenue || Math.round(statsResult.stats.totalRevenue * 0.7);
+        const purchaseCount = sharedMetrics.totalPurchases || statsResult.stats.totalPurchases || 0;
         setAiResponse(
           `I'm analyzing your ${statsResult.stats.totalEvents.toLocaleString()} tracked player actions across ${statsResult.stats.totalGames} game${statsResult.stats.totalGames !== 1 ? "s" : ""}. Your estimated revenue is ${estimatedRev.toLocaleString()} Robux with ${statsResult.stats.totalProducts} tracked products. Ask me anything about your monetization performance!`
         );
@@ -187,8 +198,10 @@ export default function DashboardPage() {
     if (!aiMessage.trim()) return;
     // In a real app, this would call your AI endpoint
     if (stats && stats.totalEvents > 0) {
+      const displayRev = sharedMetrics.displayTotalRevenue || stats.estimatedRevenue || Math.round(stats.totalRevenue * 0.7);
+      const purchaseCount = sharedMetrics.totalPurchases || stats.totalPurchases || 0;
       setAiResponse(
-        `Based on your question "${aiMessage}", I analyzed your game data. With ${(stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7)).toLocaleString()} Robux in estimated revenue and ${stats.totalPurchases || 0} purchases, your performance is solid. Focus on increasing conversion rates for better results.`
+        `Based on your question "${aiMessage}", I analyzed your game data. With ${displayRev.toLocaleString()} Robux in ${revenueDisplayMode === "gross" ? "gross" : "estimated"} revenue and ${purchaseCount} purchases, your performance is solid. Focus on increasing conversion rates for better results.`
       );
     } else {
       setAiResponse(
@@ -421,9 +434,10 @@ export default function DashboardPage() {
             gradientClassName="from-card to-green-500/5"
           />
         ) : (() => {
-          // Use unified values from analytics hook when available, fall back to stats
-          const grossRevenue = revenueStats?.grossRevenue ?? stats.totalRevenue;
-          const estimatedRevenue = revenueStats?.estimatedRevenue ?? stats.estimatedRevenue ?? Math.round(stats.totalRevenue * 0.7);
+          // Use shared purchase metrics as PRIMARY source (same helper as Products/Monetization)
+          // Falls back through: sharedMetrics > revenueStats > stats
+          const grossRevenue = sharedMetrics.grossTotalRevenue || revenueStats?.grossRevenue || stats.totalRevenue;
+          const estimatedRevenue = sharedMetrics.estimatedTotalRevenue || revenueStats?.estimatedRevenue || stats.estimatedRevenue || Math.round(stats.totalRevenue * 0.7);
           const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
           const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
           const revenueLabel = revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue";
@@ -463,24 +477,28 @@ export default function DashboardPage() {
             iconBgClassName="bg-pink-500/10"
             gradientClassName="from-card to-pink-500/5"
           />
-        ) : (
+        ) : (() => {
+          // Use shared purchase metrics as PRIMARY source
+          const totalPurchases = sharedMetrics.totalPurchases || stats.totalPurchases;
+          return (
           <Card className="border-border/50 bg-gradient-to-br from-card to-pink-500/5 shadow-sm hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="w-10 h-10 rounded-xl bg-pink-500/10 flex items-center justify-center">
                   <ShoppingCart className="w-5 h-5 text-pink-500" />
                 </div>
-                {stats.totalPurchases > 10 && (
+                {totalPurchases > 10 && (
                   <span className="text-[10px] font-semibold text-pink-500 bg-pink-500/10 px-2 py-0.5 rounded-full">
-                    {stats.totalPurchases > 100 ? "Hot" : "Growing"}
+                    {totalPurchases > 100 ? "Hot" : "Growing"}
                   </span>
                 )}
               </div>
-              <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalPurchases.toLocaleString()}</div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">{totalPurchases.toLocaleString()}</div>
               <div className="text-xs text-muted-foreground mt-1">Total Purchases</div>
             </CardContent>
           </Card>
-        )}
+          );
+        })()}
 
         {/* Tracked Products - Locked for free users */}
         {monetizationLocked ? (
@@ -958,6 +976,51 @@ export default function DashboardPage() {
           Billing
         </Button>
       </div>
+
+      {/* Debug Panel - only shown with ?debug=true */}
+      {showDebug && (
+        <Card className="border-amber-500/30 bg-amber-500/5 mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-mono text-amber-600">Overview Debug: Revenue Data Sources</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs font-mono text-muted-foreground overflow-auto max-h-[400px] whitespace-pre-wrap">
+              {JSON.stringify({
+                revenueMode: revenueDisplayMode,
+                sharedMetrics: {
+                  source: "getProductPurchaseMetrics (shared helper)",
+                  aggregationSource: sharedMetrics.aggregationSource,
+                  grossTotalRevenue: sharedMetrics.grossTotalRevenue,
+                  estimatedTotalRevenue: sharedMetrics.estimatedTotalRevenue,
+                  displayTotalRevenue: sharedMetrics.displayTotalRevenue,
+                  totalPurchases: sharedMetrics.totalPurchases,
+                  totalBuyers: sharedMetrics.totalBuyers,
+                  productCount: sharedMetrics.products.length,
+                  samePurchaseHelperAsProducts: true,
+                },
+                revenueStats: revenueStats ? {
+                  grossRevenue: revenueStats.grossRevenue,
+                  estimatedRevenue: revenueStats.estimatedRevenue,
+                } : null,
+                dashboardStats: stats ? {
+                  totalRevenue: stats.totalRevenue,
+                  estimatedRevenue: stats.estimatedRevenue,
+                  totalPurchases: stats.totalPurchases,
+                  totalProducts: stats.totalProducts,
+                  totalEvents: stats.totalEvents,
+                } : null,
+                productAnalyticsRaw: productAnalytics ? {
+                  totalPurchases: (productAnalytics as Record<string, unknown>).totalPurchases,
+                  grossTotalRevenue: (productAnalytics as Record<string, unknown>).grossTotalRevenue,
+                  productCount: Array.isArray((productAnalytics as Record<string, unknown>).products) 
+                    ? ((productAnalytics as Record<string, unknown>).products as unknown[]).length 
+                    : 0,
+                } : null,
+              }, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
