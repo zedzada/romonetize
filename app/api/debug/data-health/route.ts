@@ -104,12 +104,12 @@ export async function GET(request: Request) {
     const distinctPlayers = distinctPlayerIds.size;
 
     // Specific event type counts - use all purchase event types
-    const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+    const purchaseEventTypes = ["purchase_success", "devproduct_purchase", "gamepass_purchase"];
     const { count: purchaseSuccessCount } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId)
-      .in("event_type", purchaseTypes);
+      .in("event_type", purchaseEventTypes);
 
     const { count: playerJoinCount } = await supabase
       .from("events")
@@ -182,7 +182,7 @@ export async function GET(request: Request) {
       .from("events")
       .select("created_at")
       .eq("game_id", gameId)
-      .eq("event_type", "purchase_success")
+      .in("event_type", purchaseEventTypes)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
