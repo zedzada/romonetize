@@ -300,18 +300,13 @@ local function sendCCUHeartbeat()
     end
 end
 
--- Start CCU heartbeat loop (every 60 seconds)
+-- Start CCU heartbeat loop (initial after 5 seconds, then every 60 seconds)
 task.spawn(function()
+    task.wait(5)
     while true do
-        -- Wait first to allow server to initialize
-        task.wait(60)
         sendCCUHeartbeat()
+        task.wait(60)
     end
-end)
-
--- Send initial heartbeat after 5 seconds (allow players to join)
-task.delay(5, function()
-    sendCCUHeartbeat()
 end)
 
 print("[RoMonetize] Tracking script loaded successfully!")
