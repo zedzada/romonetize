@@ -655,6 +655,9 @@ function MonetizationContent() {
     );
   }
 
+  // Use shared aggregation to determine if we have purchase data
+  // This ensures chart empty state matches card data (same source of truth)
+  const hasPurchaseData = summaryStats.totalPurchases > 0;
   const hasChartData = processedChartData.length > 0;
   const hasCurrentModeData = modeConfig.revenue > 0;
 
@@ -818,7 +821,10 @@ function MonetizationContent() {
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              {summaryStats.payingUsers} / {summaryStats.uniqueActiveUsers} users
+              {summaryStats.uniqueActiveUsers > 0 
+                ? `${summaryStats.payingUsers} / ${summaryStats.uniqueActiveUsers} users`
+                : "Requires active player tracking"
+              }
             </p>
           </CardContent>
         </Card>
@@ -865,7 +871,7 @@ function MonetizationContent() {
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Requires DAU tracking</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Requires active player history</p>
           </CardContent>
         </Card>
       </div>
@@ -974,24 +980,24 @@ function MonetizationContent() {
             </div>
           </div>
         </CardHeader>
-        <CardContent className="pt-2">
-          {!hasTrackerData ? (
-            <div className="h-[350px] flex flex-col items-center justify-center text-center">
-              <Activity className="w-12 h-12 text-muted-foreground mb-4" />
-              <p className="text-base font-medium text-foreground mb-1">No purchases tracked yet</p>
-              <p className="text-sm text-muted-foreground max-w-md">
-                Install the tracking script and make a purchase to see revenue data here.
-              </p>
-            </div>
-          ) : !hasChartData ? (
-            <div className="h-[350px] flex flex-col items-center justify-center text-center">
-              <Activity className="w-12 h-12 text-muted-foreground mb-4" />
-              <p className="text-base font-medium text-foreground mb-1">No purchases tracked yet</p>
-              <p className="text-sm text-muted-foreground max-w-md">
-                No purchases in the selected period. Try a different time range or wait for new purchases.
-              </p>
-            </div>
-          ) : (
+<CardContent className="pt-2">
+  {!hasPurchaseData ? (
+  <div className="h-[350px] flex flex-col items-center justify-center text-center">
+  <Activity className="w-12 h-12 text-muted-foreground mb-4" />
+  <p className="text-base font-medium text-foreground mb-1">No purchases tracked yet</p>
+  <p className="text-sm text-muted-foreground max-w-md">
+  Install the tracking script and make a purchase to see revenue data here.
+  </p>
+  </div>
+  ) : !hasChartData ? (
+  <div className="h-[350px] flex flex-col items-center justify-center text-center">
+  <Activity className="w-12 h-12 text-muted-foreground mb-4" />
+  <p className="text-base font-medium text-foreground mb-1">Loading chart data...</p>
+  <p className="text-sm text-muted-foreground max-w-md">
+  {summaryStats.totalPurchases} purchases tracked. Chart data is loading.
+  </p>
+  </div>
+  ) : (
             <>
               {/* Summary stats for selected mode */}
               <div className="flex items-center justify-center gap-6 mb-4 text-center">
@@ -1259,7 +1265,7 @@ function MonetizationContent() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>
@@ -1313,7 +1319,7 @@ function MonetizationContent() {
                 </div>
               ) : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>
@@ -1390,7 +1396,7 @@ function MonetizationContent() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>
@@ -1468,7 +1474,7 @@ function MonetizationContent() {
                 );
               })() : (
                 <div className="h-[220px] flex items-center justify-center">
-                  <p className="text-sm text-muted-foreground">No purchases tracked yet</p>
+                  <p className="text-sm text-muted-foreground">{hasPurchaseData ? "Loading chart..." : "No purchases tracked yet"}</p>
                 </div>
               )}
             </CardContent>
@@ -1554,38 +1560,44 @@ function MonetizationContent() {
                 </pre>
               </div>
               
-              {/* Shared Aggregation Stats (SINGLE SOURCE OF TRUTH) */}
+              {/* Unified Metrics (per spec) */}
               <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <h4 className="font-medium text-sm mb-2 text-emerald-700 dark:text-emerald-400">
-                  Shared Aggregation (Same as Products Page)
+                  Unified Metrics (Same Source for Cards &amp; Charts)
                 </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
 {JSON.stringify({
-  chartRange,
-  selectedGameName,
-  revenueDisplayMode,
-  sameHelperUsed: true,
-  productAnalytics: {
-    grossTotalRevenue: productAnalytics?.grossTotalRevenue ?? null,
-    estimatedTotalRevenue: productAnalytics?.estimatedTotalRevenue ?? null,
-    totalPurchases: productAnalytics?.totalPurchases ?? null,
-    totalBuyers: productAnalytics?.totalBuyers ?? null,
-    aggregationSource: productAnalytics?.aggregationSource ?? "unknown",
-    productsCount: productAnalytics?.products?.length ?? 0,
-  },
-  summaryStats,
-  calculatedMetrics: {
-    PCR: pcr,
-    grossARPPU: grossArppu,
-    estimatedARPPU: estimatedArppu,
-    displayArppu,
-    displayRevenue,
-  },
-  trackerStats: {
-    uniquePlayers: trackerStats?.uniquePlayers ?? null,
-  },
-  hasTrackerData,
-  error,
+  range: chartRange,
+  revenueMode: revenueDisplayMode,
+  cardPurchases: summaryStats.totalPurchases,
+  cardRevenue: displayRevenue,
+  chartPurchases: chartTotals.purchases,
+  chartRevenue: chartTotals.total,
+  bucketCount: processedChartData.length,
+  activeUsers: summaryStats.uniqueActiveUsers,
+  payingUsers: summaryStats.payingUsers,
+  pcr: pcr,
+  samePurchaseSourceForCardsAndChart: true,
+  hasPurchaseData,
+  hasChartData,
+}, null, 2)}
+                </pre>
+              </div>
+
+              {/* Shared Aggregation Details */}
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/30">
+                <h4 className="font-medium text-sm mb-2 text-blue-700 dark:text-blue-400">
+                  productAnalytics (Same as Products Page)
+                </h4>
+                <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
+{JSON.stringify({
+  grossTotalRevenue: productAnalytics?.grossTotalRevenue ?? null,
+  estimatedTotalRevenue: productAnalytics?.estimatedTotalRevenue ?? null,
+  totalPurchases: productAnalytics?.totalPurchases ?? null,
+  totalBuyers: productAnalytics?.totalBuyers ?? null,
+  aggregationSource: productAnalytics?.aggregationSource ?? "unknown",
+  productsCount: productAnalytics?.products?.length ?? 0,
+  selectedRange: productAnalytics?.selectedRange ?? null,
 }, null, 2)}
                 </pre>
               </div>
