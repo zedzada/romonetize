@@ -939,15 +939,66 @@ export async function GET(request: NextRequest) {
   }
 
   // === MINUTE-LEVEL MONETIZATION CHART DATA ===
-  // Note: We're not building minute-level data anymore to avoid heavy fetch
-  // The hourlyMonetization chart is sufficient for most use cases
+  // Build from purchaseEvents (same source as hourlyMonetization fallback).
+  // Groups purchases into 1-minute buckets for 1H/6H chart display.
   const minuteMonetization: Array<{
     time: string;
     totalRevenue: number;
     devproductRevenue: number;
     gamepassRevenue: number;
     purchases: number;
-  }> = []; // Empty - would require separate SQL RPC for minute-level aggregation
+    gamepassPurchases: number;
+    devproductPurchases: number;
+  }> = [];
+
+  if (purchaseEvents.length > 0) {
+    const minuteBuckets = new Map<string, {
+      total: number; devproduct: number; gamepass: number;
+      purchases: number; gamepassPurchases: number; devproductPurchases: number;
+    }>();
+
+    // Normalize product type helper (same logic as hourly fallback)
+    const normPType = (eventType: string, productType: string | null, metadata: Record<string, unknown> | null): "gamepass" | "devproduct" | "unknown" => {
+      if (eventType === "gamepass_purchase") return "gamepass";
+      if (eventType === "devproduct_purchase") return "devproduct";
+      const pt = (productType || (metadata?.product_type as string) || "").toLowerCase();
+      if (["gamepass", "game_pass", "pass"].includes(pt)) return "gamepass";
+      if (["devproduct", "dev_product", "developer_product"].includes(pt)) return "devproduct";
+      return "unknown";
+    };
+
+    purchaseEvents.forEach((e) => {
+      // Bucket key = ISO string truncated to minute precision
+      const minuteKey = new Date(e.created_at).toISOString().slice(0, 16) + ":00.000Z";
+      const bucket = minuteBuckets.get(minuteKey) || {
+        total: 0, devproduct: 0, gamepass: 0, purchases: 0,
+        gamepassPurchases: 0, devproductPurchases: 0,
+      };
+
+      const robux = getEventRobux(e);
+      const pType = normPType(e.event_type, e.product_type, e.metadata);
+
+      bucket.total += robux;
+      bucket.purchases += 1;
+      if (pType === "gamepass") { bucket.gamepass += robux; bucket.gamepassPurchases += 1; }
+      else if (pType === "devproduct") { bucket.devproduct += robux; bucket.devproductPurchases += 1; }
+      minuteBuckets.set(minuteKey, bucket);
+    });
+
+    Array.from(minuteBuckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([time, data]) => {
+        minuteMonetization.push({
+          time,
+          totalRevenue: data.total,
+          devproductRevenue: data.devproduct,
+          gamepassRevenue: data.gamepass,
+          purchases: data.purchases,
+          gamepassPurchases: data.gamepassPurchases,
+          devproductPurchases: data.devproductPurchases,
+        });
+      });
+  }
 
   // === SESSION DURATION ===
   // Calculate avg session duration from session_end metadata OR paired start/end events
