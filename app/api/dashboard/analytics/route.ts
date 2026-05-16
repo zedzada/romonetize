@@ -837,7 +837,7 @@ export async function GET(request: NextRequest) {
           .lt("created_at", returnEnd.toISOString());
 
         const returnedPlayers = new Set<string>();
-        (returnVisits || []).forEach((e) => {
+        (returnVisits || []).forEach((e: { player_id: string | null }) => {
           if (e.player_id && cohortPlayers.has(e.player_id)) {
             returnedPlayers.add(e.player_id);
           }
@@ -953,7 +953,7 @@ export async function GET(request: NextRequest) {
       .select("roblox_product_id, name, product_type, price_robux")
       .eq("game_id", gameId);
     
-    (robloxProducts || []).forEach((p) => {
+    (robloxProducts || []).forEach((p: { roblox_product_id: string; name: string; product_type: string; price_robux: number | null }) => {
       robloxProductsMap.set(String(p.roblox_product_id), {
         name: p.name,
         type: p.product_type,
@@ -1046,10 +1046,10 @@ export async function GET(request: NextRequest) {
 
     if (activeServers && activeServers.length > 0) {
       // Sum CCU across all active servers for total CCU
-      const trackerCcu = activeServers.reduce((sum, s) => sum + (s.ccu || 0), 0);
+      const trackerCcu = activeServers.reduce((sum: number, s: { ccu: number | null }) => sum + (s.ccu || 0), 0);
       ccuStats.current = trackerCcu;
       ccuStats.source = "romonetize_tracker";
-    } else if (robloxStats?.ccu !== null) {
+    } else if (robloxStats && robloxStats.ccu !== null) {
       // FALLBACK: Use Roblox API CCU
       ccuStats.current = robloxStats.ccu;
       ccuStats.source = "roblox_api";
@@ -1064,7 +1064,7 @@ export async function GET(request: NextRequest) {
       .order("captured_at", { ascending: true, nullsFirst: false });
 
     if (ccuSnapshots && ccuSnapshots.length > 0) {
-      ccuStats.snapshots = ccuSnapshots.map((s) => ({
+      ccuStats.snapshots = ccuSnapshots.map((s: { ccu: number; captured_at: string | null; created_at: string }) => ({
         time: s.captured_at || s.created_at,
         ccu: s.ccu,
       }));
@@ -1072,8 +1072,8 @@ export async function GET(request: NextRequest) {
       if (ccuStats.current === null) {
         ccuStats.current = ccuSnapshots[ccuSnapshots.length - 1].ccu;
       }
-      ccuStats.peak = Math.max(...ccuSnapshots.map((s) => s.ccu));
-      ccuStats.avg = Math.round(ccuSnapshots.reduce((sum, s) => sum + s.ccu, 0) / ccuSnapshots.length);
+      ccuStats.peak = Math.max(...ccuSnapshots.map((s: { ccu: number }) => s.ccu));
+      ccuStats.avg = Math.round(ccuSnapshots.reduce((sum: number, s: { ccu: number }) => sum + s.ccu, 0) / ccuSnapshots.length);
     } else {
       ccuStats.message = "CCU chart will appear after the first sync";
     }
@@ -1129,8 +1129,8 @@ let ccuHistory: {
     
     if (ccuSnapshotsData && ccuSnapshotsData.length > 0) {
       ccuHistory.rawSnapshots = ccuSnapshotsData
-        .filter((snap) => snap.ccu !== null)
-        .map((snap) => ({
+        .filter((snap: { ccu: number | null }) => snap.ccu !== null)
+        .map((snap: { captured_at: string | null; created_at: string; ccu: number; source: string | null }) => ({
           time: snap.captured_at || snap.created_at,
           ccu: snap.ccu as number,
           source: snap.source || "unknown",
@@ -1152,8 +1152,8 @@ let ccuHistory: {
       
       if (syncSnapshots && syncSnapshots.length > 0) {
         ccuHistory.rawSnapshots = syncSnapshots
-          .filter((snap) => snap.ccu !== null)
-          .map((snap) => ({
+          .filter((snap: { ccu: number | null }) => snap.ccu !== null)
+          .map((snap: { synced_at: string; ccu: number }) => ({
             time: snap.synced_at,
             ccu: snap.ccu as number,
             source: "roblox_game_syncs",
@@ -1179,8 +1179,8 @@ let ccuHistory: {
     // Find latest snapshot overall
     const latestSnapshot = cronSnapshots?.[0];
     // Find latest cron vs browser snapshot
-    const latestCronSnapshot = cronSnapshots?.find(s => s.source === "vercel_cron");
-    const latestBrowserSnapshot = cronSnapshots?.find(s => s.source !== "vercel_cron" && s.source !== null);
+    const latestCronSnapshot = cronSnapshots?.find((s: { source: string | null }) => s.source === "vercel_cron");
+    const latestBrowserSnapshot = cronSnapshots?.find((s: { source: string | null }) => s.source !== "vercel_cron" && s.source !== null);
     
     // Calculate minutes since latest snapshot
     const latestSnapshotAt = latestSnapshot?.captured_at ? new Date(latestSnapshot.captured_at) : null;
@@ -1247,7 +1247,16 @@ let ccuHistory: {
       .order("synced_at", { ascending: false });
 
     if (robloxProducts) {
-      syncedProducts = robloxProducts.map(p => ({
+      syncedProducts = robloxProducts.map((p: {
+        id: string;
+        roblox_product_id: string;
+        name: string;
+        product_type: string;
+        price_robux: number | null;
+        is_for_sale: boolean | null;
+        icon_url: string | null;
+        synced_at: string;
+      }) => ({
         id: p.id,
         robloxProductId: p.roblox_product_id,
         name: p.name,
@@ -1465,7 +1474,8 @@ trackerStats: hasTrackerEvents ? {
   rangeEnd: now.toISOString(),
   // For free users, null out purchases
   totalPurchases: monetizationLocked ? null : (totalPurchases || 0),
-  lastEventTime: latestEventAt || (allEvents.length > 0 ? allEvents[allEvents.length - 1].created_at : null),
+  // Use purchaseEvents or sessionEvents for last event time (since allEvents is empty now)
+  lastEventTime: latestEventAt || (purchaseEvents.length > 0 ? purchaseEvents[purchaseEvents.length - 1].created_at : (sessionEvents.length > 0 ? sessionEvents[sessionEvents.length - 1].created_at : null)),
   // Debug info for returning users calculation (included in response for debug panel)
   _debug: {
     distinctPlayersAllTime: playerDistinctHours.size,
