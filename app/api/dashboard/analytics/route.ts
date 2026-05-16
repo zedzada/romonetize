@@ -626,11 +626,13 @@ export async function GET(request: NextRequest) {
     return Number(topLevelRobux ?? metadataRobux ?? 0);
   };
 
-  // === 72h REVENUE (using SQL RPC v2 with product type breakdown) ===
-  const now72h = new Date();
-  const start72h = new Date(now72h.getTime() - 72 * 60 * 60 * 1000);
+  // === RANGE-BASED REVENUE (using SQL RPC v2 with product type breakdown) ===
+  // Use the full selected range (startDate to now) so chart covers 7d/28d/90d etc.
+  const rangeNow = new Date();
+  const rangeStart = startDate; // Already calculated from getRangeConfig above
+  const rangeHours = Math.ceil((rangeNow.getTime() - rangeStart.getTime()) / (60 * 60 * 1000));
   
-  // Use SQL RPC v2 for 72h hourly revenue aggregation with product type breakdown
+  // Use SQL RPC v2 for hourly revenue aggregation with product type breakdown
   let revenue72h = 0;
   let purchases72hCount = 0;
   let gamepassRevenue72h = 0;
@@ -650,14 +652,14 @@ export async function GET(request: NextRequest) {
   try {
     const { data: hourlyData, error: hourlyError } = await supabase.rpc("aggregate_hourly_revenue_v2", {
       p_game_id: gameId,
-      p_range_start: start72h.toISOString(),
-      p_range_end: now72h.toISOString(),
+      p_range_start: rangeStart.toISOString(),
+      p_range_end: rangeNow.toISOString(),
     });
     
     if (hourlyError) {
       sectionErrors.hourlyRevenue = hourlyError.message;
     } else if (hourlyData) {
-      // Build hourly buckets map (initialize all 72 hours with zeros)
+      // Build hourly buckets map (initialize all hours in range with zeros)
       const hourlyBuckets = new Map<string, { 
         total: number; 
         devproduct: number; 
@@ -666,8 +668,8 @@ export async function GET(request: NextRequest) {
         gamepassPurchases: number;
         devproductPurchases: number;
       }>();
-      for (let i = 0; i < 72; i++) {
-        const bucketTime = new Date(now72h.getTime() - i * 60 * 60 * 1000);
+      for (let i = 0; i < rangeHours; i++) {
+        const bucketTime = new Date(rangeNow.getTime() - i * 60 * 60 * 1000);
         const bucketKey = bucketTime.toISOString().slice(0, 13) + ":00:00.000Z";
         hourlyBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0, gamepassPurchases: 0, devproductPurchases: 0 });
       }
