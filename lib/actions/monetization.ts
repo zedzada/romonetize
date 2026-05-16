@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getSelectedGameId } from "./analytics";
+import { calculatePeriodMetrics, calculateDailyMetrics, type EventWithMetrics } from "@/lib/metrics/arppu-arpdau";
 
 export interface MonetizationStats {
   totalRevenue: number;
@@ -188,33 +189,23 @@ export async function getMonetizationStats(gameId?: string): Promise<{
   // Payer conversion rate
   const payerConversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : 0;
 
-  // ARPPU (Average Revenue Per Paying User) = Revenue / Distinct Paying Users
-  const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
-
-  // Calculate Average DAU for ARPDAU
-  // Group all events by day and count distinct players per day
-  const dailyActivePlayers = new Map<string, Set<string>>();
-  events.forEach((e) => {
-    if (!e.player_id || !e.created_at) return;
-    const day = new Date(e.created_at).toISOString().slice(0, 10); // YYYY-MM-DD
-    if (!dailyActivePlayers.has(day)) {
-      dailyActivePlayers.set(day, new Set());
-    }
-    dailyActivePlayers.get(day)!.add(e.player_id);
-  });
+  // Use shared helper for consistent ARPPU/ARPDAU calculations
+  // Convert events to the format expected by the helper
+  const allEventsForMetrics: EventWithMetrics[] = events.map(e => ({
+    player_id: e.player_id,
+    created_at: e.created_at,
+    event_type: e.event_type,
+  }));
+  const purchaseEventsForMetrics: EventWithMetrics[] = purchases.map(e => ({
+    player_id: e.player_id,
+    created_at: e.created_at,
+    event_type: e.event_type,
+    robux: e.robux,
+  }));
   
-  // Calculate average daily active users
-  const daysWithData = dailyActivePlayers.size;
-  let averageDau = 0;
-  if (daysWithData > 0) {
-    const totalDailyPlayers = Array.from(dailyActivePlayers.values())
-      .reduce((sum, players) => sum + players.size, 0);
-    averageDau = totalDailyPlayers / daysWithData;
-  }
-
-  // ARPDAU (Average Revenue Per Daily Active User) = Revenue / Average DAU
-  // For ranges < 24h, use total unique players in the period as DAU proxy
-  const arpdau = averageDau > 0 ? totalRevenue / averageDau : 0;
+  const periodMetrics = calculatePeriodMetrics(allEventsForMetrics, purchaseEventsForMetrics);
+  const arppu = periodMetrics.periodArppu;
+  const arpdau = periodMetrics.periodArpdau;
 
   // Hourly revenue (last 72 hours)
   const now = new Date();
@@ -275,45 +266,31 @@ export async function getMonetizationStats(gameId?: string): Promise<{
     { name: "Dev Products", value: devProductsRevenue, color: "#22c55e" },
   ];
 
-  // Daily metrics for charts
+  // Daily metrics for charts using shared helper
+  const dailyMetricsData = calculateDailyMetrics(allEventsForMetrics, purchaseEventsForMetrics, 28);
+  
   const payingUsersOverTime: DailyMetric[] = [];
   const conversionOverTime: DailyMetric[] = [];
   const arppuOverTime: DailyMetric[] = [];
   const arpdauOverTime: DailyMetric[] = [];
 
-  for (let i = 27; i >= 0; i--) {
-    const dayStart = new Date(now);
-    dayStart.setDate(dayStart.getDate() - i);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart);
-    dayEnd.setDate(dayEnd.getDate() + 1);
-    const dateStr = dayStart.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  for (const day of dailyMetricsData) {
+    const dateStr = new Date(day.date).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 
-    const dayAllEvents = events.filter((e) => {
-      const eventTime = new Date(e.created_at);
-      return eventTime >= dayStart && eventTime < dayEnd;
-    });
-
-    const dayPurchasesForMetrics = purchases.filter((e) => {
-      const eventTime = new Date(e.created_at);
-      return eventTime >= dayStart && eventTime < dayEnd;
-    });
-    const dayPayingUsers = new Set(dayPurchasesForMetrics.map((e) => e.player_id).filter(Boolean)).size;
-    const dayUniquePlayers = new Set(dayAllEvents.map((e) => e.player_id).filter(Boolean)).size;
-    const dayRevenue = dayPurchasesForMetrics.reduce((sum, e) => sum + (e.robux || 0), 0);
-
-    payingUsersOverTime.push({ date: dateStr, value: dayPayingUsers });
+    payingUsersOverTime.push({ date: dateStr, value: day.payingUsers });
     conversionOverTime.push({
       date: dateStr,
-      value: dayUniquePlayers > 0 ? (dayPayingUsers / dayUniquePlayers) * 100 : 0,
+      value: day.activeUsers > 0 ? (day.payingUsers / day.activeUsers) * 100 : 0,
     });
+    // Daily ARPPU: value is 0 if no paying users (chart shows 0, not null)
     arppuOverTime.push({
       date: dateStr,
-      value: dayPayingUsers > 0 ? dayRevenue / dayPayingUsers : 0,
+      value: day.arppu ?? 0,
     });
+    // Daily ARPDAU: value is 0 if no active users (chart shows 0, not null)
     arpdauOverTime.push({
       date: dateStr,
-      value: dayUniquePlayers > 0 ? dayRevenue / dayUniquePlayers : 0,
+      value: day.arpdau ?? 0,
     });
   }
 

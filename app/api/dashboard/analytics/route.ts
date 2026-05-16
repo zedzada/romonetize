@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getRobloxGameStats } from "@/lib/services/roblox-api";
 import { getSelectedGameForUser, getAllGamesForUser, type GameSummary } from "@/lib/server/selected-game";
+import { calculatePeriodMetrics, type EventWithMetrics } from "@/lib/metrics/arppu-arpdau";
 
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
@@ -891,33 +892,29 @@ export async function GET(request: NextRequest) {
     .filter((e) => e.product_type === "devproduct" || e.event_type === "devproduct_purchase")
     .reduce((sum, e) => sum + getEventRobux(e), 0);
 
-  // Calculate Average DAU for ARPDAU
-  // Group all events by day and count distinct players per day
-  const dailyActivePlayers = new Map<string, Set<string>>();
-  allEvents.forEach((e) => {
-    if (!e.player_id || !e.created_at) return;
-    const day = e.created_at.slice(0, 10); // YYYY-MM-DD
-    if (!dailyActivePlayers.has(day)) {
-      dailyActivePlayers.set(day, new Set());
-    }
-    dailyActivePlayers.get(day)!.add(e.player_id);
-  });
+  // Use shared helper for consistent ARPPU/ARPDAU calculations
+  // Convert events to the format expected by the helper
+  const allEventsForMetrics: EventWithMetrics[] = allEvents.map(e => ({
+    player_id: e.player_id,
+    created_at: e.created_at,
+    event_type: e.event_type,
+  }));
+  const purchaseEventsForMetrics: EventWithMetrics[] = purchaseEvents.map(e => ({
+    player_id: e.player_id,
+    created_at: e.created_at,
+    event_type: e.event_type,
+    robux: getEventRobux(e),
+  }));
   
-  // Calculate average daily active users
-  const daysWithData = dailyActivePlayers.size;
-  let averageDau = 0;
-  if (daysWithData > 0) {
-    const totalDailyPlayers = Array.from(dailyActivePlayers.values())
-      .reduce((sum, players) => sum + players.size, 0);
-    averageDau = totalDailyPlayers / daysWithData;
-  }
-
-  // ARPPU = Revenue / Paying Users (distinct players who made purchases)
-  const arppu = payingUsers > 0 ? totalRevenue / payingUsers : 0;
+  const periodMetrics = calculatePeriodMetrics(allEventsForMetrics, purchaseEventsForMetrics);
   
-  // ARPDAU = Revenue / Average Daily Active Users
-  // For ranges < 24h, use total unique players in the period as DAU proxy
-  const arpdau = averageDau > 0 ? totalRevenue / averageDau : 0;
+  // ARPPU = Revenue / Paying Users (from shared helper)
+  const arppu = periodMetrics.periodArppu;
+  
+  // ARPDAU = Revenue / Average Daily Active Users (from shared helper)
+  const arpdau = periodMetrics.periodArpdau;
+  const averageDau = periodMetrics.averageDau;
+  const daysWithData = periodMetrics.daysWithData;
   
   const conversionRate = uniquePlayers > 0 ? (payingUsers / uniquePlayers) * 100 : null;
   const purchaseRate = uniquePlayers > 0 ? (totalPurchases / uniquePlayers) * 100 : null;

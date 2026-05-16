@@ -452,6 +452,11 @@ When analyzing images (UI screenshots, shop layouts, game screenshots):
 Format responses with clear headings, bullet points, and readable spacing. Be concise but actionable.
 
 IMPORTANT: Revenue numbers are estimates from RoMonetize tracker data and may differ from official Roblox reports. Never claim exact official Roblox revenue unless it is explicitly from Roblox official data. Always refer to revenue as "estimated" or "approximate" when discussing monetization metrics.
+
+Metric formulas (all use period totals, not daily averages):
+- ARPPU (Average Revenue Per Paying User) = Total Revenue in Period / Distinct Paying Users in Period
+- ARPDAU (Average Revenue Per Daily Active User) = Total Revenue in Period / Average DAU in Period
+- Average DAU = sum of (distinct players per day) / number of days with activity
 `;
 
     if (analyticsContext.hasData) {

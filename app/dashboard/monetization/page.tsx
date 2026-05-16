@@ -728,8 +728,8 @@ export default function MonetizationPage() {
                 formatRobux(displayArppu)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1" title="Revenue divided by unique paying users in the selected period.">
-              Revenue / Unique Paying Users
+            <p className="text-[10px] text-muted-foreground mt-1" title="Total revenue in period divided by distinct paying users in period. Period ARPPU = totalRevenue / distinctPayingUsers">
+              Period Revenue / Paying Users
             </p>
           </CardContent>
         </Card>
@@ -749,8 +749,8 @@ export default function MonetizationPage() {
                 formatRobux(displayArpdau)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1" title="Revenue divided by average daily active users in the selected period.">
-              Revenue / Avg. Daily Active Users
+            <p className="text-[10px] text-muted-foreground mt-1" title="Total revenue in period divided by average daily active users. Period ARPDAU = totalRevenue / avgDAU">
+              Period Revenue / Avg. DAU
             </p>
           </CardContent>
         </Card>
@@ -1372,8 +1372,8 @@ export default function MonetizationPage() {
                 <li>• Estimated Revenue (70% of gross, after Roblox fee)</li>
                 <li>• Purchases (count of tracked purchases)</li>
                 <li>• Paying Users (distinct player_id from purchases)</li>
-                <li>• Est. ARPPU (estimated revenue / unique paying users)</li>
-                <li>• Est. ARPDAU (estimated revenue / average daily active users)</li>
+                <li>• Est. ARPPU (period revenue / distinct paying users in period)</li>
+                <li>• Est. ARPDAU (period revenue / average daily active users in period)</li>
               </ul>
             </div>
 
