@@ -21,6 +21,7 @@ import {
   Clock,
   HelpCircle,
   Radio,
+  Percent,
   Eye,
   Copy,
 } from "lucide-react";
@@ -1010,10 +1011,10 @@ export default function DashboardPage() {
                   totalEvents: stats.totalEvents,
                 } : null,
                 productAnalyticsRaw: productAnalytics ? {
-                  totalPurchases: (productAnalytics as Record<string, unknown>).totalPurchases,
-                  grossTotalRevenue: (productAnalytics as Record<string, unknown>).grossTotalRevenue,
-                  productCount: Array.isArray((productAnalytics as Record<string, unknown>).products) 
-                    ? ((productAnalytics as Record<string, unknown>).products as unknown[]).length 
+                  totalPurchases: (productAnalytics as unknown as Record<string, unknown>).totalPurchases,
+                  grossTotalRevenue: (productAnalytics as unknown as Record<string, unknown>).grossTotalRevenue,
+                  productCount: Array.isArray((productAnalytics as unknown as Record<string, unknown>).products) 
+                    ? ((productAnalytics as unknown as Record<string, unknown>).products as unknown[]).length 
                     : 0,
                 } : null,
               }, null, 2)}
