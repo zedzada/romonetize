@@ -354,43 +354,16 @@ function MonetizationContent() {
     fetchDebugData();
   }, [debugMode]);
 
-  // === SINGLE SOURCE OF TRUTH: Use productAnalytics (same as Products page) ===
-  // This ensures Monetization shows EXACT SAME data as Products page
-  
-  // Revenue and purchase stats from shared helper (single source of truth)
+  // === SINGLE SOURCE OF TRUTH: Use productAnalytics for API-range totals ===
+  // But for DISPLAY, cards will use chartTotals (same range as chart) below.
+  // sharedMetrics is kept for payingUsers/uniqueActivePlayers (not available in hourly buckets)
   const sharedMetrics = getProductPurchaseMetrics({
     productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
     revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
   });
   
-  const summaryStats = {
-    grossRevenue: sharedMetrics.grossTotalRevenue,
-    estimatedRevenue: sharedMetrics.estimatedTotalRevenue,
-    totalPurchases: sharedMetrics.totalPurchases,
-    payingUsers: sharedMetrics.totalBuyers,
-    uniqueActiveUsers: sharedMetrics.uniqueActivePlayers,
-  };
-  
-  // Metrics calculated from shared aggregation
-  const pcr = summaryStats.uniqueActiveUsers > 0
-    ? (summaryStats.payingUsers / summaryStats.uniqueActiveUsers) * 100
-    : null;
-  const grossArppu = summaryStats.payingUsers > 0
-    ? summaryStats.grossRevenue / summaryStats.payingUsers
-    : null;
-  const estimatedArppu = summaryStats.payingUsers > 0
-    ? summaryStats.estimatedRevenue / summaryStats.payingUsers
-    : null;
-  // ARPDAU would need DAU (daily unique users) - for now use null
-  const grossArpdau: number | null = null;
-  const estimatedArpdau: number | null = null;
-  
-  // Display values based on toggle (use shared aggregation data)
-  const displayRevenue = revenueDisplayMode === "gross" 
-    ? summaryStats.grossRevenue 
-    : summaryStats.estimatedRevenue;
-  const displayArppu = revenueDisplayMode === "gross" ? grossArppu : estimatedArppu;
-  const displayArpdau = revenueDisplayMode === "gross" ? grossArpdau : estimatedArpdau;
+  // NOTE: summaryStats, pcr, arppu, displayRevenue are computed BELOW chartTotals
+  // so that cards and chart use the SAME range-filtered data.
 
   // Process chart data based on selected range, interval, and display mode
   const processedChartData = useMemo(() => {
@@ -457,25 +430,31 @@ function MonetizationContent() {
 
     // === HOURLY / DAILY INTERVAL ===
     // hourlyMonetization now covers the full selected range from the API
-    if (!monetizationCharts?.hourlyMonetization?.length) {
-      return [];
-    }
-    
-    const hourlyData = monetizationCharts.hourlyMonetization;
+    const hourlyData = monetizationCharts?.hourlyMonetization ?? [];
     const hoursToShow = getHoursToShow(chartRange);
     const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
-    let filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
+    const filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
 
     // If daily interval, aggregate by day
     if (chartInterval === "daily") {
+      // Generate ALL day buckets in range first (ensures no gaps)
+      const startDay = new Date(cutoffTime);
+      startDay.setUTCHours(0, 0, 0, 0);
+      const endDay = new Date(now);
+      endDay.setUTCHours(0, 0, 0, 0);
+      
       const dailyBuckets = new Map<string, { 
-        total: number; 
-        devproduct: number; 
-        gamepass: number; 
-        purchases: number;
-        gamepassPurchases: number;
-        devproductPurchases: number;
+        total: number; devproduct: number; gamepass: number; purchases: number;
+        gamepassPurchases: number; devproductPurchases: number;
       }>();
+      
+      // Pre-fill all day slots with zeros
+      for (let d = new Date(startDay); d <= endDay; d.setUTCDate(d.getUTCDate() + 1)) {
+        dailyBuckets.set(d.toISOString().slice(0, 10), { 
+          total: 0, devproduct: 0, gamepass: 0, purchases: 0,
+          gamepassPurchases: 0, devproductPurchases: 0,
+        });
+      }
       
       filteredData.forEach((d) => {
         const dayKey = d.time.slice(0, 10);
@@ -483,7 +462,6 @@ function MonetizationContent() {
           total: 0, devproduct: 0, gamepass: 0, purchases: 0, 
           gamepassPurchases: 0, devproductPurchases: 0 
         };
-        // Apply revenue multiplier based on display mode
         existing.total += Math.round(Number(d.totalRevenue ?? 0) * revenueMultiplier);
         existing.devproduct += Math.round(Number(d.devproductRevenue ?? 0) * revenueMultiplier);
         existing.gamepass += Math.round(Number(d.gamepassRevenue ?? 0) * revenueMultiplier);
@@ -506,8 +484,41 @@ function MonetizationContent() {
         }));
     }
 
-    // Normalize all data points to ensure numeric values
-    return filteredData.map(normalizePoint);
+    // Hourly interval: generate all hour buckets in range
+    const hourlyBuckets = new Map<string, {
+      totalRevenue: number; devproductRevenue: number; gamepassRevenue: number;
+      purchases: number; gamepassPurchases: number; devproductPurchases: number;
+    }>();
+    
+    // Pre-fill all hour slots with zeros
+    for (let h = new Date(cutoffTime); h <= now; h = new Date(h.getTime() + 3600000)) {
+      const hourKey = h.toISOString().slice(0, 13) + ":00:00.000Z";
+      hourlyBuckets.set(hourKey, {
+        totalRevenue: 0, devproductRevenue: 0, gamepassRevenue: 0,
+        purchases: 0, gamepassPurchases: 0, devproductPurchases: 0,
+      });
+    }
+    
+    filteredData.forEach((d) => {
+      const hourKey = new Date(d.time).toISOString().slice(0, 13) + ":00:00.000Z";
+      const existing = hourlyBuckets.get(hourKey);
+      if (existing) {
+        const normalized = normalizePoint(d);
+        existing.totalRevenue += normalized.totalRevenue;
+        existing.devproductRevenue += normalized.devproductRevenue;
+        existing.gamepassRevenue += normalized.gamepassRevenue;
+        existing.purchases += normalized.purchases;
+        existing.gamepassPurchases += normalized.gamepassPurchases;
+        existing.devproductPurchases += normalized.devproductPurchases;
+      }
+    });
+    
+    return Array.from(hourlyBuckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([time, data]) => ({
+        time,
+        ...data,
+      }));
   }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode]);
 
   // Calculate totals for current view - use actual purchase counts from API
@@ -535,6 +546,41 @@ function MonetizationContent() {
     );
     return { ...totals, activeBuckets };
   }, [processedChartData, chartMode]);
+
+  // === CARD VALUES: Derived from chartTotals (same range as chart) ===
+  // This ensures cards and chart ALWAYS show the same numbers for the selected range.
+  // payingUsers and uniqueActiveUsers come from sharedMetrics (API doesn't provide per-bucket player IDs).
+  const summaryStats = useMemo(() => {
+    // Revenue from chart totals (already has revenueDisplayMode applied via processedChartData)
+    const grossRevenue = chartTotals.total;
+    // For estimated, chartTotals already has the multiplier applied (0.7x).
+    // For gross, it's 1x. So chartTotals.total IS the display value.
+    const displayRevenue = chartTotals.total;
+    const totalPurchases = chartTotals.purchases;
+    
+    // payingUsers and uniqueActiveUsers are not available per-range in hourly buckets.
+    // Use API-level values (from sharedMetrics) as best approximation.
+    const payingUsers = sharedMetrics.totalBuyers;
+    const uniqueActiveUsers = sharedMetrics.uniqueActivePlayers;
+
+    return {
+      grossRevenue,
+      displayRevenue,
+      totalPurchases,
+      payingUsers,
+      uniqueActiveUsers,
+    };
+  }, [chartTotals, sharedMetrics]);
+
+  // Derived KPI metrics from summaryStats
+  const pcr = summaryStats.uniqueActiveUsers > 0
+    ? (summaryStats.payingUsers / summaryStats.uniqueActiveUsers) * 100
+    : null;
+  const displayArppu = summaryStats.payingUsers > 0 
+    ? summaryStats.displayRevenue / summaryStats.payingUsers 
+    : null;
+  const displayArpdau: number | null = null; // Requires DAU data
+  const displayRevenue = summaryStats.displayRevenue;
 
   // Calculate Y-axis max based on VISIBLE series only
   const yAxisMax = useMemo(() => {
@@ -579,7 +625,7 @@ function MonetizationContent() {
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([date, revenue]) => ({
         date: date + "T00:00:00.000Z",
-        revenue: revenueDisplayMode === "gross" ? revenue : Math.round(revenue * CREATOR_REVENUE_RATE),
+        revenue, // Already has revenueDisplayMode applied from processedChartData
       }));
   }, [processedChartData, revenueDisplayMode]);
 
@@ -602,21 +648,21 @@ function MonetizationContent() {
     return processedChartData.map((p) => ({ date: p.time, purchases: p.purchases }));
   }, [processedChartData, chartRange]);
 
-  // Revenue by Type: derived from chartTotals (same hero chart source)
+  // Revenue by Type: derived from chartTotals (same hero chart source, already has revenue mode)
   const revenueByTypeData = useMemo(() => {
     const data: Array<{ productType: string; revenue: number }> = [];
     if (chartTotals.gamepass > 0) {
-      data.push({ productType: "gamepass", revenue: revenueDisplayMode === "gross" ? chartTotals.gamepass : Math.round(chartTotals.gamepass * CREATOR_REVENUE_RATE) });
+      data.push({ productType: "gamepass", revenue: chartTotals.gamepass });
     }
     if (chartTotals.devproduct > 0) {
-      data.push({ productType: "devproduct", revenue: revenueDisplayMode === "gross" ? chartTotals.devproduct : Math.round(chartTotals.devproduct * CREATOR_REVENUE_RATE) });
+      data.push({ productType: "devproduct", revenue: chartTotals.devproduct });
     }
     // If we have revenue but no type breakdown, show as "Unknown"
     if (data.length === 0 && chartTotals.total > 0) {
-      data.push({ productType: "unknown", revenue: revenueDisplayMode === "gross" ? chartTotals.total : Math.round(chartTotals.total * CREATOR_REVENUE_RATE) });
+      data.push({ productType: "unknown", revenue: chartTotals.total });
     }
     return data;
-  }, [chartTotals, revenueDisplayMode]);
+  }, [chartTotals]);
   
   const modeConfig = useMemo(() => {
     const prefix = revenueDisplayMode === "gross" ? "" : "Est. ";
@@ -1644,33 +1690,31 @@ function MonetizationContent() {
               {/* Unified Metrics (per spec) */}
               <div className="p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/30">
                 <h4 className="font-medium text-sm mb-2 text-emerald-700 dark:text-emerald-400">
-                  Chart Diagnostics
+                  Range &amp; Data Sync
                 </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
 {JSON.stringify({
-  range: chartRange,
+  selectedRange: chartRange,
   rangeStart: (() => {
-    const h = { "1h": 1, "6h": 6, "24h": 24, "72h": 72, "7d": 168, "28d": 672, "90d": 2160 };
+    const h: Record<string, number> = { "1h": 1, "6h": 6, "24h": 24, "72h": 72, "7d": 168, "28d": 672, "90d": 2160 };
     return new Date(Date.now() - (h[chartRange] ?? 672) * 60 * 60 * 1000).toISOString();
   })(),
   rangeEnd: new Date().toISOString(),
-  cardPurchases: summaryStats.totalPurchases,
+  revenueMode: revenueDisplayMode,
   cardRevenue: displayRevenue,
-  chartBucketCount: processedChartData.length,
-  chartPurchasesTotal: chartTotals.purchases,
+  cardPurchases: summaryStats.totalPurchases,
+  cardPayingUsers: summaryStats.payingUsers,
   chartRevenueTotal: chartTotals.total,
+  chartPurchasesTotal: chartTotals.purchases,
+  chartBucketCount: processedChartData.length,
+  chartLoading: isLoading,
+  chartError: error ?? null,
+  sameRangeForCardsAndChart: true,
+  samePurchaseSourceForCardsAndChart: true,
+  cardsRevenue_equals_chartRevenue: displayRevenue === chartTotals.total,
+  cardsPurchases_equals_chartPurchases: summaryStats.totalPurchases === chartTotals.purchases,
   firstBucket: processedChartData[0]?.time ?? null,
   lastBucket: processedChartData[processedChartData.length - 1]?.time ?? null,
-  productTypeCounts: {
-    gamepassRevenue: chartTotals.gamepass,
-    devproductRevenue: chartTotals.devproduct,
-    gamepassPurchases: chartTotals.gamepassPurchases,
-    devproductPurchases: chartTotals.devproductPurchases,
-  },
-  sameSourceAsCards: true,
-  revenueMode: revenueDisplayMode,
-  hasPurchaseData,
-  hasChartData,
   hourlyMonetizationLength: monetizationCharts?.hourlyMonetization?.length ?? 0,
 }, null, 2)}
                 </pre>
@@ -1682,15 +1726,18 @@ function MonetizationContent() {
                   productAnalytics (Card Data Source)
                 </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
-{JSON.stringify({
-  grossTotalRevenue: productAnalytics?.grossTotalRevenue ?? null,
-  estimatedTotalRevenue: productAnalytics?.estimatedTotalRevenue ?? null,
-  totalPurchases: productAnalytics?.totalPurchases ?? null,
-  totalBuyers: productAnalytics?.totalBuyers ?? null,
-  aggregationSource: productAnalytics?.aggregationSource ?? "unknown",
-  productsCount: productAnalytics?.products?.length ?? 0,
-  selectedRange: productAnalytics?.selectedRange ?? null,
-}, null, 2)}
+{JSON.stringify((() => {
+  const pa = productAnalytics as Record<string, unknown> | null;
+  return {
+    grossTotalRevenue: pa?.grossTotalRevenue ?? null,
+    estimatedTotalRevenue: pa?.estimatedTotalRevenue ?? null,
+    totalPurchases: pa?.totalPurchases ?? null,
+    totalBuyers: pa?.totalBuyers ?? null,
+    aggregationSource: pa?.aggregationSource ?? "unknown",
+    productsCount: Array.isArray(pa?.products) ? (pa.products as unknown[]).length : 0,
+    selectedRange: pa?.selectedRange ?? null,
+  };
+})(), null, 2)}
                 </pre>
               </div>
 
