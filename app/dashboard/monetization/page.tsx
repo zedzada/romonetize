@@ -450,7 +450,27 @@ function MonetizationContent() {
     }
 
     // === HOURLY / DAILY INTERVAL ===
-    if (!monetizationCharts?.hourlyMonetization?.length) return [];
+    // If monetizationCharts is unavailable but productAnalytics has data, 
+    // generate a single bucket with totals to prevent "Loading" state
+    if (!monetizationCharts?.hourlyMonetization?.length) {
+      if (productAnalytics && productAnalytics.totalPurchases > 0) {
+        // Create a single "today" bucket with the card totals
+        // This ensures chart shows data when cards have data
+        const grossRevenue = productAnalytics.grossTotalRevenue ?? 0;
+        const estimatedRevenue = productAnalytics.estimatedTotalRevenue ?? 0;
+        const revenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
+        return [{
+          time: new Date().toISOString().slice(0, 10) + "T00:00:00.000Z",
+          totalRevenue: revenue,
+          devproductRevenue: 0, // Not available from productAnalytics summary
+          gamepassRevenue: 0,   // Not available from productAnalytics summary
+          purchases: productAnalytics.totalPurchases ?? 0,
+          gamepassPurchases: 0,
+          devproductPurchases: 0,
+        }];
+      }
+      return [];
+    }
     
     const hourlyData = monetizationCharts.hourlyMonetization;
     const hoursToShow = getHoursToShow(chartRange);
@@ -499,7 +519,7 @@ function MonetizationContent() {
 
     // Normalize all data points to ensure numeric values
     return filteredData.map(normalizePoint);
-  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode]);
+  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode, productAnalytics]);
 
   // Calculate totals for current view - use actual purchase counts from API
   const chartTotals = useMemo(() => {
@@ -732,8 +752,9 @@ function MonetizationContent() {
         </p>
       )}
 
-      {/* Revenue Stats Cards - 4 column grid */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      {/* Monetization Stats Cards - 3x2 grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        {/* 1. Revenue */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -749,20 +770,13 @@ function MonetizationContent() {
                 formatRobux(displayRevenue)
               )}
             </div>
-            {hasTrackerData && displayRevenue > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-1">
-                {revenueDisplayMode === "gross" 
-                  ? `Est: R$${summaryStats.estimatedRevenue?.toLocaleString()}`
-                  : `Gross: R$${summaryStats.grossRevenue?.toLocaleString()}`
-                }
-              </p>
-            )}
             <p className="text-[10px] text-muted-foreground mt-1">
               {chartRange.toUpperCase()} range
             </p>
           </CardContent>
         </Card>
 
+        {/* 2. Purchases */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -777,11 +791,12 @@ function MonetizationContent() {
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              Same as Products page
+              Total transactions
             </p>
           </CardContent>
         </Card>
 
+        {/* 3. Paying Users */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -796,25 +811,22 @@ function MonetizationContent() {
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              Unique buyers ({chartRange.toUpperCase()})
+              Unique buyers
             </p>
           </CardContent>
         </Card>
-      </div>
 
-      {/* PCR / ARPPU / ARPDAU Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {/* PCR - Payer Conversion Rate */}
+        {/* 4. PCR */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
-              <Activity className="w-4 h-4 text-violet-400" />
+              <Activity className="w-4 h-4 text-blue-400" />
               <span className="text-xs text-muted-foreground">PCR</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : pcr != null && pcr > 0 ? (
+              ) : pcr != null ? (
                 `${pcr.toFixed(2)}%`
               ) : (
                 <span className="text-muted-foreground">—</span>
@@ -822,14 +834,14 @@ function MonetizationContent() {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
               {summaryStats.uniqueActiveUsers > 0 
-                ? `${summaryStats.payingUsers} / ${summaryStats.uniqueActiveUsers} users`
+                ? `${summaryStats.payingUsers} / ${summaryStats.uniqueActiveUsers}`
                 : "Requires active player tracking"
               }
             </p>
           </CardContent>
         </Card>
 
-        {/* ARPPU - Average Revenue Per Paying User */}
+        {/* 5. ARPPU */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -841,19 +853,19 @@ function MonetizationContent() {
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : displayArppu != null && displayArppu > 0 ? (
+              ) : displayArppu != null ? (
                 formatRobux(Math.round(displayArppu))
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              R${displayRevenue.toLocaleString()} / {summaryStats.payingUsers} buyers
+              Revenue / Paying users
             </p>
           </CardContent>
         </Card>
 
-        {/* ARPDAU - Average Revenue Per Daily Active User */}
+        {/* 6. ARPDAU */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -865,7 +877,7 @@ function MonetizationContent() {
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : displayArpdau != null && displayArpdau > 0 ? (
+              ) : displayArpdau != null ? (
                 formatRobux(Math.round(displayArpdau))
               ) : (
                 <span className="text-muted-foreground">—</span>
@@ -874,11 +886,6 @@ function MonetizationContent() {
             <p className="text-[10px] text-muted-foreground mt-1">Requires active player history</p>
           </CardContent>
         </Card>
-      </div>
-
-      {/* Relationship note */}
-      <div className="text-[10px] text-muted-foreground text-center px-4 -mt-2">
-        ARPDAU = PCR × ARPPU (using PCR as decimal, e.g. 2.5% = 0.025)
       </div>
 
       {/* Hero Chart: Hourly Revenue / Sales */}
@@ -1567,19 +1574,22 @@ function MonetizationContent() {
                 </h4>
                 <pre className="text-xs bg-muted/30 p-2 rounded border border-border/50 overflow-x-auto whitespace-pre-wrap">
 {JSON.stringify({
+  cardRevenue: displayRevenue,
+  cardPurchases: summaryStats.totalPurchases,
+  chartRevenue: chartTotals.total,
+  chartPurchases: chartTotals.purchases,
+  chartBucketCount: processedChartData.length,
+  chartLoading: isLoading,
+  chartError: error ?? null,
+  sameSourceForCardsAndChart: true,
   range: chartRange,
   revenueMode: revenueDisplayMode,
-  cardPurchases: summaryStats.totalPurchases,
-  cardRevenue: displayRevenue,
-  chartPurchases: chartTotals.purchases,
-  chartRevenue: chartTotals.total,
-  bucketCount: processedChartData.length,
   activeUsers: summaryStats.uniqueActiveUsers,
   payingUsers: summaryStats.payingUsers,
   pcr: pcr,
-  samePurchaseSourceForCardsAndChart: true,
   hasPurchaseData,
   hasChartData,
+  usedFallbackForChart: !monetizationCharts?.hourlyMonetization?.length && !!productAnalytics?.totalPurchases,
 }, null, 2)}
                 </pre>
               </div>
