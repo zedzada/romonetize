@@ -375,14 +375,15 @@ const handleSyncAndRefresh = useCallback(async () => {
     const { rangeMs, bucketMs, bucketType } = getRangeConfig(ccuRange);
     const cutoffTime = new Date(now.getTime() - rangeMs);
     
-    // Empty data case
+  // Empty data case
     if (!rawCcuHistory?.rawSnapshots?.length) {
-      return { 
-        data: [], 
-        currentCcu: rawCcuHistory?.currentCcu ?? null, 
-        peakCcu: null, 
+      return {
+        data: [],
+        currentCcu: rawCcuHistory?.currentCcu ?? null,
+        peakCcu: null,
         avgCcu: null,
         snapshotCount: 0,
+        dominantSource: rawCcuHistory?.source ?? "none",
       };
     }
     
@@ -482,7 +483,23 @@ const handleSyncAndRefresh = useCallback(async () => {
       ? Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length) 
       : null;
     
-    return { data, currentCcu, peakCcu, avgCcu, snapshotCount: data.length };
+    // Determine dominant source from filtered snapshots
+    // Priority: romonetize_tracker > vercel_cron/roblox_api > roblox_game_syncs
+    const sourceCounts = new Map<string, number>();
+    filteredSnapshots.forEach(snap => {
+      const src = snap.source || "unknown";
+      sourceCounts.set(src, (sourceCounts.get(src) || 0) + 1);
+    });
+    const hasTrackerSource = sourceCounts.has("romonetize_tracker");
+    const dominantSource: string = hasTrackerSource
+      ? "romonetize_tracker"
+      : rawCcuHistory?.source === "roblox_game_syncs"
+        ? "roblox_game_syncs"
+        : sourceCounts.size > 0
+          ? Array.from(sourceCounts.entries()).sort((a, b) => b[1] - a[1])[0][0]
+          : "none";
+    
+    return { data, currentCcu, peakCcu, avgCcu, snapshotCount: data.length, dominantSource };
   }, [rawCcuHistory, ccuRange]);
   
   // Filter chart data based on selected range and fill missing buckets up to NOW
@@ -1018,11 +1035,21 @@ const handleSyncAndRefresh = useCallback(async () => {
                 <div className="flex-1">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-lg font-semibold">Live CCU History</CardTitle>
-                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
-                      Roblox API
+                    <Badge variant="secondary" className={`${
+                      processedCcuHistory.dominantSource === "romonetize_tracker"
+                        ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/20"
+                        : "bg-blue-500/10 text-blue-600 border-blue-500/20"
+                    } text-[10px]`}>
+                      {processedCcuHistory.dominantSource === "romonetize_tracker"
+                        ? "RoMonetize Tracker"
+                        : "Roblox API"}
                     </Badge>
                   </div>
-                  <p className="text-sm text-muted-foreground mt-1">Concurrent players tracked from Roblox API snapshots</p>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    {processedCcuHistory.dominantSource === "romonetize_tracker"
+                      ? "Concurrent players tracked from in-game tracker heartbeats"
+                      : "Concurrent players tracked from Roblox API snapshots"}
+                  </p>
                   
                   {/* CCU Summary Stats */}
                   {(processedCcuHistory.currentCcu !== null || processedCcuHistory.peakCcu !== null || processedCcuHistory.avgCcu !== null) && (
@@ -1303,7 +1330,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                         }}
                       />
                       <Area 
-                        type="monotone" 
+                        type="linear" 
                         dataKey="ccu" 
                         stroke="#0ea5e9"
                         strokeWidth={2}
@@ -1311,21 +1338,32 @@ const handleSyncAndRefresh = useCallback(async () => {
                         fillOpacity={0.18}
                         dot={false}
                         activeDot={{ r: 4, fill: "#0ea5e9", strokeWidth: 0 }}
-                        connectNulls={true}
+                        connectNulls={false}
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-center">
                     <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
-                    <h4 className="font-medium text-foreground mb-2">No CCU history yet</h4>
-                    <p className="text-sm text-muted-foreground max-w-md">
-                      Refresh Roblox data to start collecting CCU snapshots. History will build up over time as more snapshots are recorded.
-                    </p>
-                    <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" className="mt-4">
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      Refresh Data
-                    </Button>
+                    {rawCcuHistory?.rawSnapshots?.length ? (
+                      <>
+                        <h4 className="font-medium text-foreground mb-2">No data in selected range</h4>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          {rawCcuHistory.rawSnapshots.length} snapshot{rawCcuHistory.rawSnapshots.length === 1 ? "" : "s"} exist but none fall within the {ccuRange.toUpperCase()} window. Try a wider range.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <h4 className="font-medium text-foreground mb-2">No CCU history yet</h4>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          Refresh Roblox data to start collecting CCU snapshots. History will build up over time as more snapshots are recorded.
+                        </p>
+                        <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" className="mt-4">
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Refresh Data
+                        </Button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -1333,7 +1371,9 @@ const handleSyncAndRefresh = useCallback(async () => {
               {/* Simple helper text */}
               {processedCcuHistory.data.length > 0 && (
                 <p className="mt-2 text-xs text-center text-muted-foreground">
-                  CCU history builds over time as RoMonetize saves Roblox API snapshots.
+                  {processedCcuHistory.dominantSource === "romonetize_tracker"
+                    ? "CCU history from in-game RoMonetize Tracker heartbeats."
+                    : "CCU history builds over time as RoMonetize saves Roblox API snapshots."}
                 </p>
               )}
             </CardContent>
