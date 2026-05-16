@@ -11,6 +11,17 @@ import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 import { useRevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
 import { getProductPurchaseMetrics, CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
+import {
+  RefreshCw,
+  AlertCircle,
+  CheckCircle2,
+  ExternalLink,
+  Package,
+  DollarSign,
+  ShoppingCart,
+  Users,
+  TrendingUp,
+} from "lucide-react";
 
 // formatNumber, formatRobux, formatPercent helpers
 function formatNumber(value: unknown): string {
@@ -239,7 +250,7 @@ export default function ProductsPage() {
             </Link>
           </Button>
         </div>
-      ) : (safeProductStats.totalPurchases ?? 0) === 0 && (
+      ) : sharedMetrics.totalPurchases === 0 && (
         <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
           <AlertCircle className="w-4 h-4 text-blue-600" />
           <span className="text-sm text-blue-700">
@@ -482,22 +493,20 @@ export default function ProductsPage() {
                 </thead>
                 <tbody>
                   {safeSyncedProducts.map((product, index) => {
-                    // Safe field access per spec
-                    const name = product?.name ?? product?.productName ?? "Unnamed product";
-                    const type = product?.productType ?? product?.type ?? "Product";
-                    const price = product?.priceRobux ?? product?.price_robux ?? product?.price ?? null;
-                    const id = product?.robloxProductId ?? product?.roblox_product_id ?? product?.id ?? index;
+                    // Safe field access using SyncedProduct type
+                    const name = product?.name ?? "Unnamed product";
+                    const type = product?.productType ?? "Product";
+                    const price = product?.priceRobux ?? null;
+                    const id = product?.robloxProductId ?? product?.id ?? String(index);
 
-                    // Tracker-based metrics (from productStats.products if available)
-                    const trackerProduct = Array.isArray(safeProductStats.products)
-                      ? safeProductStats.products.find((p: { id?: string }) => p?.id === String(id))
-                      : null;
+                    // Tracker-based metrics (from sharedMetrics.products if available)
+                    const trackerProduct = sharedMetrics.products.find((p) => p.productId === String(id));
                     
                     // Calculate estimated values for tracker product
-                    const grossRevenue = trackerProduct?.revenue ?? 0;
-                    const estimatedRevenue = Math.round(grossRevenue * CREATOR_REVENUE_RATE);
-                    const buyers = trackerProduct?.uniqueBuyers ?? 0;
-                    const estimatedRevPerBuyer = buyers > 0 ? Math.round((grossRevenue * CREATOR_REVENUE_RATE) / buyers) : 0;
+                    const grossRevenue = trackerProduct?.grossRevenue ?? 0;
+                    const estimatedRevenue = trackerProduct?.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+                    const buyers = trackerProduct?.buyers ?? 0;
+                    const estimatedRevPerBuyer = trackerProduct?.revenuePerBuyer ?? (buyers > 0 ? Math.round((grossRevenue * CREATOR_REVENUE_RATE) / buyers) : 0);
 
                     return (
                       <tr key={id} className="border-b border-border/30 hover:bg-muted/40 transition-colors">

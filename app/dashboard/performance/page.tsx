@@ -1158,15 +1158,15 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </div>
                   <div>now: <span className="text-foreground">{rawCcuHistory?.cronStatus?.now ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(String(rawCcuHistory.cronStatus.now))) : "—"}</span></div>
                   <div>latestSnapshotAt: <span className="text-foreground">{rawCcuHistory?.cronStatus?.latestSnapshotAt ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(new Date(String(rawCcuHistory.cronStatus.latestSnapshotAt))) : "none"}</span></div>
-                  <div>minutesSinceLatest: <span className={Number(rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot) > 2 ? "text-yellow-400" : "text-green-400"}>{rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot ?? "—"}</span></div>
-                  <div>snapshotsLast15Min: <span className={Number(rawCcuHistory?.cronStatus?.snapshotsLast15Minutes) >= 10 ? "text-green-400" : "text-yellow-400"}>{rawCcuHistory?.cronStatus?.snapshotsLast15Minutes ?? 0} / {rawCcuHistory?.cronStatus?.expectedSnapshotsLast15Minutes ?? "—"}</span></div>
+                  <div>minutesSinceLatest: <span className={Number(rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot) > 2 ? "text-yellow-400" : "text-green-400"}>{String(rawCcuHistory?.cronStatus?.minutesSinceLatestSnapshot ?? "—")}</span></div>
+                  <div>snapshotsLast15Min: <span className={Number(rawCcuHistory?.cronStatus?.snapshotsLast15Minutes) >= 10 ? "text-green-400" : "text-yellow-400"}>{String(rawCcuHistory?.cronStatus?.snapshotsLast15Minutes ?? 0)} / {String(rawCcuHistory?.cronStatus?.expectedSnapshotsLast15Minutes ?? "—")}</span></div>
                   
                   {/* Cron Status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Vercel Cron ({rawCcuHistory?.cronStatus?.cronInterval || "5m"}):</span>
+                    <span className="text-amber-400">Vercel Cron ({String(rawCcuHistory?.cronStatus?.cronInterval || "5m")}):</span>
                   </div>
                   <div>cronConfigured: <span className={rawCcuHistory?.cronStatus?.cronConfigured ? "text-green-400" : "text-red-400"}>{rawCcuHistory?.cronStatus?.cronConfigured ? "YES" : "NO"}</span></div>
-                  <div>cronRunsLast15Min: <span className="text-foreground">{rawCcuHistory?.cronStatus?.cronRunsLast15Minutes ?? 0}</span></div>
+                  <div>cronRunsLast15Min: <span className="text-foreground">{String(rawCcuHistory?.cronStatus?.cronRunsLast15Minutes ?? 0)}</span></div>
                   <div>latestCronRun: <span className="text-foreground">{(() => {
                     const run = rawCcuHistory?.cronStatus?.latestCronRun as { started_at?: string; ok?: boolean; snapshots_inserted?: number } | null;
                     if (!run?.started_at) return "none";
@@ -1176,7 +1176,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* Browser Polling status */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Browser Polling ({rawCcuHistory?.cronStatus?.browserPollInterval || "60s"}):</span>
+                    <span className="text-amber-400">Browser Polling ({String(rawCcuHistory?.cronStatus?.browserPollInterval || "60s")}):</span>
                   </div>
                   <div>lastBrowserPollAt: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
                   <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
