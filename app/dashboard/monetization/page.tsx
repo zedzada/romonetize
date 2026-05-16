@@ -13,6 +13,7 @@ import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { RevenueModeToggle } from "@/components/dashboard/revenue-mode-toggle";
 import { useRevenueDisplayMode, type RevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
 import { getProductPurchaseMetrics, CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
+import { getRangeWindow, getBucketKey, generateBucketKeys, type RangeKey } from "@/lib/utils/range-window";
 import {
   AreaChart,
   Area,
@@ -362,15 +363,27 @@ function MonetizationContent() {
     revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
   });
   
-  // NOTE: summaryStats, pcr, arppu, displayRevenue are computed BELOW chartTotals
-  // so that cards and chart use the SAME range-filtered data.
+  // Effective bucket type for chart axis formatting (derived from range)
+  const effectiveBucketType = useMemo(() => {
+    return getRangeWindow(chartRange as RangeKey).bucketType;
+  }, [chartRange]);
 
   // Process chart data based on selected range, interval, and display mode
   const processedChartData = useMemo(() => {
     const now = new Date();
     const revenueMultiplier = revenueDisplayMode === "gross" ? 1 : CREATOR_REVENUE_RATE;
     
-    // Helper to normalize all values to numbers and apply revenue multiplier based on display mode
+    // Use shared range helper for consistent range/bucket config
+    const rangeConfig = getRangeWindow(chartRange as RangeKey, now);
+    const cutoffTime = new Date(rangeConfig.rangeStartUtc);
+    const { bucketMs, bucketType } = rangeConfig;
+    
+    // Helper to get bucket key for a timestamp
+    const toBucketKey = (time: string): string => {
+      return getBucketKey(time, bucketType, bucketMs);
+    };
+    
+    // Helper to normalize values and apply revenue multiplier
     const normalizePoint = (point: { 
       time: string; 
       totalRevenue: number; 
@@ -381,145 +394,68 @@ function MonetizationContent() {
       devproductPurchases?: number;
     }) => ({
       time: point.time,
-      // Apply revenue multiplier based on display mode (1 for gross, 0.7 for estimated)
       totalRevenue: Math.round(Number(point.totalRevenue ?? 0) * revenueMultiplier),
       devproductRevenue: Math.round(Number(point.devproductRevenue ?? 0) * revenueMultiplier),
       gamepassRevenue: Math.round(Number(point.gamepassRevenue ?? 0) * revenueMultiplier),
       purchases: Number(point.purchases ?? 0),
-      // Include actual purchase counts by product type from API
       gamepassPurchases: Number(point.gamepassPurchases ?? 0),
       devproductPurchases: Number(point.devproductPurchases ?? 0),
     });
 
-    // Calculate minutes to show based on range
-    const getMinutesToShow = (range: ChartRange): number => {
-      switch (range) {
-        case "1h": return 60;
-        case "6h": return 360;
-        case "24h": return 1440;
-        default: return 1440; // Max 24h for minute data
-      }
-    };
+    // Choose data source based on bucket type:
+    // minute buckets => use minuteMonetization (1-min granularity from API)
+    // hour/day buckets => use hourlyMonetization
+    const isMinuteRange = bucketType === "minute";
+    const rawData = isMinuteRange 
+      ? (monetizationCharts?.minuteMonetization ?? [])
+      : (monetizationCharts?.hourlyMonetization ?? []);
 
-    // Calculate hours to show based on range
-    const getHoursToShow = (range: ChartRange): number => {
-      switch (range) {
-        case "1h": return 1;
-        case "6h": return 6;
-        case "24h": return 24;
-        case "72h": return 72;
-        case "7d": return 168;
-        case "28d": return 672;
-        case "90d": return 2160; // 90 days * 24 hours
-        default: return 72;
-      }
-    };
+    // Filter to range
+    const filteredData = rawData.filter(d => new Date(d.time) >= cutoffTime);
 
-    // === MINUTE INTERVAL ===
-    if (chartInterval === "1m") {
-      if (!monetizationCharts?.minuteMonetization?.length) return [];
-      
-      const minuteData = monetizationCharts.minuteMonetization;
-      const minutesToShow = getMinutesToShow(chartRange);
-      const cutoffTime = new Date(now.getTime() - minutesToShow * 60 * 1000);
-      
-      return minuteData
-        .filter(d => new Date(d.time) >= cutoffTime)
-        .map(normalizePoint);
-    }
+    // Generate all empty bucket keys in the range
+    const allBucketKeys = generateBucketKeys(
+      rangeConfig.rangeStartUtc,
+      rangeConfig.rangeEndUtc,
+      bucketMs,
+      bucketType,
+    );
 
-    // === HOURLY / DAILY INTERVAL ===
-    // hourlyMonetization now covers the full selected range from the API
-    const hourlyData = monetizationCharts?.hourlyMonetization ?? [];
-    const hoursToShow = getHoursToShow(chartRange);
-    const cutoffTime = new Date(now.getTime() - hoursToShow * 60 * 60 * 1000);
-    const filteredData = hourlyData.filter(d => new Date(d.time) >= cutoffTime);
-
-    // If daily interval, aggregate by day
-    if (chartInterval === "daily") {
-      // Generate ALL day buckets in range first (ensures no gaps)
-      const startDay = new Date(cutoffTime);
-      startDay.setUTCHours(0, 0, 0, 0);
-      const endDay = new Date(now);
-      endDay.setUTCHours(0, 0, 0, 0);
-      
-      const dailyBuckets = new Map<string, { 
-        total: number; devproduct: number; gamepass: number; purchases: number;
-        gamepassPurchases: number; devproductPurchases: number;
-      }>();
-      
-      // Pre-fill all day slots with zeros
-      for (let d = new Date(startDay); d <= endDay; d.setUTCDate(d.getUTCDate() + 1)) {
-        dailyBuckets.set(d.toISOString().slice(0, 10), { 
-          total: 0, devproduct: 0, gamepass: 0, purchases: 0,
-          gamepassPurchases: 0, devproductPurchases: 0,
-        });
-      }
-      
-      filteredData.forEach((d) => {
-        const dayKey = d.time.slice(0, 10);
-        const existing = dailyBuckets.get(dayKey) || { 
-          total: 0, devproduct: 0, gamepass: 0, purchases: 0, 
-          gamepassPurchases: 0, devproductPurchases: 0 
-        };
-        existing.total += Math.round(Number(d.totalRevenue ?? 0) * revenueMultiplier);
-        existing.devproduct += Math.round(Number(d.devproductRevenue ?? 0) * revenueMultiplier);
-        existing.gamepass += Math.round(Number(d.gamepassRevenue ?? 0) * revenueMultiplier);
-        existing.purchases += Number(d.purchases ?? 0);
-        existing.gamepassPurchases += Number(d.gamepassPurchases ?? 0);
-        existing.devproductPurchases += Number(d.devproductPurchases ?? 0);
-        dailyBuckets.set(dayKey, existing);
-      });
-
-      return Array.from(dailyBuckets.entries())
-        .sort((a, b) => a[0].localeCompare(b[0]))
-        .map(([time, data]) => ({
-          time: time + "T00:00:00.000Z",
-          totalRevenue: data.total,
-          devproductRevenue: data.devproduct,
-          gamepassRevenue: data.gamepass,
-          purchases: data.purchases,
-          gamepassPurchases: data.gamepassPurchases,
-          devproductPurchases: data.devproductPurchases,
-        }));
-    }
-
-    // Hourly interval: generate all hour buckets in range
-    const hourlyBuckets = new Map<string, {
+    // Build bucket map with zeros
+    type BucketData = {
       totalRevenue: number; devproductRevenue: number; gamepassRevenue: number;
       purchases: number; gamepassPurchases: number; devproductPurchases: number;
-    }>();
-    
-    // Pre-fill all hour slots with zeros
-    for (let h = new Date(cutoffTime); h <= now; h = new Date(h.getTime() + 3600000)) {
-      const hourKey = h.toISOString().slice(0, 13) + ":00:00.000Z";
-      hourlyBuckets.set(hourKey, {
+    };
+    const buckets = new Map<string, BucketData>();
+    for (const key of allBucketKeys) {
+      buckets.set(key, {
         totalRevenue: 0, devproductRevenue: 0, gamepassRevenue: 0,
         purchases: 0, gamepassPurchases: 0, devproductPurchases: 0,
       });
     }
-    
+
+    // Accumulate actual data into buckets
     filteredData.forEach((d) => {
-      const hourKey = new Date(d.time).toISOString().slice(0, 13) + ":00:00.000Z";
-      const existing = hourlyBuckets.get(hourKey);
-      if (existing) {
-        const normalized = normalizePoint(d);
-        existing.totalRevenue += normalized.totalRevenue;
-        existing.devproductRevenue += normalized.devproductRevenue;
-        existing.gamepassRevenue += normalized.gamepassRevenue;
-        existing.purchases += normalized.purchases;
-        existing.gamepassPurchases += normalized.gamepassPurchases;
-        existing.devproductPurchases += normalized.devproductPurchases;
-      }
+      const key = toBucketKey(d.time);
+      const bucket = buckets.get(key);
+      if (!bucket) return; // Outside range
+
+      bucket.totalRevenue += Math.round(Number(d.totalRevenue ?? 0) * revenueMultiplier);
+      bucket.devproductRevenue += Math.round(Number(d.devproductRevenue ?? 0) * revenueMultiplier);
+      bucket.gamepassRevenue += Math.round(Number(d.gamepassRevenue ?? 0) * revenueMultiplier);
+      bucket.purchases += Number(d.purchases ?? 0);
+      bucket.gamepassPurchases += Number(d.gamepassPurchases ?? 0);
+      bucket.devproductPurchases += Number(d.devproductPurchases ?? 0);
     });
-    
-    return Array.from(hourlyBuckets.entries())
+
+    // Convert to sorted array
+    return Array.from(buckets.entries())
       .sort((a, b) => a[0].localeCompare(b[0]))
       .map(([time, data]) => ({
         time,
         ...data,
       }));
-  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode]);
+  }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, revenueDisplayMode]);
 
   // Calculate totals for current view - use actual purchase counts from API
   const chartTotals = useMemo(() => {
@@ -987,7 +923,7 @@ function MonetizationContent() {
               </CardTitle>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {chartRange === "1h" ? "Last 1 hour" : chartRange === "6h" ? "Last 6 hours" : chartRange === "24h" ? "Last 24 hours" : chartRange === "72h" ? "Last 72 hours" : chartRange === "7d" ? "Last 7 days" : chartRange === "28d" ? "Last 28 days" : "Last 90 days"}
-                {chartInterval === "1m" ? " (per minute)" : chartInterval === "hourly" ? " (hourly)" : " (daily)"}
+                {effectiveBucketType === "minute" ? " (per minute)" : effectiveBucketType === "hour" ? " (hourly)" : " (daily)"}
               </p>
             </div>
             {/* Chart Controls */}
@@ -1027,7 +963,7 @@ function MonetizationContent() {
                       onClick={() => !isDisabled && handleIntervalChange(i)}
                       disabled={isDisabled}
                       className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                        chartInterval === i
+                        (i === "1m" && effectiveBucketType === "minute") || (i === "hourly" && effectiveBucketType === "hour") || (i === "daily" && effectiveBucketType === "day")
                           ? i === "1m" ? "bg-emerald-600 text-white" : "bg-background text-foreground shadow-sm"
                           : isDisabled
                             ? "text-muted-foreground/50 cursor-not-allowed"
@@ -1109,7 +1045,7 @@ function MonetizationContent() {
                 <div className="w-px h-10 bg-border" />
                 <div>
                   <p className="text-2xl font-bold text-foreground">{chartTotals.activeBuckets}</p>
-                  <p className="text-xs text-muted-foreground">Active {chartInterval === "1m" ? "Minutes" : chartInterval === "hourly" ? "Hours" : "Days"}</p>
+                  <p className="text-xs text-muted-foreground">Active {effectiveBucketType === "minute" ? "Minutes" : effectiveBucketType === "hour" ? "Hours" : "Days"}</p>
                 </div>
               </div>
 
@@ -1151,7 +1087,7 @@ function MonetizationContent() {
                 {/* Empty state when no data for selected mode */}
                 {hasChartData && !hasCurrentModeData && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center z-10 bg-background/90 rounded-lg">
-                    {chartInterval === "1m" ? (
+                    {effectiveBucketType === "minute" ? (
                       <>
                         <p className="text-muted-foreground text-sm font-medium">No revenue in this minute-level range yet</p>
                         <p className="text-muted-foreground text-xs mt-1">New purchases will appear here in real time.</p>
@@ -1174,17 +1110,17 @@ function MonetizationContent() {
                         dataKey="time" 
                         tickFormatter={(v) => {
                           const date = new Date(v);
-                          if (chartInterval === "1m") {
+                          if (effectiveBucketType === "minute") {
                             return date.toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
                           }
-                          if (chartInterval === "hourly") {
+                          if (effectiveBucketType === "hour") {
                             return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
                           }
                           return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
                         }}
                         {...axisProps}
                         tick={{ fill: chartTheme.axis, fontSize: 10 }}
-                        interval={chartInterval === "1m" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
+                        interval={effectiveBucketType === "minute" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
                       />
                       <YAxis 
                         domain={[0, yAxisMax]}
@@ -1244,17 +1180,17 @@ function MonetizationContent() {
                         dataKey="time" 
                         tickFormatter={(v) => {
                           const date = new Date(v);
-                          if (chartInterval === "1m") {
+                          if (effectiveBucketType === "minute") {
                             return date.toLocaleString(undefined, { hour: "numeric", minute: "2-digit", hour12: true });
                           }
-                          if (chartInterval === "hourly") {
+                          if (effectiveBucketType === "hour") {
                             return date.toLocaleString(undefined, { hour: "numeric", hour12: true });
                           }
                           return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
                         }}
                         {...axisProps}
                         tick={{ fill: chartTheme.axis, fontSize: 10 }}
-                        interval={chartInterval === "1m" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
+                        interval={effectiveBucketType === "minute" ? Math.max(1, Math.floor(processedChartData.length / 8)) : "preserveStartEnd"}
                       />
                       <YAxis 
                         domain={[0, yAxisMax]}
@@ -1716,6 +1652,8 @@ function MonetizationContent() {
   firstBucket: processedChartData[0]?.time ?? null,
   lastBucket: processedChartData[processedChartData.length - 1]?.time ?? null,
   hourlyMonetizationLength: monetizationCharts?.hourlyMonetization?.length ?? 0,
+  minuteMonetizationLength: monetizationCharts?.minuteMonetization?.length ?? 0,
+  effectiveBucketType,
 }, null, 2)}
                 </pre>
               </div>

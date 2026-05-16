@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAnalytics, formatChartTime, type CCUHistoryRange } from "@/hooks/use-analytics";
+import { getRangeWindow, getBucketKey, type RangeKey } from "@/lib/utils/range-window";
 import { ChartCard, RangeControls, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import { 
@@ -361,20 +362,10 @@ const handleSyncAndRefresh = useCallback(async () => {
   const processedCcuHistory = useMemo(() => {
     const now = new Date();
     
-    // Calculate cutoff time and bucket size based on selected range
-    const getRangeConfig = (range: CCUHistoryRange): { rangeMs: number; bucketMs: number; bucketType: "minute" | "hour" | "day" } => {
-      switch (range) {
-        case "1h": return { rangeMs: 60 * 60 * 1000, bucketMs: 60 * 1000, bucketType: "minute" };
-        case "24h": return { rangeMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 60 * 1000, bucketType: "hour" };
-        case "7d": return { rangeMs: 7 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketType: "day" };
-        case "28d": return { rangeMs: 28 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketType: "day" };
-        case "90d": return { rangeMs: 90 * 24 * 60 * 60 * 1000, bucketMs: 24 * 60 * 60 * 1000, bucketType: "day" };
-        default: return { rangeMs: 24 * 60 * 60 * 1000, bucketMs: 60 * 60 * 1000, bucketType: "hour" };
-      }
-    };
-    
-    const { rangeMs, bucketMs, bucketType } = getRangeConfig(ccuRange);
-    const cutoffTime = new Date(now.getTime() - rangeMs);
+    // Use shared range helper for consistent range/bucket config (UTC-based)
+    const rangeConfig = getRangeWindow(ccuRange as RangeKey, now);
+    const cutoffTime = new Date(rangeConfig.rangeStartUtc);
+    const { bucketMs, bucketType } = rangeConfig;
     
   // Empty data case
     if (!rawCcuHistory?.rawSnapshots?.length) {
@@ -388,32 +379,23 @@ const handleSyncAndRefresh = useCallback(async () => {
       };
     }
     
-    // Filter snapshots by range
+    // Normalize snapshot time: prefer captured_at, then time, then created_at
+    // Then filter by range using UTC comparison
     const filteredSnapshots = rawCcuHistory.rawSnapshots
       .filter(s => s.time && typeof s.ccu === "number")
-      .filter(s => new Date(s.time).getTime() >= cutoffTime.getTime());
+      .filter(s => {
+        const snapTime = new Date(s.time).getTime();
+        return snapTime >= cutoffTime.getTime() && snapTime <= now.getTime();
+      });
     
-    // Get bucket start for a given timestamp
-    const getBucketStart = (timestamp: number): number => {
-      const date = new Date(timestamp);
-      if (bucketType === "minute") {
-        date.setSeconds(0, 0);
-      } else if (bucketType === "hour") {
-        date.setMinutes(0, 0, 0);
-      } else { // day
-        date.setHours(0, 0, 0, 0);
-      }
-      return date.getTime();
-    };
-    
-    // Aggregate into buckets - keep latest snapshot per bucket
-    const buckets = new Map<number, { ccu: number; snapshotsCount: number; latestTimestamp: number }>();
+    // Aggregate into buckets using UTC-based getBucketKey - keep latest snapshot per bucket
+    const buckets = new Map<string, { ccu: number; snapshotsCount: number; latestTimestamp: number }>();
     
     filteredSnapshots.forEach(snap => {
       const snapTimestamp = new Date(snap.time).getTime();
-      const bucketStart = getBucketStart(snapTimestamp);
+      const key = getBucketKey(snap.time, bucketType, bucketMs);
       
-      const existing = buckets.get(bucketStart);
+      const existing = buckets.get(key);
       if (existing) {
         existing.snapshotsCount++;
         // Use latest snapshot in bucket
@@ -422,7 +404,7 @@ const handleSyncAndRefresh = useCallback(async () => {
           existing.latestTimestamp = snapTimestamp;
         }
       } else {
-        buckets.set(bucketStart, {
+        buckets.set(key, {
           ccu: snap.ccu,
           snapshotsCount: 1,
           latestTimestamp: snapTimestamp,
@@ -431,8 +413,8 @@ const handleSyncAndRefresh = useCallback(async () => {
     });
     
     // Format tooltip label - always shows full date/time
-    const formatTooltipLabel = (bucketStart: number): string => {
-      const date = new Date(bucketStart);
+    const formatTooltipLabel = (isoKey: string): string => {
+      const date = new Date(isoKey);
       if (bucketType === "day") {
         return new Intl.DateTimeFormat(undefined, { 
           weekday: "short",
@@ -449,8 +431,8 @@ const handleSyncAndRefresh = useCallback(async () => {
     };
     
     // Format X-axis label based on bucket type
-    const formatLabel = (bucketStart: number): string => {
-      const date = new Date(bucketStart);
+    const formatLabel = (isoKey: string): string => {
+      const date = new Date(isoKey);
       if (bucketType === "minute" || bucketType === "hour") {
         return new Intl.DateTimeFormat(undefined, { 
           hour: "2-digit", 
@@ -464,14 +446,14 @@ const handleSyncAndRefresh = useCallback(async () => {
       }).format(date);
     };
     
-    // Convert buckets to sorted array
+    // Convert buckets to sorted array (keys are ISO strings, sort lexicographically)
     const sortedBuckets = Array.from(buckets.entries())
-      .sort((a, b) => a[0] - b[0]);
+      .sort((a, b) => a[0].localeCompare(b[0]));
     
-    const data = sortedBuckets.map(([bucketStart, bucket]) => ({
-      bucketStart,
-      label: formatLabel(bucketStart),
-      tooltipLabel: formatTooltipLabel(bucketStart),
+    const data = sortedBuckets.map(([isoKey, bucket]) => ({
+      bucketStart: new Date(isoKey).getTime(),
+      label: formatLabel(isoKey),
+      tooltipLabel: formatTooltipLabel(isoKey),
       ccu: bucket.ccu,
       snapshotsCount: bucket.snapshotsCount,
     }));
@@ -1164,11 +1146,10 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>ccuTotalSnapshots: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
                   <div>ccuSnapshotsInSelectedRange: <span className="text-foreground">{processedCcuHistory.snapshotCount}</span></div>
                   <div>selectedRange: <span className="text-foreground">{ccuRange}</span></div>
-                  <div>rangeStartUtc: <span className="text-foreground text-[10px]">{(() => {
-                    const rangeMs = ccuRange === "1h" ? 3600000 : ccuRange === "24h" ? 86400000 : ccuRange === "7d" ? 604800000 : ccuRange === "28d" ? 2419200000 : 7776000000;
-                    return new Date(Date.now() - rangeMs).toISOString();
-                  })()}</span></div>
+                  <div>rangeStartUtc: <span className="text-foreground text-[10px]">{getRangeWindow(ccuRange as RangeKey).rangeStartUtc}</span></div>
                   <div>rangeEndUtc: <span className="text-foreground text-[10px]">{new Date().toISOString()}</span></div>
+                  <div>bucketSize: <span className="text-foreground">{getRangeWindow(ccuRange as RangeKey).bucketSize}</span></div>
+                  <div>timestampColumnUsed: <span className="text-foreground">captured_at || created_at (normalized)</span></div>
                   <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.data.length}</span></div>
                   <div>autoRangeApplied: <span className={autoRangeApplied ? "text-green-400" : "text-yellow-400"}>{autoRangeApplied ? "YES" : "pending"}</span></div>
                   {rawCcuHistory?.rawSnapshots?.length ? (
