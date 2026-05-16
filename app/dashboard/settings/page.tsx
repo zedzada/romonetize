@@ -387,7 +387,7 @@ function SettingsPageContent() {
       setUsername("");
       setProfile({ name: "", email: "", robloxUsername: "", discordUsername: "" });
       setRobloxProfile(null);
-      setUserPlan("free");
+      setPlanInfo(null);
       
       // Clear any localStorage keys that might contain user data
       localStorage.removeItem("romonetize_username");

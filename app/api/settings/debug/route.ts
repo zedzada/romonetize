@@ -20,6 +20,16 @@ export async function GET() {
 
     // Check which profile columns exist
     const profileColumnsAvailable = profileRow ? Object.keys(profileRow) : [];
+    
+    // Check for required Settings columns
+    const profileColumnsChecked = {
+      display_username: profileColumnsAvailable.includes("display_username"),
+      roblox_username: profileColumnsAvailable.includes("roblox_username"),
+      discord_username: profileColumnsAvailable.includes("discord_username"),
+      updated_at: profileColumnsAvailable.includes("updated_at"),
+      plan: profileColumnsAvailable.includes("plan"),
+      subscription_status: profileColumnsAvailable.includes("subscription_status"),
+    };
 
     // Resolve plan using shared helper
     const planInfo = resolvePlanFromProfile(profileRow);
@@ -47,17 +57,21 @@ export async function GET() {
       debug: {
         userId: user.id,
         email: user.email,
-        profileRow: profileRow || null,
-        profileColumnsAvailable,
-        profileError: profileError?.message || null,
+        profilePlan: profileRow?.plan || null,
+        stripeCustomerId: profileRow?.stripe_customer_id || null,
+        stripeSubscriptionStatus: profileRow?.subscription_status || null,
         resolvedPlan: planInfo.plan,
         planSource,
         planInfo,
+        profileColumnsChecked,
+        profileColumnsAvailable,
+        profileError: profileError?.message || null,
         connectedGamesCount: connectedGamesCount || 0,
         robloxConnectionFound,
         robloxUsername,
         authProvider: user.app_metadata?.provider || "email",
-        userMetadata: user.user_metadata,
+        // Full profile row for debugging (only in development)
+        profileRow: process.env.NODE_ENV === "development" ? profileRow : undefined,
       },
     });
   } catch (error) {
