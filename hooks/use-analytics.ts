@@ -259,17 +259,33 @@ interface UseAnalyticsOptions {
   enabled?: boolean;
 }
 
-// Custom fetcher that includes request timestamp for staleness detection
+// Custom fetcher with 8 second timeout to prevent infinite skeleton
 const fetcher = async (url: string) => {
-  const response = await fetch(url, { cache: "no-store" });
-  if (!response.ok) {
-    throw new Error("Failed to fetch analytics");
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 8000); // 8s timeout
+  
+  try {
+    const response = await fetch(url, { 
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      throw new Error("Failed to fetch analytics");
+    }
+    const json = await response.json();
+    if (!json.success) {
+      throw new Error(json.error || "Analytics request failed");
+    }
+    return json.data as AnalyticsData;
+  } catch (err) {
+    clearTimeout(timeoutId);
+    if (err instanceof Error && err.name === "AbortError") {
+      throw new Error("Request timed out - showing cached data");
+    }
+    throw err;
   }
-  const json = await response.json();
-  if (!json.success) {
-    throw new Error(json.error || "Analytics request failed");
-  }
-  return json.data as AnalyticsData;
 };
 
 /**

@@ -17,10 +17,27 @@ interface CreditPackage {
   priceFormatted: string;
 }
 
+// Fetcher with 5s timeout - credits widget should never block sidebar
 const fetcher = async (url: string) => {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch");
-  return res.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 5000);
+  
+  try {
+    const res = await fetch(url, { 
+      cache: "no-store",
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error("Failed to fetch");
+    return res.json();
+  } catch (err) {
+    clearTimeout(timeoutId);
+    // On timeout, return default values so UI doesn't hang
+    if (err instanceof Error && err.name === "AbortError") {
+      return { monthlyCredits: 0, extraCredits: 0, totalCredits: 0, monthlyCreditsResetAt: null };
+    }
+    throw err;
+  }
 };
 
 export function useCredits() {

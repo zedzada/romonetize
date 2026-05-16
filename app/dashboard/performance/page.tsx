@@ -205,18 +205,25 @@ export default function PerformancePage() {
 const handleSyncAndRefresh = useCallback(async () => {
     setIsSyncing(true);
     try {
-      // Sync CCU for ALL connected games (not just selected)
+      // Sync CCU with 5 second timeout - don't hang forever
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      
       await fetch("/api/roblox/sync-all-ccu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-      });
+        signal: controller.signal,
+      }).finally(() => clearTimeout(timeoutId));
       
-      // Refresh analytics data for the currently selected game
+      // Refresh analytics data
       await refresh();
       setLastPollTime(new Date());
       setPollCount((c) => c + 1);
     } catch (err) {
-      console.error("Failed to sync and refresh", err);
+      // Ignore abort errors, log others
+      if (err instanceof Error && err.name !== "AbortError") {
+        console.error("Failed to sync and refresh", err);
+      }
     } finally {
       setIsSyncing(false);
     }
@@ -258,64 +265,55 @@ const handleSyncAndRefresh = useCallback(async () => {
     }
   }, [refresh]);
   
-  // Auto-polling: Every 60 seconds, sync CCU for ALL connected games, then refresh charts
-  // This ensures all games collect CCU data even when viewing a different game
-  // Resilient to failures - one failed poll doesn't stop future polls
-  // Handles visibility changes - resumes immediately when tab becomes visible
-  // IMPORTANT: Resets when selectedGameId changes to ensure clean state
+  // Auto-polling: Every 60 seconds, sync CCU in background (non-blocking)
+  // Key principles:
+  // 1. NEVER await sync on page mount - render cached data immediately
+  // 2. Background sync fires and forgets - doesn't block UI
+  // 3. useAnalytics auto-refreshes every 60s to pick up new data
+  // 4. Only poll when tab is visible
   useEffect(() => {
     let isMounted = true;
-    // Track which game this polling instance is for
-    const pollingGameId = selectedGameId;
     
-    // Single poll function - syncs CCU for ALL games, refreshes selected game data
-    const doPoll = async (isVisibilityResume = false) => {
+    // Non-blocking background sync - fire and forget
+    const doBackgroundSync = () => {
       if (!isMounted) return;
       
-      try {
-        // Sync CCU for ALL connected games (not just selected)
-        await fetch("/api/roblox/sync-all-ccu", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        
-        if (!isMounted) return;
-        
-        // Refresh analytics data for the currently selected game
-        await refresh();
-        
-        if (!isMounted) return;
-        
-        setLastPollTime(new Date());
-        setPollCount((c) => c + 1);
-      } catch (err) {
-        // Log error but continue polling - one failure shouldn't stop the polling
-        if (process.env.NODE_ENV === "development") {
-          console.error("Auto-poll failed (will retry next interval):", err);
+      // Fire sync without awaiting - don't block anything
+      fetch("/api/roblox/sync-all-ccu", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }).then(() => {
+        if (isMounted) {
+          setLastPollTime(new Date());
+          setPollCount((c) => c + 1);
         }
-      }
+      }).catch(() => {
+        // Silently ignore sync failures - useAnalytics will still refresh
+      });
     };
     
-    // Start polling interval
+    // Start polling interval - only when visible
     const startPolling = () => {
-      // Clear any existing interval first
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
       
+      // Poll every 60 seconds (background sync, non-blocking)
       pollingIntervalRef.current = setInterval(() => {
-        doPoll(false);
-      }, 60 * 1000); // Every 60 seconds
+        if (document.visibilityState === "visible") {
+          doBackgroundSync();
+        }
+      }, 60 * 1000);
     };
     
-    // Handle visibility change - resume polling when tab becomes visible
+    // Handle visibility change
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        // Tab became visible - poll immediately and restart interval
-        doPoll(true);
+        // Tab visible - trigger background sync and restart interval
+        doBackgroundSync();
         startPolling();
       } else {
-        // Tab hidden - stop polling to save resources
+        // Tab hidden - stop polling
         if (pollingIntervalRef.current) {
           clearInterval(pollingIntervalRef.current);
           pollingIntervalRef.current = null;
@@ -323,32 +321,21 @@ const handleSyncAndRefresh = useCallback(async () => {
       }
     };
     
-    // Handle game change - reset polling state
+    // Handle game change
     const handleGameChange = () => {
-      // Reset poll count when game changes
       setPollCount(0);
       setLastPollTime(null);
-      
-      if (process.env.NODE_ENV === "development") {
-        console.log("[v0] Polling reset due to game change");
-      }
     };
     
-    // Initial setup
-    // Reset poll count for new game
+    // Initial setup - DO NOT sync on mount, just start polling
+    // The useAnalytics hook will fetch cached data immediately
     setPollCount(0);
     setLastPollTime(null);
-    
-    // Backfill one snapshot immediately if there are 0 snapshots
-    if (!rawCcuHistory?.rawSnapshots?.length && pollingGameId) {
-      doPoll(false);
-    }
-    
     startPolling();
+    
     document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("selected-game-changed", handleGameChange);
     
-    // Cleanup on unmount OR when selectedGameId changes
     return () => {
       isMounted = false;
       document.removeEventListener("visibilitychange", handleVisibilityChange);
@@ -358,7 +345,7 @@ const handleSyncAndRefresh = useCallback(async () => {
         pollingIntervalRef.current = null;
       }
     };
-  }, [refresh, rawCcuHistory?.rawSnapshots?.length, selectedGameId]);
+  }, [selectedGameId]);
   
   // Process CCU history with aggregation by interval:
   // 1H = group by minute (~60 points max)

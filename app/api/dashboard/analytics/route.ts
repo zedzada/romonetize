@@ -471,71 +471,12 @@ export async function GET(request: NextRequest) {
     };
   }
 
-  // Auto-sync: If no synced data OR last sync > 5 minutes, fetch fresh from Roblox API
-  const SYNC_THRESHOLD_MS = 5 * 60 * 1000; // 5 minutes
-  const lastSyncTime = latestSync?.synced_at ? new Date(latestSync.synced_at).getTime() : 0;
-  const needsAutoSync = !robloxStats || (Date.now() - lastSyncTime > SYNC_THRESHOLD_MS);
-
-  if (needsAutoSync && universeId) {
-    try {
-      const stats = await getRobloxGameStats(universeId);
-      if (stats.source === "roblox_api") {
-        // Calculate like ratio
-        const totalVotes = (stats.likes || 0) + (stats.dislikes || 0);
-        const likeRatio = totalVotes > 0 ? (stats.likes || 0) / totalVotes : null;
-
-        robloxStats = {
-          ccu: stats.currentPlayers,
-          visits: stats.totalVisits,
-          favorites: stats.favorites,
-          likes: stats.likes,
-          dislikes: stats.dislikes,
-          likeRatio,
-          updatedAt: stats.lastFetched,
-          source: "live_api",
-        };
-
-        // Update game record with fresh Roblox stats
-        await supabase
-          .from("games")
-          .update({
-            current_players: stats.currentPlayers ?? 0,
-            total_visits: stats.totalVisits ?? 0,
-            favorites: stats.favorites ?? 0,
-            likes: stats.likes ?? 0,
-            dislikes: stats.dislikes ?? 0,
-            last_roblox_sync: new Date().toISOString(),
-          })
-          .eq("id", gameId);
-
-        // Store snapshot in roblox_game_syncs for historical tracking
-        await supabase.from("roblox_game_syncs").insert({
-          game_id: gameId,
-          roblox_game_id: universeId,
-          ccu: stats.currentPlayers ?? 0,
-          visits: stats.totalVisits ?? 0,
-          favorites: stats.favorites ?? 0,
-          likes: stats.likes ?? 0,
-          dislikes: stats.dislikes ?? 0,
-          like_ratio: likeRatio,
-          raw: stats,
-          synced_at: new Date().toISOString(),
-        });
-
-// Store CCU snapshot for chart history
-    if (stats.currentPlayers !== null) {
-      await supabase.from("ccu_snapshots").insert({
-        game_id: gameId,
-        ccu: stats.currentPlayers,
-        source: "roblox_api",
-        created_at: new Date().toISOString(),
-      });
-    }
-      }
-    } catch (err) {
-      sectionErrors.robloxStats = err instanceof Error ? err.message : "Failed to fetch Roblox stats";
-    }
-  }
+  // NOTE: We DO NOT auto-sync Roblox API in the analytics GET handler
+  // to avoid blocking page render. Client should call /api/roblox/sync-selected-game
+  // separately if fresh data is needed. This keeps initial load fast.
+  // 
+  // The useAnalytics hook auto-refreshes every 60s which will pick up
+  // any background syncs that completed.
 
   // Final check - if still no data, mark as unavailable
   if (!robloxStats) {
