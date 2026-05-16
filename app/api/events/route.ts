@@ -30,6 +30,7 @@ const VALID_EVENT_TYPES = [
   
   // Monetization events
   "gamepass_click",     // Player clicks on gamepass (legacy - use product_click)
+  "devproduct_click",   // Player clicks on devproduct (legacy - use product_click)
   "gamepass_prompt",    // Gamepass purchase prompt shown
   "gamepass_purchase",  // Gamepass purchased successfully
   "devproduct_prompt",  // Dev product purchase prompt shown
