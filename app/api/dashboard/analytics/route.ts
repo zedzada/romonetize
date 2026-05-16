@@ -355,8 +355,8 @@ export async function GET(request: NextRequest) {
   // For chart data and basic counts, we use separate targeted queries
   // DO NOT fetch all events - this is what caused the timeout
   
-  // Fetch limited purchase events for revenue chart (last 500 only for JS bucketing)
-  // This is a fallback - ideally we'd use the SQL RPC for chart data too
+  // Fetch limited purchase events for revenue chart (last 2000 only for JS bucketing)
+  // This is the fallback data source when SQL RPCs fail
   step = "read_chart_events";
   let purchaseEvents: Array<{
     id: string;
@@ -388,6 +388,51 @@ export async function GET(request: NextRequest) {
     }
   } catch (err) {
     sectionErrors.chartEvents = err instanceof Error ? err.message : "Failed to fetch chart events";
+  }
+  
+  // === FALLBACK: If SQL RPC summaryStats returned zeros but purchaseEvents exist, rebuild from events ===
+  if (summaryStats.totalPurchases === 0 && purchaseEvents.length > 0) {
+    const buyerSet = new Set<string>();
+    let totalRobux = 0;
+    let gpRevenue = 0;
+    let dpRevenue = 0;
+    let gpCount = 0;
+    let dpCount = 0;
+    
+    purchaseEvents.forEach((e) => {
+      const robux = Number(e.robux ?? 0);
+      totalRobux += robux;
+      if (e.player_id && e.player_id !== "server") buyerSet.add(e.player_id);
+      
+      if (e.event_type === "gamepass_purchase") {
+        gpRevenue += robux;
+        gpCount += 1;
+      } else if (e.event_type === "devproduct_purchase") {
+        dpRevenue += robux;
+        dpCount += 1;
+      } else {
+        // purchase_success - check product_type
+        const pt = (e.product_type || "").toLowerCase();
+        if (["gamepass", "game_pass", "pass"].includes(pt)) {
+          gpRevenue += robux;
+          gpCount += 1;
+        } else if (["devproduct", "dev_product", "developer_product"].includes(pt)) {
+          dpRevenue += robux;
+          dpCount += 1;
+        }
+      }
+    });
+    
+    summaryStats = {
+      ...summaryStats,
+      totalRevenue: totalRobux,
+      gamepassRevenue: gpRevenue,
+      devproductRevenue: dpRevenue,
+      totalPurchases: purchaseEvents.length,
+      gamepassPurchases: gpCount,
+      devproductPurchases: dpCount,
+      totalBuyers: buyerSet.size,
+    };
   }
   
   // Fetch limited session events for session chart (include metadata for duration)
@@ -735,6 +780,84 @@ export async function GET(request: NextRequest) {
     }
   } catch (err) {
     sectionErrors.revenue72h = err instanceof Error ? err.message : "Failed to fetch 72h revenue";
+  }
+
+  // === FALLBACK: Build hourlyMonetization from purchaseEvents if SQL RPC failed/empty ===
+  // This ensures the chart renders whenever the cards show data (same source of truth)
+  if (hourlyMonetization.length === 0 && purchaseEvents.length > 0) {
+    // Normalize product type from event_type and product_type fields
+    const normalizeProductType = (eventType: string, productType: string | null, metadata: Record<string, unknown> | null): "gamepass" | "devproduct" | "unknown" => {
+      if (eventType === "gamepass_purchase") return "gamepass";
+      if (eventType === "devproduct_purchase") return "devproduct";
+      // For purchase_success, check product_type field
+      const pt = (productType || (metadata?.product_type as string) || "").toLowerCase();
+      if (["gamepass", "game_pass", "pass"].includes(pt)) return "gamepass";
+      if (["devproduct", "dev_product", "developer_product"].includes(pt)) return "devproduct";
+      return "unknown";
+    };
+
+    // Build hourly buckets from raw purchase events
+    const fallbackBuckets = new Map<string, {
+      total: number; devproduct: number; gamepass: number;
+      purchases: number; gamepassPurchases: number; devproductPurchases: number;
+    }>();
+    
+    // Initialize all hours in range with zeros
+    for (let i = 0; i < rangeHours; i++) {
+      const bucketTime = new Date(rangeNow.getTime() - i * 60 * 60 * 1000);
+      const bucketKey = bucketTime.toISOString().slice(0, 13) + ":00:00.000Z";
+      fallbackBuckets.set(bucketKey, { total: 0, devproduct: 0, gamepass: 0, purchases: 0, gamepassPurchases: 0, devproductPurchases: 0 });
+    }
+    
+    // Place each purchase into the correct bucket
+    purchaseEvents.forEach((e) => {
+      const bucketKey = new Date(e.created_at).toISOString().slice(0, 13) + ":00:00.000Z";
+      const bucket = fallbackBuckets.get(bucketKey);
+      if (!bucket) return; // Event outside range
+      
+      const robux = getEventRobux(e);
+      const pType = normalizeProductType(e.event_type, e.product_type, e.metadata);
+      
+      bucket.total += robux;
+      bucket.purchases += 1;
+      if (pType === "gamepass") {
+        bucket.gamepass += robux;
+        bucket.gamepassPurchases += 1;
+      } else if (pType === "devproduct") {
+        bucket.devproduct += robux;
+        bucket.devproductPurchases += 1;
+      }
+    });
+    
+    // Convert to sorted array and populate hourlyMonetization
+    Array.from(fallbackBuckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .forEach(([time, data]) => {
+        hourlyMonetization.push({
+          time,
+          totalRevenue: data.total,
+          devproductRevenue: data.devproduct,
+          gamepassRevenue: data.gamepass,
+          purchases: data.purchases,
+          gamepassPurchases: data.gamepassPurchases,
+          devproductPurchases: data.devproductPurchases,
+        });
+      });
+    
+    // Also update the totals from the fallback data
+    purchaseEvents.forEach((e) => {
+      const robux = getEventRobux(e);
+      const pType = normalizeProductType(e.event_type, e.product_type, e.metadata);
+      revenue72h += robux;
+      purchases72hCount += 1;
+      if (pType === "gamepass") {
+        gamepassRevenue72h += robux;
+        gamepassPurchases72h += 1;
+      } else if (pType === "devproduct") {
+        devproductRevenue72h += robux;
+        devproductPurchases72h += 1;
+      }
+    });
   }
 
   // === MINUTE-LEVEL MONETIZATION CHART DATA ===
