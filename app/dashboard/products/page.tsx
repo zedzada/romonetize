@@ -110,9 +110,13 @@ export default function ProductsPage() {
     estimatedTotalRevenue: safeProductAnalytics.estimatedTotalRevenue ?? safeProductStats.estimatedTotalRevenue ?? Math.round((safeProductStats.totalRevenue ?? 0) * CREATOR_REVENUE_RATE),
     totalPurchases: safeProductAnalytics.totalPurchases ?? safeProductStats.totalPurchases ?? 0,
     totalBuyers: safeProductAnalytics.totalBuyers ?? safeProductStats.uniqueBuyers ?? 0,
-    avgConversionRate: safeProductStats.avgConversionRate ?? null,
-    avgConversionNeedsTracking: safeProductStats.avgConversionNeedsTracking ?? false,
+    uniqueActiveUsers: safeProductAnalytics.uniqueActiveUsers ?? safeProductStats.uniqueActiveUsers ?? 0,
   };
+  
+  // Payer Conversion Rate = uniquePayingUsers / uniqueActiveUsers
+  const payerConversionRate = summaryStats.uniqueActiveUsers > 0 
+    ? summaryStats.totalBuyers / summaryStats.uniqueActiveUsers 
+    : null;
 
   const hasTrackerProducts = trackerProducts.length > 0;
   
@@ -340,22 +344,19 @@ export default function ProductsPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <TrendingUp className="w-4 h-4 text-cyan-500" />
-              <span className="text-xs text-muted-foreground">Avg Conv. Rate</span>
+              <span className="text-xs text-muted-foreground">Payer Conversion Rate</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents && !summaryStats.avgConversionNeedsTracking && summaryStats.avgConversionRate !== null
-                ? formatPercent(summaryStats.avgConversionRate)
-                : summaryStats.avgConversionNeedsTracking ? (
-                  <div>
-                    <span className="text-lg text-muted-foreground font-normal">—</span>
-                    <p className="text-[10px] text-muted-foreground font-normal mt-1">
-                      Requires product_view or product_click events
-                    </p>
-                  </div>
-                ) : (
-                  <span className="text-lg text-muted-foreground font-normal">—</span>
-                )}
+              {hasTrackerEvents && payerConversionRate !== null
+                ? formatPercent(payerConversionRate)
+                : <span className="text-lg text-muted-foreground font-normal">—</span>
+              }
             </div>
+            {hasTrackerEvents && payerConversionRate !== null && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Paying Users / Active Users
+              </p>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -387,7 +388,6 @@ export default function ProductsPage() {
                     </th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Purchases</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Conv.</th>
                     <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">
                       {revenueDisplayMode === "gross" ? "Rev/Buyer" : "Est. Rev/Buyer"}
                     </th>
@@ -413,7 +413,6 @@ export default function ProductsPage() {
                     const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
                     const purchases = product.purchases ?? 0;
                     const buyers = product.buyers ?? product.uniqueBuyers ?? 0;
-                    const conversionRate = product.conversionRate ?? null;
                     const grossRevPerBuyer = product.grossRevenuePerBuyer ?? product.revenuePerBuyer ?? product.revPerBuyer ?? (buyers > 0 ? grossRevenue / buyers : 0);
                     const estimatedRevPerBuyer = product.estimatedRevenuePerBuyer ?? Math.round(grossRevPerBuyer * CREATOR_REVENUE_RATE);
                     const displayRevPerBuyer = revenueDisplayMode === "gross" ? grossRevPerBuyer : estimatedRevPerBuyer;
@@ -443,17 +442,6 @@ export default function ProductsPage() {
                         </td>
                         <td className="py-4 px-3 text-right font-medium text-foreground">
                           {formatNumber(buyers)}
-                        </td>
-                        <td className="py-4 px-3 text-right">
-                          {conversionRate !== null ? (
-                            <span className="font-medium text-foreground">{formatPercent(conversionRate)}</span>
-                          ) : product.conversionNeedsTracking ? (
-                            <span className="text-xs text-muted-foreground" title="Add product_click or product_view events to track conversion">
-                              No click/view events
-                            </span>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
                         </td>
                         <td className="py-4 px-6 text-right font-mono text-muted-foreground">
                           {formatRobux(displayRevPerBuyer)}
@@ -510,7 +498,6 @@ export default function ProductsPage() {
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Revenue</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Purchases</th>
                     <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Conv.</th>
                     <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
                   </tr>
                 </thead>
@@ -569,14 +556,6 @@ export default function ProductsPage() {
                           {!hasTrackerEvents 
                             ? <span className="text-xs text-muted-foreground">Needs tracking</span>
                             : <span className="font-medium">{formatNumber(buyers)}</span>
-                          }
-                        </td>
-                        <td className="py-4 px-3 text-right">
-                          {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : trackerProduct && !trackerProduct.conversionNeedsTracking
-                              ? <span className="font-medium">{formatPercent(trackerProduct?.conversionRate)}</span>
-                              : <span className="text-xs text-muted-foreground">Needs views</span>
                           }
                         </td>
                         <td className="py-4 px-6 text-right">

@@ -88,6 +88,7 @@ function HeroChartTooltip({
   payload, 
   label,
   chartMode = "total",
+  revenueMode = "estimated",
 }: { 
   active?: boolean; 
   payload?: Array<{ 
@@ -99,10 +100,13 @@ function HeroChartTooltip({
       devproductRevenue?: number;
       gamepassRevenue?: number;
       purchases?: number;
+      gamepassPurchases?: number;
+      devproductPurchases?: number;
     };
   }>; 
   label?: string;
   chartMode?: ChartMode;
+  revenueMode?: "gross" | "estimated";
 }) {
   if (!active || !payload?.length) return null;
   
@@ -117,56 +121,58 @@ function HeroChartTooltip({
     hour12: true,
   });
 
-  // Get the underlying data point (gross values from API)
+  // Get the underlying data point (already transformed by display mode)
   const dataPoint = payload[0]?.payload;
-  const grossTotal = dataPoint?.totalRevenue ?? 0;
-  const grossDevproduct = dataPoint?.devproductRevenue ?? 0;
-  const grossGamepass = dataPoint?.gamepassRevenue ?? 0;
+  const totalRevenue = dataPoint?.totalRevenue ?? 0;
+  const devproductRevenue = dataPoint?.devproductRevenue ?? 0;
+  const gamepassRevenue = dataPoint?.gamepassRevenue ?? 0;
   const purchases = dataPoint?.purchases ?? 0;
+  // Use actual purchase counts from API (not estimated from revenue ratio)
+  const gamepassPurchases = dataPoint?.gamepassPurchases ?? 0;
+  const devproductPurchases = dataPoint?.devproductPurchases ?? 0;
   
-  // Calculate estimated (70%) values
-  const estTotal = Math.round(grossTotal * CREATOR_REVENUE_RATE);
-  const estDevproduct = Math.round(grossDevproduct * CREATOR_REVENUE_RATE);
-  const estGamepass = Math.round(grossGamepass * CREATOR_REVENUE_RATE);
-  
-  // Estimate purchases by type based on revenue ratio
-  const gamepassPurchases = grossTotal > 0 ? Math.round(purchases * (grossGamepass / grossTotal)) : 0;
-  const devproductPurchases = grossTotal > 0 ? Math.round(purchases * (grossDevproduct / grossTotal)) : 0;
+  // Revenue labels based on mode
+  const revenueLabel = revenueMode === "gross" ? "Gross" : "Est.";
   
   return (
-    <div className="bg-popover border border-border rounded-lg shadow-xl p-3 min-w-[180px]">
+    <div className="bg-popover border border-border rounded-lg shadow-xl p-3 min-w-[200px]">
       <p className="text-xs text-muted-foreground mb-3 font-medium border-b border-border pb-2">{formattedTime}</p>
       <div className="space-y-2">
-        {/* Total mode: show all 3 revenue types with estimated values */}
+        {/* Total mode: show all revenue types with purchase breakdown */}
         {chartMode === "total" && (
           <>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-blue-500" />
-                <span className="text-xs text-muted-foreground">Est. Revenue</span>
+                <span className="text-xs text-muted-foreground">{revenueLabel} Revenue</span>
               </div>
-              <span className="text-xs font-semibold text-foreground">R${estTotal.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${totalRevenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
                 <span className="text-xs text-muted-foreground">Gamepasses</span>
               </div>
-              <span className="text-xs font-semibold text-foreground">R${estGamepass.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${gamepassRevenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
                 <span className="text-xs text-muted-foreground">Dev Products</span>
               </div>
-              <span className="text-xs font-semibold text-foreground">R${estDevproduct.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${devproductRevenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-muted-foreground">Purchases</span>
-              </div>
+              <span className="text-xs text-muted-foreground">Purchases</span>
               <span className="text-xs font-semibold text-foreground">{purchases.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs text-muted-foreground pl-2">Gamepass Purchases</span>
+              <span className="text-xs text-foreground">{gamepassPurchases.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between gap-4">
+              <span className="text-xs text-muted-foreground pl-2">Dev Product Purchases</span>
+              <span className="text-xs text-foreground">{devproductPurchases.toLocaleString()}</span>
             </div>
           </>
         )}
@@ -177,15 +183,12 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-pink-500" />
-                <span className="text-xs text-muted-foreground">Est. Gamepasses</span>
+                <span className="text-xs text-muted-foreground">{revenueLabel} Gamepasses</span>
               </div>
-              <span className="text-xs font-semibold text-foreground">R${estGamepass.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${gamepassRevenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-muted-foreground">Gamepass Purchases</span>
-              </div>
+              <span className="text-xs text-muted-foreground">Gamepass Purchases</span>
               <span className="text-xs font-semibold text-foreground">{gamepassPurchases.toLocaleString()}</span>
             </div>
           </>
@@ -197,15 +200,12 @@ function HeroChartTooltip({
             <div className="flex items-center justify-between gap-4">
               <div className="flex items-center gap-2">
                 <div className="w-2.5 h-2.5 rounded-full bg-green-500" />
-                <span className="text-xs text-muted-foreground">Est. Dev Products</span>
+                <span className="text-xs text-muted-foreground">{revenueLabel} Dev Products</span>
               </div>
-              <span className="text-xs font-semibold text-foreground">R${estDevproduct.toLocaleString()}</span>
+              <span className="text-xs font-semibold text-foreground">R${devproductRevenue.toLocaleString()}</span>
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-border pt-2 mt-2">
-              <div className="flex items-center gap-2">
-                <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                <span className="text-xs text-muted-foreground">Dev Product Purchases</span>
-              </div>
+              <span className="text-xs text-muted-foreground">Dev Product Purchases</span>
               <span className="text-xs font-semibold text-foreground">{devproductPurchases.toLocaleString()}</span>
             </div>
           </>
@@ -315,13 +315,24 @@ export default function MonetizationPage() {
     const revenueMultiplier = revenueDisplayMode === "gross" ? 1 : CREATOR_REVENUE_RATE;
     
     // Helper to normalize all values to numbers and apply revenue multiplier based on display mode
-    const normalizePoint = (point: { time: string; totalRevenue: number; devproductRevenue: number; gamepassRevenue: number; purchases: number }) => ({
+    const normalizePoint = (point: { 
+      time: string; 
+      totalRevenue: number; 
+      devproductRevenue: number; 
+      gamepassRevenue: number; 
+      purchases: number;
+      gamepassPurchases?: number;
+      devproductPurchases?: number;
+    }) => ({
       time: point.time,
       // Apply revenue multiplier based on display mode (1 for gross, 0.7 for estimated)
       totalRevenue: Math.round(Number(point.totalRevenue ?? 0) * revenueMultiplier),
       devproductRevenue: Math.round(Number(point.devproductRevenue ?? 0) * revenueMultiplier),
       gamepassRevenue: Math.round(Number(point.gamepassRevenue ?? 0) * revenueMultiplier),
       purchases: Number(point.purchases ?? 0),
+      // Include actual purchase counts by product type from API
+      gamepassPurchases: Number(point.gamepassPurchases ?? 0),
+      devproductPurchases: Number(point.devproductPurchases ?? 0),
     });
 
     // Calculate minutes to show based on range
@@ -371,16 +382,28 @@ export default function MonetizationPage() {
 
     // If daily interval, aggregate by day
     if (chartInterval === "daily") {
-      const dailyBuckets = new Map<string, { total: number; devproduct: number; gamepass: number; purchases: number }>();
+      const dailyBuckets = new Map<string, { 
+        total: number; 
+        devproduct: number; 
+        gamepass: number; 
+        purchases: number;
+        gamepassPurchases: number;
+        devproductPurchases: number;
+      }>();
       
       filteredData.forEach((d) => {
         const dayKey = d.time.slice(0, 10);
-        const existing = dailyBuckets.get(dayKey) || { total: 0, devproduct: 0, gamepass: 0, purchases: 0 };
+        const existing = dailyBuckets.get(dayKey) || { 
+          total: 0, devproduct: 0, gamepass: 0, purchases: 0, 
+          gamepassPurchases: 0, devproductPurchases: 0 
+        };
         // Apply revenue multiplier based on display mode
         existing.total += Math.round(Number(d.totalRevenue ?? 0) * revenueMultiplier);
         existing.devproduct += Math.round(Number(d.devproductRevenue ?? 0) * revenueMultiplier);
         existing.gamepass += Math.round(Number(d.gamepassRevenue ?? 0) * revenueMultiplier);
         existing.purchases += Number(d.purchases ?? 0);
+        existing.gamepassPurchases += Number(d.gamepassPurchases ?? 0);
+        existing.devproductPurchases += Number(d.devproductPurchases ?? 0);
         dailyBuckets.set(dayKey, existing);
       });
 
@@ -392,6 +415,8 @@ export default function MonetizationPage() {
           devproductRevenue: data.devproduct,
           gamepassRevenue: data.gamepass,
           purchases: data.purchases,
+          gamepassPurchases: data.gamepassPurchases,
+          devproductPurchases: data.devproductPurchases,
         }));
     }
 
@@ -399,11 +424,9 @@ export default function MonetizationPage() {
     return filteredData.map(normalizePoint);
   }, [monetizationCharts?.hourlyMonetization, monetizationCharts?.minuteMonetization, chartRange, chartInterval, revenueDisplayMode]);
 
-  // Calculate totals for current view
+  // Calculate totals for current view - use actual purchase counts from API
   const chartTotals = useMemo(() => {
     let activeBuckets = 0;
-    let gamepassPurchases = 0;
-    let devproductPurchases = 0;
     
     const totals = processedChartData.reduce(
       (acc, d) => {
@@ -412,24 +435,19 @@ export default function MonetizationPage() {
         else if (chartMode === "gamepasses" && d.gamepassRevenue > 0) activeBuckets++;
         else if (chartMode === "devproducts" && d.devproductRevenue > 0) activeBuckets++;
         
-        // Track purchases by type (approximation based on revenue ratio)
-        if (d.totalRevenue > 0 && d.purchases > 0) {
-          const gamepassRatio = d.gamepassRevenue / d.totalRevenue;
-          const devproductRatio = d.devproductRevenue / d.totalRevenue;
-          gamepassPurchases += Math.round(d.purchases * gamepassRatio);
-          devproductPurchases += Math.round(d.purchases * devproductRatio);
-        }
-        
         return {
           total: acc.total + d.totalRevenue,
           devproduct: acc.devproduct + d.devproductRevenue,
           gamepass: acc.gamepass + d.gamepassRevenue,
           purchases: acc.purchases + d.purchases,
+          // Use actual purchase counts from API (not estimated from revenue ratio)
+          gamepassPurchases: acc.gamepassPurchases + (d.gamepassPurchases ?? 0),
+          devproductPurchases: acc.devproductPurchases + (d.devproductPurchases ?? 0),
         };
       },
-      { total: 0, devproduct: 0, gamepass: 0, purchases: 0 }
+      { total: 0, devproduct: 0, gamepass: 0, purchases: 0, gamepassPurchases: 0, devproductPurchases: 0 }
     );
-    return { ...totals, activeBuckets, gamepassPurchases, devproductPurchases };
+    return { ...totals, activeBuckets };
   }, [processedChartData, chartMode]);
 
   // Calculate Y-axis max based on VISIBLE series only
@@ -715,8 +733,32 @@ export default function MonetizationPage() {
             </div>
           </CardContent>
         </Card>
+      </div>
 
-        {/* ARPPU/ARPDAU cards hidden until calculation is verified against correct denominators */}
+      {/* Payer Conversion Rate - single card in full width row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Card className="border-border bg-card shadow-sm">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-cyan-400" />
+              <span className="text-xs text-muted-foreground">Payer Conversion Rate</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : safeRevenueStats.conversionRate > 0 ? (
+                formatPercent(safeRevenueStats.conversionRate)
+              ) : (
+                <span className="text-muted-foreground">—</span>
+              )}
+            </div>
+            {hasTrackerData && safeRevenueStats.conversionRate > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Paying Users / Active Users
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* Hero Chart: Hourly Revenue / Sales */}
@@ -926,7 +968,7 @@ export default function MonetizationPage() {
                         tick={{ fill: chartTheme.axis, fontSize: 11 }}
                         width={60}
                       />
-                      <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
+                      <Tooltip content={<HeroChartTooltip chartMode={chartMode} revenueMode={revenueDisplayMode} />} />
                       
                       {/* Total mode: show all 3 lines unconditionally */}
                       <Line
@@ -996,7 +1038,7 @@ export default function MonetizationPage() {
                         tick={{ fill: chartTheme.axis, fontSize: 11 }}
                         width={60}
                       />
-                      <Tooltip content={<HeroChartTooltip chartMode={chartMode} />} />
+                      <Tooltip content={<HeroChartTooltip chartMode={chartMode} revenueMode={revenueDisplayMode} />} />
                       
                       {/* Gamepasses mode: only pink curve */}
                       {chartMode === "gamepasses" && (

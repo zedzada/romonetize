@@ -1,17 +1,28 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient as createServerClient } from "@supabase/supabase-js";
+import { createClient } from "@/lib/supabase/server";
 
 /**
  * GET /api/cron/status
  * 
  * Returns diagnostic information about cron job execution and CCU snapshot collection.
- * NO AUTH REQUIRED - this is a diagnostic endpoint for debugging cron issues.
+ * REQUIRES AUTH - users must be authenticated to view cron status.
  * 
  * Used by:
  * - Debug panel on /dashboard/performance?debug=true
  * - Manual verification that cron is working
  */
-export async function GET() {
+export async function GET(request: NextRequest) {
+  // Verify authenticated user
+  const supabaseAuth = await createClient();
+  const { data: { user }, error: authError } = await supabaseAuth.auth.getUser();
+  
+  if (authError || !user) {
+    return NextResponse.json(
+      { error: "Unauthorized" },
+      { status: 401 }
+    );
+  }
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
     process.env.NEXT_PUBLIC_SUPABASE_URL;
