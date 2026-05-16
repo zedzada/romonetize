@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getRobloxGameStats } from "@/lib/services/roblox-api";
 import { getSelectedGameForUser, getAllGamesForUser, type GameSummary } from "@/lib/server/selected-game";
 import { calculatePeriodMetrics, type EventWithMetrics } from "@/lib/metrics/arppu-arpdau";
+import { resolvePlanFromProfile, type PlanInfo } from "@/lib/plan";
 import { 
   aggregateProducts, 
   getTopProducts,
@@ -135,16 +136,19 @@ export async function GET(request: NextRequest) {
 
     authUserId = user.id;
 
-    // Check user's plan for monetization gating
+    // Check user's plan for monetization gating using shared helper
     step = "check_plan";
     const { data: profileData } = await supabase
       .from("profiles")
-      .select("plan")
+      .select("plan, subscription_status")
       .eq("id", user.id)
       .single();
     
-    const userPlan = profileData?.plan || "free";
-    const monetizationLocked = userPlan === "free";
+    // Use shared plan helper for consistent plan resolution across all pages
+    const planInfo: PlanInfo = resolvePlanFromProfile(profileData);
+    const userPlan = planInfo.plan;
+    // Studio/Pro users with active subscription or no subscription_status (legacy) should NOT be locked
+    const monetizationLocked = !planInfo.canAccessMonetization;
 
     // Section errors tracking
     const sectionErrors: Record<string, string> = {};
@@ -1685,6 +1689,46 @@ trackerStats: hasTrackerEvents ? {
         authUserId,
         queryGameId,
         selectedGameUsed,
+        // Plan resolution debug - shows exactly how plan was determined
+        planDebug: {
+          rawProfileData: profileData ? { plan: profileData.plan, subscription_status: profileData.subscription_status } : null,
+          resolvedPlanInfo: {
+            plan: planInfo.plan,
+            status: planInfo.status,
+            canAccessMonetization: planInfo.canAccessMonetization,
+            canAccessProducts: planInfo.canAccessProducts,
+            sourceUsed: planInfo.sourceUsed,
+          },
+          monetizationLocked,
+          userPlan,
+        },
+        // Monetization summary debug - shows aggregation results
+        monetizationDebug: {
+          selectedGameId: gameId,
+          selectedGameName: selectedGame?.name,
+          range,
+          rangeStart: startDate.toISOString(),
+          rangeEnd: now.toISOString(),
+          summaryStats,
+          purchaseEventsFound: purchaseEvents.length,
+          revenue72h,
+          purchases72hCount,
+          grossRevenue: totalRevenue,
+          estimatedRevenue: Math.round(totalRevenue * CREATOR_REVENUE_RATE),
+          payingUsers: summaryStats.totalBuyers,
+          usedSqlRpc: true,
+          samplePurchaseEvents: purchaseEvents.slice(0, 5).map(e => ({
+            id: e.id,
+            event_type: e.event_type,
+            robux: e.robux,
+            metadata_robux: e.metadata && typeof e.metadata === "object" ? (e.metadata as Record<string, unknown>).robux : undefined,
+            product_id: e.product_id,
+            product_name: e.product_name,
+            product_type: e.product_type,
+            created_at: e.created_at,
+          })),
+          sectionErrors,
+        },
         robloxSyncLatestRow,
         robloxStatsMapped: robloxStats,
         allUserGamesCount: allUserGames.length,
