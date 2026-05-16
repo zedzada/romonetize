@@ -463,15 +463,21 @@ export default function MonetizationPage() {
   }, [processedChartData, chartMode]);
 
   // Get current mode display info (labels depend on display mode)
+  // Use exact count from API for total purchases (bypasses Supabase 1000 row limit)
+  const exactPurchaseCount72h = monetizationCharts?.purchaseCount72h ?? 0;
+  
   const modeConfig = useMemo(() => {
     const prefix = revenueDisplayMode === "gross" ? "" : "Est. ";
     if (chartMode === "total") {
+      // Use exact count from API for accurate total (not capped at 1000)
+      // Fall back to chart totals only if API count not available
+      const totalPurchases = exactPurchaseCount72h > 0 ? exactPurchaseCount72h : chartTotals.purchases;
       return {
         label: `${prefix}Revenue`,
         color: COLORS.totalRevenue,
         dataKey: "totalRevenue" as const,
         revenue: chartTotals.total,
-        purchases: chartTotals.purchases,
+        purchases: totalPurchases,
         purchaseLabel: "Purchases",
       };
     } else if (chartMode === "gamepasses") {
@@ -493,7 +499,7 @@ export default function MonetizationPage() {
         purchaseLabel: "Dev Product Purchases",
       };
     }
-  }, [chartMode, chartTotals, revenueDisplayMode]);
+  }, [chartMode, chartTotals, revenueDisplayMode, exactPurchaseCount72h]);
 
   const handleRefresh = async () => {
     if (refresh) await refresh();
@@ -685,15 +691,18 @@ export default function MonetizationPage() {
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart className="w-4 h-4 text-amber-400" />
-              <span className="text-xs text-muted-foreground">Purchases</span>
+              <span className="text-xs text-muted-foreground">72H Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
-                formatNumber(safeRevenueStats.totalPurchases)
+                formatNumber(exactPurchaseCount72h)
               )}
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Same as chart header
+            </p>
           </CardContent>
         </Card>
 
