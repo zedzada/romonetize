@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { getSelectedGameForUser } from "@/lib/server/selected-game";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,18 +53,14 @@ export async function GET(request: Request) {
     const rangeStartIso = new Date(rangeStartMs).toISOString();
     const rangeEndIso = new Date(rangeEndMs).toISOString();
 
-    // Get user's selected game
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("selected_game_id")
-      .eq("id", user.id)
-      .single();
+    // Get selected game using shared utility
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
 
-    if (!profile?.selected_game_id) {
+    if (gameError) {
       return NextResponse.json(
         { 
           success: false, 
-          error: "No game selected",
+          error: gameError,
           chartData: [],
           usedSnapshots: 0,
           chartDataLength: 0,
@@ -72,18 +69,11 @@ export async function GET(request: Request) {
       );
     }
 
-    // Get game details
-    const { data: selectedGame } = await supabase
-      .from("games")
-      .select("id, name")
-      .eq("id", profile.selected_game_id)
-      .single();
-
     if (!selectedGame) {
       return NextResponse.json(
         { 
           success: false, 
-          error: "Game not found",
+          error: "No game found",
           chartData: [],
           usedSnapshots: 0,
           chartDataLength: 0,

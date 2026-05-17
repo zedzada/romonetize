@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { getSelectedGameForUser } from "@/lib/server/selected-game";
 
 // GET /api/debug/events/latest - Return latest 20 events for selected game
 // Authenticated only - uses user's selected game
@@ -17,40 +18,19 @@ export async function GET() {
       );
     }
 
-    // Get user's selected game from profile
-    const { data: profile, error: profileError } = await supabase
-      .from("profiles")
-      .select("selected_game_id")
-      .eq("id", user.id)
-      .single();
+    // Get selected game using shared utility
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
 
-    if (profileError || !profile?.selected_game_id) {
+    if (gameError || !selectedGame) {
       return NextResponse.json({
         success: false,
-        error: "No game selected",
+        error: gameError || "No game found",
         selectedGameId: null,
         latestEvents: [],
       });
     }
 
-    const selectedGameId = profile.selected_game_id;
-
-    // Get game info
-    const { data: game, error: gameError } = await supabase
-      .from("games")
-      .select("id, name, api_key, status, last_event_at")
-      .eq("id", selectedGameId)
-      .eq("user_id", user.id)
-      .single();
-
-    if (gameError || !game) {
-      return NextResponse.json({
-        success: false,
-        error: "Game not found or not owned by user",
-        selectedGameId,
-        latestEvents: [],
-      });
-    }
+    const selectedGameId = selectedGame.id;
 
     // Fetch latest 20 events for this game
     const { data: events, error: eventsError } = await supabase

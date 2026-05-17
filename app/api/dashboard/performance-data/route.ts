@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { getSelectedGameForUser } from "@/lib/server/selected-game";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -76,31 +77,20 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Get user profile with selected game
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("selected_game_id")
-      .eq("id", user.id)
-      .single();
+    // Get selected game using shared utility
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
 
-    if (!profile?.selected_game_id) {
+    if (gameError) {
       return NextResponse.json(
-        { success: false, error: "No game selected" },
-        { status: 400, headers }
+        { success: false, error: gameError },
+        { status: 500, headers }
       );
     }
 
-    // Get selected game
-    const { data: selectedGame } = await supabase
-      .from("games")
-      .select("id, name, roblox_game_id")
-      .eq("id", profile.selected_game_id)
-      .single();
-
     if (!selectedGame) {
       return NextResponse.json(
-        { success: false, error: "Selected game not found" },
-        { status: 404, headers }
+        { success: false, error: "No game found" },
+        { status: 400, headers }
       );
     }
 
