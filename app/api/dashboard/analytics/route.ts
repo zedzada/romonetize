@@ -518,6 +518,46 @@ export async function GET(request: NextRequest) {
     sectionErrors.sessionEvents = err instanceof Error ? err.message : "Failed to fetch session events";
   }
   
+  // === ACTIVITY EVENTS (for Activity Over Time chart) ===
+  // Fetch ALL events in range EXCEPT ccu_heartbeat and script_started
+  // This must match totalEventsInRange for card/chart consistency
+  let activityEvents: Array<{ created_at: string }> = [];
+  let activityEventsFetched = 0;
+  let activityExactCount = totalEventsInRange; // Already calculated above
+  
+  try {
+    // Paginate to get all activity events for the chart
+    const ACTIVITY_PAGE_SIZE = 1000;
+    let from = 0;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from("events")
+        .select("created_at")
+        .eq("game_id", gameId)
+        .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`)
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", now.toISOString())
+        .order("created_at", { ascending: true })
+        .range(from, from + ACTIVITY_PAGE_SIZE - 1);
+      
+      if (pageError) {
+        sectionErrors.activityEvents = pageError.message;
+        hasMore = false;
+      } else if (pageData && pageData.length > 0) {
+        activityEvents.push(...pageData);
+        activityEventsFetched += pageData.length;
+        from += ACTIVITY_PAGE_SIZE;
+        hasMore = pageData.length === ACTIVITY_PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
+    }
+  } catch (err) {
+    sectionErrors.activityEvents = err instanceof Error ? err.message : "Failed to fetch activity events";
+  }
+  
   // === ACTIVE USERS QUERY (for PCR & ARPDAU) ===
   // Fetch distinct player_ids from ACTIVE_USER_EVENT_TYPES in range
   // Also fetch per-day breakdown for ARPDAU's averageDAU calculation
@@ -608,6 +648,7 @@ export async function GET(request: NextRequest) {
   const SERVER_ONLY_EVENT_TYPES = ["ccu_heartbeat", "script_started"];
   let totalEventsCount = 0;
   let totalEventsCountAllTypes = 0; // Including server events, for hasTrackerEvents check
+  let totalEventsInRange = 0; // Tracked Actions for selected range (excludes server-only)
   let latestEventAt: string | null = null;
   try {
     // Count all events (for hasTrackerEvents check)
@@ -617,13 +658,23 @@ export async function GET(request: NextRequest) {
       .eq("game_id", gameId);
     totalEventsCountAllTypes = allCount || 0;
 
-    // Count user actions only (excluding ccu_heartbeat, script_started)
+    // Count user actions only (excluding ccu_heartbeat, script_started) - ALL TIME
     const { count: actionCount } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId)
       .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`);
     totalEventsCount = actionCount || 0;
+
+    // Count user actions in SELECTED RANGE (for Tracked Actions card to match chart)
+    const { count: rangeActionCount } = await supabase
+      .from("events")
+      .select("*", { count: "exact", head: true })
+      .eq("game_id", gameId)
+      .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`)
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", now.toISOString());
+    totalEventsInRange = rangeActionCount || 0;
 
     // Get latest event time if we have events (use allTypes count)
     if (totalEventsCountAllTypes > 0) {
@@ -787,8 +838,9 @@ export async function GET(request: NextRequest) {
     universeId: selectedGame.universe_id || selectedGame.roblox_game_id,
     gameName: selectedGame.name,
     apiKey: selectedGame.api_key, // For tracking setup page
-    hasTrackerEvents,
-    trackerEventsCount: totalEventsCount,
+  hasTrackerEvents,
+  trackerEventsCount: totalEventsCount, // All-time count for dataHealth
+  trackerEventsInRange: totalEventsInRange, // Range-filtered for Tracked Actions card
     // Use latestEventAt from events query, fall back to games.last_event_at
     lastTrackerEventAt: latestEventAt || selectedGame.last_event_at,
     hasRobloxApiData: hasRobloxApiData || robloxStats !== null,
@@ -1574,18 +1626,20 @@ export async function GET(request: NextRequest) {
       ccuStats.source = "roblox_api";
     }
 
-    // Use captured_at for time filtering (preferred), fallback to created_at
+    // Query ccu_snapshots for historical data (only created_at exists in schema)
     const { data: ccuSnapshots } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, captured_at, created_at")
+      .select("ccu, source, created_at")
       .eq("game_id", gameId)
-      .or(`captured_at.gte.${startDate.toISOString()},and(captured_at.is.null,created_at.gte.${startDate.toISOString()})`)
-      .order("captured_at", { ascending: true, nullsFirst: false });
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", now.toISOString())
+      .order("created_at", { ascending: true });
 
     if (ccuSnapshots && ccuSnapshots.length > 0) {
-      ccuStats.snapshots = ccuSnapshots.map((s: { ccu: number; captured_at: string | null; created_at: string }) => ({
-        time: s.captured_at || s.created_at,
+      ccuStats.snapshots = ccuSnapshots.map((s: { ccu: number; source: string | null; created_at: string }) => ({
+        time: s.created_at,
         ccu: s.ccu,
+        source: s.source || "unknown",
       }));
       // Only override current if not already set from tracker heartbeats
       if (ccuStats.current === null) {
@@ -1639,10 +1693,10 @@ let ccuHistory: {
     // PRIMARY: Fetch from ccu_snapshots table (populated by tracker heartbeats and sync)
     // Include source field for tooltip display
     // Fetch ALL snapshots in last 90 days, ordered by timestamp
-    // Use created_at as the primary filter (always populated), then prefer captured_at for display
+    // Only created_at exists in schema (no captured_at column)
     const { data: ccuSnapshotsData, error: ccuQueryError } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, captured_at, created_at, source")
+      .select("ccu, created_at, source")
       .eq("game_id", gameId)
       .gte("created_at", ccuHistoryStart.toISOString())
       .order("created_at", { ascending: true })
@@ -1655,8 +1709,8 @@ let ccuHistory: {
     if (ccuSnapshotsData && ccuSnapshotsData.length > 0) {
       ccuHistory.rawSnapshots = ccuSnapshotsData
         .filter((snap: { ccu: number | null }) => snap.ccu !== null)
-        .map((snap: { captured_at: string | null; created_at: string; ccu: number; source: string | null }) => ({
-          time: snap.captured_at || snap.created_at,
+        .map((snap: { created_at: string; ccu: number; source: string | null }) => ({
+          time: snap.created_at,
           ccu: snap.ccu as number,
           source: snap.source || "unknown",
         }));
@@ -1696,10 +1750,10 @@ let ccuHistory: {
     const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
     const { data: cronSnapshots } = await supabase
       .from("ccu_snapshots")
-      .select("source, captured_at")
+      .select("source, created_at")
       .eq("game_id", gameId)
-      .gte("captured_at", fifteenMinutesAgo.toISOString())
-      .order("captured_at", { ascending: false });
+      .gte("created_at", fifteenMinutesAgo.toISOString())
+      .order("created_at", { ascending: false });
     
     // Find latest snapshot overall
     const latestSnapshot = cronSnapshots?.[0];
@@ -1708,7 +1762,7 @@ let ccuHistory: {
     const latestBrowserSnapshot = cronSnapshots?.find((s: { source: string | null }) => s.source !== "vercel_cron" && s.source !== null);
     
     // Calculate minutes since latest snapshot
-    const latestSnapshotAt = latestSnapshot?.captured_at ? new Date(latestSnapshot.captured_at) : null;
+    const latestSnapshotAt = latestSnapshot?.created_at ? new Date(latestSnapshot.created_at) : null;
     const minutesSinceLatestSnapshot = latestSnapshotAt 
       ? Math.round((now.getTime() - latestSnapshotAt.getTime()) / 60000) 
       : null;
@@ -1739,8 +1793,8 @@ let ccuHistory: {
       expectedSnapshotsLast15Minutes: 15, // 1 per minute if browser open, or 3 if only cron (5-min interval)
       cronRunsLast15Minutes,
       latestCronRun,
-      latestCronSnapshotAt: latestCronSnapshot?.captured_at ?? null,
-      latestBrowserSnapshotAt: latestBrowserSnapshot?.captured_at ?? null,
+      latestCronSnapshotAt: latestCronSnapshot?.created_at ?? null,
+      latestBrowserSnapshotAt: latestBrowserSnapshot?.created_at ?? null,
       cronConfigured: !!process.env.CRON_SECRET,
       // Note: Vercel cron runs every minute, browser polling every 60s when dashboard open
       cronInterval: "1m (Vercel)",
@@ -1860,22 +1914,72 @@ let ccuHistory: {
     .map(([time, data]) => ({ time, players: data.total.size }))
     .sort((a, b) => a.time.localeCompare(b.time));
 
-  // === EVENTS OVER TIME CHART ===
-  // Combine session and purchase events for the chart (we don't have allEvents anymore)
-  const eventsBuckets = new Map<string, number>();
-  const allChartEvents = [...sessionEvents, ...purchaseEvents];
-  allChartEvents.forEach((e) => {
-    const eventDate = new Date(e.created_at);
-    let bucketKey: string;
-    if (range === "1h") {
-      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
-      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
-    } else if (range === "1d") {
-      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
-    } else {
-      bucketKey = eventDate.toISOString().slice(0, 10);
+  // === GENERATE ALL BUCKETS FOR SELECTED RANGE ===
+  // Per spec: 24H/72H = hourly, 7D/28D/90D = daily
+  // Empty buckets = 0 to prevent missing bars
+  const useHourlyBuckets = range === "1h" || range === "1d" || range === "3d";
+  const bucketIntervalMs = useHourlyBuckets ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 1 hour or 1 day
+  
+  // For 1h range, use 5-minute buckets
+  const useMinuteBuckets = range === "1h";
+  const minuteBucketIntervalMs = 5 * 60 * 1000; // 5 minutes
+  
+  // Generate all bucket keys for the range
+  const allBucketKeys: string[] = [];
+  const bucketStart = new Date(startDate);
+  const bucketEnd = new Date(now);
+  
+  if (useMinuteBuckets) {
+    // 5-minute buckets for 1h range
+    let current = new Date(bucketStart);
+    current.setMinutes(Math.floor(current.getMinutes() / 5) * 5, 0, 0);
+    while (current <= bucketEnd) {
+      const minutes = current.getMinutes();
+      const key = `${current.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+      allBucketKeys.push(key);
+      current = new Date(current.getTime() + minuteBucketIntervalMs);
     }
-    eventsBuckets.set(bucketKey, (eventsBuckets.get(bucketKey) || 0) + 1);
+  } else if (useHourlyBuckets) {
+    // Hourly buckets for 24H/72H
+    let current = new Date(bucketStart);
+    current.setMinutes(0, 0, 0);
+    while (current <= bucketEnd) {
+      allBucketKeys.push(current.toISOString().slice(0, 13) + ":00");
+      current = new Date(current.getTime() + bucketIntervalMs);
+    }
+  } else {
+    // Daily buckets for 7D/28D/90D
+    let current = new Date(bucketStart);
+    current.setUTCHours(0, 0, 0, 0);
+    while (current <= bucketEnd) {
+      allBucketKeys.push(current.toISOString().slice(0, 10));
+      current = new Date(current.getTime() + bucketIntervalMs);
+    }
+  }
+
+  // Helper to get bucket key from event date
+  const getBucketKey = (eventDate: Date): string => {
+    if (useMinuteBuckets) {
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      return `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (useHourlyBuckets) {
+      return eventDate.toISOString().slice(0, 13) + ":00";
+    } else {
+      return eventDate.toISOString().slice(0, 10);
+    }
+  };
+
+  // === EVENTS OVER TIME CHART ===
+  // Use activityEvents (ALL events except ccu_heartbeat, script_started)
+  // This must match totalEventsInRange for card/chart consistency
+  const eventsBuckets = new Map<string, number>();
+  // Initialize all buckets to 0
+  allBucketKeys.forEach(key => eventsBuckets.set(key, 0));
+  activityEvents.forEach((e) => {
+    const bucketKey = getBucketKey(new Date(e.created_at));
+    if (eventsBuckets.has(bucketKey)) {
+      eventsBuckets.set(bucketKey, (eventsBuckets.get(bucketKey) || 0) + 1);
+    }
   });
   const eventsOverTime = Array.from(eventsBuckets.entries())
     .map(([date, events]) => ({ date, events }))
@@ -1885,43 +1989,60 @@ let ccuHistory: {
   // IMPORTANT: Only count session START events (player_join + session_start)
   // This must match the Total Sessions card calculation
   const sessionsBuckets = new Map<string, number>();
+  // Initialize all buckets to 0
+  allBucketKeys.forEach(key => sessionsBuckets.set(key, 0));
   sessionEvents
     .filter((e) => sessionStartTypes.includes(e.event_type))
     .forEach((e) => {
-    const eventDate = new Date(e.created_at);
-    let bucketKey: string;
-    if (range === "1h") {
-      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
-      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
-    } else if (range === "1d") {
-      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
-    } else {
-      bucketKey = eventDate.toISOString().slice(0, 10);
-    }
-    sessionsBuckets.set(bucketKey, (sessionsBuckets.get(bucketKey) || 0) + 1);
-  });
+      const bucketKey = getBucketKey(new Date(e.created_at));
+      if (sessionsBuckets.has(bucketKey)) {
+        sessionsBuckets.set(bucketKey, (sessionsBuckets.get(bucketKey) || 0) + 1);
+      }
+    });
   const sessionsOverTime = Array.from(sessionsBuckets.entries())
     .map(([date, sessions]) => ({ date, sessions }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // === PURCHASES OVER TIME CHART ===
   const purchasesBuckets = new Map<string, number>();
+  // Initialize all buckets to 0
+  allBucketKeys.forEach(key => purchasesBuckets.set(key, 0));
   purchaseEvents.forEach((e) => {
-    const eventDate = new Date(e.created_at);
-    let bucketKey: string;
-    if (range === "1h") {
-      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
-      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
-    } else if (range === "1d") {
-      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
-    } else {
-      bucketKey = eventDate.toISOString().slice(0, 10);
+    const bucketKey = getBucketKey(new Date(e.created_at));
+    if (purchasesBuckets.has(bucketKey)) {
+      purchasesBuckets.set(bucketKey, (purchasesBuckets.get(bucketKey) || 0) + 1);
     }
-    purchasesBuckets.set(bucketKey, (purchasesBuckets.get(bucketKey) || 0) + 1);
   });
   const purchasesOverTime = Array.from(purchasesBuckets.entries())
     .map(([date, purchases]) => ({ date, purchases }))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // === CHART DEBUG INFO (for ?debug=true) ===
+  const activityChartTotal = eventsOverTime.reduce((sum, d) => sum + d.events, 0);
+  const playerJoinsChartTotal = sessionsOverTime.reduce((sum, d) => sum + d.sessions, 0);
+  const purchasesChartTotal = purchasesOverTime.reduce((sum, d) => sum + d.purchases, 0);
+  
+  const performanceChartsDebug = {
+    selectedRange: range,
+    rangeStart: startDate.toISOString(),
+    rangeEnd: now.toISOString(),
+    bucketType: useMinuteBuckets ? "5min" : useHourlyBuckets ? "hourly" : "daily",
+    bucketCount: allBucketKeys.length,
+    trackedActionsCard: totalEventsInRange,
+    activityChartTotal,
+    activityMatch: activityChartTotal === totalEventsInRange,
+    totalSessionsCard: totalSessions,
+    playerJoinsChartTotal,
+    sessionsMatch: playerJoinsChartTotal === totalSessions,
+    purchasesCard: purchaseEvents.length,
+    purchasesChartTotal,
+    purchasesMatch: purchasesChartTotal === purchaseEvents.length,
+    mismatches: [
+      activityChartTotal !== totalEventsInRange ? `activity: card=${totalEventsInRange} chart=${activityChartTotal}` : null,
+      playerJoinsChartTotal !== totalSessions ? `sessions: card=${totalSessions} chart=${playerJoinsChartTotal}` : null,
+      purchasesChartTotal !== purchaseEvents.length ? `purchases: card=${purchaseEvents.length} chart=${purchasesChartTotal}` : null,
+    ].filter(Boolean),
+  };
 
   // === REVENUE BY PRODUCT TYPE ===
   const revenueByProductType = [
@@ -1985,7 +2106,8 @@ let ccuHistory: {
       // Always return object with safe values when tracker is active
       // For free users, null out purchase count
 trackerStats: hasTrackerEvents ? {
-  totalEvents: totalEventsCount,
+  // Use range-filtered count for Tracked Actions card (matches chart data)
+  totalEvents: totalEventsInRange,
   uniquePlayers: uniquePlayers || 0,
   totalSessions: totalSessions || 0,
   avgSessionDuration: avgSessionDuration || null,
@@ -2130,14 +2252,16 @@ trackerStats: hasTrackerEvents ? {
         revenue: revenueChart,
         players: playersChart,
       } : null,
-      // Performance charts
-      performanceCharts: hasTrackerEvents ? {
-        eventsOverTime,
-        playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
-        sessionsOverTime,
-        purchasesOverTime,
-        ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
-      } : null,
+  // Performance charts
+  performanceCharts: hasTrackerEvents ? {
+  eventsOverTime,
+  playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
+  sessionsOverTime,
+  purchasesOverTime,
+  ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
+  // Debug info for card/chart alignment verification
+  debug: performanceChartsDebug,
+  } : null,
   // Monetization charts - locked for free users
   // Uses same shared product aggregation for consistency with Products page
   monetizationCharts: monetizationLocked ? null : (hasTrackerEvents ? {

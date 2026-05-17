@@ -505,15 +505,13 @@ export async function POST(request: Request) {
       // Always insert even if CCU is 0, but not if null (API failed)
       // This is append-only - never upsert or replace old snapshots
       // GUARD: Never insert without roblox_game_id
+      // NOTE: Only use columns that exist in schema: game_id, ccu, source, created_at
       const resolvedRobloxGameId = selectedGame.roblox_game_id || selectedGame.universe_id;
       
       if (stats.currentPlayers !== null && resolvedRobloxGameId) {
         const ccuSnapshotData = {
-          user_id: user.id,
           game_id: selectedGame.id,
-          roblox_game_id: resolvedRobloxGameId, // Use resolved ID, never null
           ccu: stats.currentPlayers,
-          captured_at: new Date().toISOString(),
           source: "roblox_api",
           created_at: new Date().toISOString(),
         };

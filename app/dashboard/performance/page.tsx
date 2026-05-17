@@ -1208,24 +1208,26 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* Card vs Chart Alignment - KEY for verifying stats consistency */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
-                    <span className="text-amber-400">Card vs Chart Alignment (from spec):</span>
+                    <span className="text-amber-400">Card vs Chart Alignment (from API debug):</span>
                   </div>
-                  <div>selectedRange: <span className="text-foreground">{chartRange}</span></div>
-                  <div>trackedActionsCard: <span className="text-foreground">{safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents || 0}</span></div>
+                  <div>selectedRange: <span className="text-foreground">{performanceCharts?.debug?.selectedRange || chartRange}</span></div>
+                  <div>bucketType: <span className="text-foreground">{performanceCharts?.debug?.bucketType || "unknown"}</span></div>
+                  <div>bucketCount: <span className="text-foreground">{performanceCharts?.debug?.bucketCount || 0}</span></div>
+                  <div>trackedActionsCard: <span className="text-foreground">{performanceCharts?.debug?.trackedActionsCard ?? safeTrackerStats.totalEvents ?? 0}</span></div>
                   <div>activityChartTotal: <span className={
-                    (performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0) === (safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents || 0)
-                      ? "text-green-400" : "text-yellow-400"
-                  }>{performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0}</span></div>
-                  <div>totalSessionsCard: <span className="text-foreground">{safeTrackerStats.totalSessions || 0}</span></div>
-                  <div>sessionsChartTotal: <span className={
-                    (performanceCharts?.sessionsOverTime?.reduce((sum, d) => sum + (d.sessions ?? 0), 0) || 0) === (safeTrackerStats.totalSessions || 0)
-                      ? "text-green-400" : "text-yellow-400"
-                  }>{performanceCharts?.sessionsOverTime?.reduce((sum, d) => sum + (d.sessions ?? 0), 0) || 0}</span></div>
-                  <div>purchasesCard: <span className="text-foreground">{safeTrackerStats.totalPurchases || 0}</span></div>
+                    performanceCharts?.debug?.activityMatch ? "text-green-400" : "text-yellow-400"
+                  }>{performanceCharts?.debug?.activityChartTotal ?? 0}</span></div>
+                  <div>activityMatch: <span className={performanceCharts?.debug?.activityMatch ? "text-green-400" : "text-red-400"}>{performanceCharts?.debug?.activityMatch ? "PASS" : "FAIL"}</span></div>
+                  <div>totalSessionsCard: <span className="text-foreground">{performanceCharts?.debug?.totalSessionsCard ?? safeTrackerStats.totalSessions ?? 0}</span></div>
+                  <div>playerJoinsChartTotal: <span className={
+                    performanceCharts?.debug?.sessionsMatch ? "text-green-400" : "text-yellow-400"
+                  }>{performanceCharts?.debug?.playerJoinsChartTotal ?? 0}</span></div>
+                  <div>sessionsMatch: <span className={performanceCharts?.debug?.sessionsMatch ? "text-green-400" : "text-red-400"}>{performanceCharts?.debug?.sessionsMatch ? "PASS" : "FAIL"}</span></div>
+                  <div>purchasesCard: <span className="text-foreground">{performanceCharts?.debug?.purchasesCard ?? safeTrackerStats.totalPurchases ?? 0}</span></div>
                   <div>purchasesChartTotal: <span className={
-                    (performanceCharts?.purchasesOverTime?.reduce((sum, d) => sum + (d.purchases ?? 0), 0) || 0) === (safeTrackerStats.totalPurchases || 0)
-                      ? "text-green-400" : "text-yellow-400"
-                  }>{performanceCharts?.purchasesOverTime?.reduce((sum, d) => sum + (d.purchases ?? 0), 0) || 0}</span></div>
+                    performanceCharts?.debug?.purchasesMatch ? "text-green-400" : "text-yellow-400"
+                  }>{performanceCharts?.debug?.purchasesChartTotal ?? 0}</span></div>
+                  <div>purchasesMatch: <span className={performanceCharts?.debug?.purchasesMatch ? "text-green-400" : "text-red-400"}>{performanceCharts?.debug?.purchasesMatch ? "PASS" : "FAIL"}</span></div>
                   <div>uniquePlayersCard: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
                   <div>newPlayersCard: <span className={
                     (safeTrackerStats.newPlayers || 0) <= (safeTrackerStats.uniquePlayers || 0)
@@ -1235,6 +1237,9 @@ const handleSyncAndRefresh = useCallback(async () => {
                     (safeTrackerStats.newPlayers || 0) <= (safeTrackerStats.uniquePlayers || 0)
                       ? "text-green-400" : "text-red-400"
                   }>{(safeTrackerStats.newPlayers || 0) <= (safeTrackerStats.uniquePlayers || 0) ? "PASS" : "FAIL"}</span></div>
+                  {performanceCharts?.debug?.mismatches?.length ? (
+                    <div className="col-span-full">mismatches: <span className="text-red-400 text-[10px]">{JSON.stringify(performanceCharts.debug.mismatches)}</span></div>
+                  ) : null}
                   
                   {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
