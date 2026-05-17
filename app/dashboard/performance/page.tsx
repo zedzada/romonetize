@@ -1269,6 +1269,10 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
                     <span className="text-amber-400">RAW trackerStats from hook (WIRING DEBUG):</span>
                   </div>
+                  <div>isResponseStale: <span className={analyticsDebugInfo?.isResponseStale ? "text-red-400" : "text-green-400"}>{analyticsDebugInfo?.isResponseStale ? "YES (BAD!)" : "NO"}</span></div>
+                  <div>currentSelectedGameId: <span className="text-foreground text-[9px]">{analyticsDebugInfo?.currentSelectedGameId ?? "null"}</span></div>
+                  <div>responseSelectedGameId: <span className="text-foreground text-[9px]">{analyticsDebugInfo?.responseSelectedGameId ?? "null"}</span></div>
+                  <div>gameIdMatch: <span className={analyticsDebugInfo?.currentSelectedGameId === analyticsDebugInfo?.responseSelectedGameId ? "text-green-400" : "text-red-400"}>{analyticsDebugInfo?.currentSelectedGameId === analyticsDebugInfo?.responseSelectedGameId ? "YES" : "NO (MISMATCH!)"}</span></div>
                   <div>trackerStats_is_null: <span className={trackerStats ? "text-green-400" : "text-red-400"}>{trackerStats ? "NO (has data)" : "YES (null)"}</span></div>
                   <div>raw_totalEvents: <span className="text-foreground">{trackerStats?.totalEvents ?? "null"}</span></div>
                   <div>raw_uniquePlayers: <span className={trackerStats?.uniquePlayers && trackerStats.uniquePlayers > 0 ? "text-green-400" : "text-yellow-400"}>{trackerStats?.uniquePlayers ?? "null"}</span></div>
