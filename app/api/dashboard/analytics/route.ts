@@ -1882,8 +1882,12 @@ let ccuHistory: {
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // === SESSIONS OVER TIME CHART ===
+  // IMPORTANT: Only count session START events (player_join + session_start)
+  // This must match the Total Sessions card calculation
   const sessionsBuckets = new Map<string, number>();
-  sessionEvents.forEach((e) => {
+  sessionEvents
+    .filter((e) => sessionStartTypes.includes(e.event_type))
+    .forEach((e) => {
     const eventDate = new Date(e.created_at);
     let bucketKey: string;
     if (range === "1h") {
