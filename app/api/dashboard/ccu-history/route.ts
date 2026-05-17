@@ -1,0 +1,172 @@
+import { createClient } from "@/lib/supabase/server";
+import { NextResponse } from "next/server";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+// Range definitions in milliseconds
+const RANGE_MS: Record<string, number> = {
+  "1h": 60 * 60 * 1000,
+  "24h": 24 * 60 * 60 * 1000,
+  "7d": 7 * 24 * 60 * 60 * 1000,
+  "28d": 28 * 24 * 60 * 60 * 1000,
+  "90d": 90 * 24 * 60 * 60 * 1000,
+};
+
+function formatLabel(isoString: string, range: string): string {
+  const date = new Date(isoString);
+  if (range === "1h" || range === "24h") {
+    return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+export async function GET(request: Request) {
+  const headers = {
+    "Cache-Control": "no-store, no-cache, must-revalidate",
+    "Pragma": "no-cache",
+  };
+
+  try {
+    const supabase = await createClient();
+    
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized" },
+        { status: 401, headers }
+      );
+    }
+
+    // Parse range from query
+    const url = new URL(request.url);
+    const range = url.searchParams.get("range") || "1h";
+    const normalizedRange = range.toLowerCase();
+    
+    // Calculate time range
+    const now = Date.now();
+    const rangeMs = RANGE_MS[normalizedRange] ?? RANGE_MS["1h"];
+    const rangeStartMs = now - rangeMs;
+    const rangeEndMs = now;
+    const rangeStartIso = new Date(rangeStartMs).toISOString();
+    const rangeEndIso = new Date(rangeEndMs).toISOString();
+
+    // Get user's selected game
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("selected_game_id")
+      .eq("id", user.id)
+      .single();
+
+    if (!profile?.selected_game_id) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: "No game selected",
+          chartData: [],
+          usedSnapshots: 0,
+          chartDataLength: 0,
+        },
+        { status: 200, headers }
+      );
+    }
+
+    // Get game details
+    const { data: selectedGame } = await supabase
+      .from("games")
+      .select("id, name")
+      .eq("id", profile.selected_game_id)
+      .single();
+
+    if (!selectedGame) {
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: "Game not found",
+          chartData: [],
+          usedSnapshots: 0,
+          chartDataLength: 0,
+        },
+        { status: 200, headers }
+      );
+    }
+
+    // Query Supabase directly - filter by range in database
+    const { data: rows, error: queryError } = await supabase
+      .from("ccu_snapshots")
+      .select("id, game_id, ccu, source, created_at")
+      .eq("game_id", selectedGame.id)
+      .gte("created_at", rangeStartIso)
+      .lte("created_at", rangeEndIso)
+      .order("created_at", { ascending: true });
+
+    if (queryError) {
+      console.error("[ccu-history] Query error:", queryError);
+      return NextResponse.json(
+        { success: false, error: queryError.message },
+        { status: 500, headers }
+      );
+    }
+
+    const allRows = rows ?? [];
+
+    // Source priority: romonetize_tracker > roblox_api
+    const trackerRows = allRows.filter(r => r.source === "romonetize_tracker");
+    const robloxRows = allRows.filter(r => r.source === "roblox_api");
+    
+    const usedRows = trackerRows.length > 0 ? trackerRows : robloxRows;
+    const usedSource = trackerRows.length > 0 ? "romonetize_tracker" : robloxRows.length > 0 ? "roblox_api" : "none";
+
+    // Build chart data directly from used rows (no extra filtering)
+    let chartData = usedRows.map(row => ({
+      time: row.created_at,
+      label: formatLabel(row.created_at, normalizedRange),
+      ccu: Number(row.ccu) || 0,
+      source: row.source,
+    }));
+
+    // Downsample if over 300 points
+    if (chartData.length > 300) {
+      const step = Math.ceil(chartData.length / 300);
+      chartData = chartData.filter((_, index) => index % step === 0);
+    }
+
+    // Calculate stats
+    const ccuValues = chartData.map(p => p.ccu);
+    const currentCcu = chartData.length > 0 ? chartData[chartData.length - 1].ccu : null;
+    const peakCcu = ccuValues.length > 0 ? Math.max(...ccuValues) : null;
+    const avgCcu = ccuValues.length > 0 
+      ? Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length)
+      : null;
+
+    return NextResponse.json({
+      success: true,
+      selectedGameId: selectedGame.id,
+      selectedGameName: selectedGame.name,
+      range: normalizedRange,
+      rangeStartIso,
+      rangeEndIso,
+      sourceCounts: {
+        romonetize_tracker: trackerRows.length,
+        roblox_api: robloxRows.length,
+      },
+      usedSource,
+      snapshotsReturned: allRows.length,
+      usedSnapshots: usedRows.length,
+      chartDataLength: chartData.length,
+      latestSnapshotAt: usedRows.length > 0 ? usedRows[usedRows.length - 1].created_at : null,
+      currentCcu,
+      peakCcu,
+      avgCcu,
+      chartData,
+    }, { headers });
+
+  } catch (error) {
+    console.error("[ccu-history] Unexpected error:", error);
+    return NextResponse.json(
+      { success: false, error: "Internal server error" },
+      { status: 500, headers: { "Cache-Control": "no-store" } }
+    );
+  }
+}
