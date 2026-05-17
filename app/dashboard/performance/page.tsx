@@ -253,8 +253,19 @@ export default function PerformancePage() {
   const peakCcu = ccuHistoryData?.peakCcu ?? 0;
   const avgCcu = ccuHistoryData?.avgCcu ?? 0;
   
-  // Data health check
-  const hasTrackerData = performanceData?.eventsFound > 0;
+  // Data health check - check the correct conditions per the spec
+  // Show "Requires tracking script" ONLY if ALL of these are zero
+  const hasTrackerData = useMemo(() => {
+    const metrics = performanceData?.metrics;
+    if (!metrics) return false;
+    return !(
+      metrics.trackedActions === 0 &&
+      metrics.totalSessions === 0 &&
+      metrics.purchases === 0 &&
+      metrics.uniquePlayers === 0
+    );
+  }, [performanceData?.metrics]);
+  
   const needsTrackingScript = !hasTrackerData;
   const hasRobloxData = performanceData?.hasRobloxData ?? false;
   const monetizationLocked = performanceData?.monetizationLocked ?? false;
@@ -919,34 +930,61 @@ export default function PerformancePage() {
             <CardTitle className="text-amber-600">Debug Panel</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm font-mono">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm font-mono">
               <div>
-                <strong>Performance Data:</strong>
+                <strong>Selected Game:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
                     selectedGameId,
                     selectedGameName,
+                  }, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>Roblox Stats:</strong>
+                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
+                  {JSON.stringify(robloxStats, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>Performance Data:</strong>
+                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
+                  {JSON.stringify({
+                    metrics: performanceData?.metrics,
+                    totals: performanceData?.totals,
+                    eventTypeCounts: performanceData?.debug?.eventTypeCounts,
                     eventsFound: performanceData?.eventsFound,
-                    hasTrackerData,
-                    hasRobloxData,
-                    cardStats,
                     chartsActivity: normalizedActivity.length,
                     chartsSessions: normalizedSessions.length,
                     chartsPurchases: normalizedPurchases.length,
                   }, null, 2)}
                 </pre>
               </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm font-mono">
               <div>
-                <strong>CCU History:</strong>
+                <strong>CCU Data:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
                     range: ccuRange,
-                    chartDataPoints: ccuChartData.length,
+                    usedSource: ccuHistoryData?.usedSource,
+                    usedSnapshots: ccuHistoryData?.usedSnapshots,
+                    chartDataLength: ccuChartData.length,
                     currentCcu,
                     peakCcu,
                     avgCcu,
                     latestSnapshot: ccuHistoryData?.latestSnapshotAt,
-                    usedSource: ccuHistoryData?.usedSource,
+                  }, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>Data Health:</strong>
+                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
+                  {JSON.stringify({
+                    hasTrackerData,
+                    hasRobloxData,
+                    monetizationLocked,
+                    needsTrackingScript,
                   }, null, 2)}
                 </pre>
               </div>

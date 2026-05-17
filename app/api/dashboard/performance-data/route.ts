@@ -94,6 +94,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    // Roblox stats come directly from the games table (synced via Roblox API)
+    const robloxStats = {
+      ccu: selectedGame.current_players ?? 0,
+      visits: selectedGame.total_visits ?? 0,
+      favorites: selectedGame.favorites ?? 0,
+      likes: selectedGame.likes ?? 0,
+      dislikes: selectedGame.dislikes ?? 0,
+    };
+
+    const hasRobloxData = (
+      robloxStats.visits > 0 || 
+      robloxStats.favorites > 0 || 
+      robloxStats.likes > 0
+    );
+
     // Parse range
     const url = new URL(request.url);
     const rangeParam = url.searchParams.get("range") || "24h";
@@ -289,6 +304,20 @@ export async function GET(request: NextRequest) {
       rangeStartIso,
       rangeEndIso,
 
+      // Game object for the selected game card
+      game: {
+        id: selectedGame.id,
+        name: selectedGame.name,
+        roblox_game_id: selectedGame.roblox_game_id,
+        roblox_universe_id: selectedGame.universe_id,
+        icon_url: selectedGame.thumbnail_url,
+      },
+
+      // Roblox API stats
+      robloxStats,
+      hasRobloxData,
+
+      // Tracker metrics
       metrics: {
         trackedActions,
         uniquePlayers,
@@ -298,18 +327,27 @@ export async function GET(request: NextRequest) {
         purchases,
       },
 
+      // Chart data
       charts: {
         activityOverTime,
         sessionsOverTime,
         purchasesOverTime,
       },
 
+      // Totals for chart badges
       totals: {
         activityTotal,
         sessionsTotal,
         purchasesTotal,
       },
 
+      // Events found count - used for hasTrackerData check
+      eventsFound: allEvents.length,
+
+      // Monetization locked status (false for now - can be enhanced with subscription check)
+      monetizationLocked: false,
+
+      // Debug info
       debug: {
         eventTypeCounts,
         rawEventCount: allEvents.length,
