@@ -1718,10 +1718,6 @@ let ccuHistory: {
     // Include source field for tooltip display
     // Fetch ALL snapshots in last 90 days, ordered by timestamp
     // Only created_at exists in schema (no captured_at column)
-    
-    // Debug: Log the query parameters
-    console.log(`[v0] CCU query: game_id=${gameId}, gte_created_at=${ccuHistoryStart.toISOString()}`);
-    
     const { data: ccuSnapshotsData, error: ccuQueryError } = await supabase
       .from("ccu_snapshots")
       .select("ccu, created_at, source")
@@ -1729,9 +1725,6 @@ let ccuHistory: {
       .gte("created_at", ccuHistoryStart.toISOString())
       .order("created_at", { ascending: true })
       .limit(5000);
-    
-    // Debug: Log query result
-    console.log(`[v0] CCU query result: ${ccuSnapshotsData?.length ?? 0} rows, error: ${ccuQueryError?.message ?? 'none'}`);
     
     if (ccuQueryError) {
       console.error("[Analytics] CCU snapshots query error:", ccuQueryError);
@@ -1751,16 +1744,6 @@ let ccuHistory: {
       if (ccuHistory.rawSnapshots.length > 0) {
         ccuHistory.currentCcu = ccuHistory.rawSnapshots[ccuHistory.rawSnapshots.length - 1].ccu;
       }
-      
-      // Debug: Log CCU snapshot retrieval
-      console.log(`[v0] CCU snapshots fetched: ${ccuHistory.rawSnapshots.length} snapshots for game ${gameId.slice(0, 8)}`, {
-        firstSnapshotTime: ccuHistory.rawSnapshots[0]?.time,
-        lastSnapshotTime: ccuHistory.rawSnapshots[ccuHistory.rawSnapshots.length - 1]?.time,
-        sourceCounts: ccuHistory.rawSnapshots.reduce((acc: Record<string, number>, s: { source: string }) => {
-          acc[s.source] = (acc[s.source] || 0) + 1;
-          return acc;
-        }, {}),
-      });
     } else {
       // FALLBACK: Try roblox_game_syncs (legacy/manual syncs)
       const { data: syncSnapshots } = await supabase
