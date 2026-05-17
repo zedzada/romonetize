@@ -81,7 +81,7 @@ export function RangeControls({
 interface ChartCardProps {
   title: string;
   subtitle?: string;
-  source: "roblox" | "tracker";
+  source?: "roblox" | "tracker";
   summary?: string;
   children: ReactNode;
   expandedChildren?: ReactNode;
@@ -99,6 +99,10 @@ interface ChartCardProps {
   availableRanges?: ChartDateRange[];
   // Additional controls slot
   controls?: ReactNode;
+  // Legacy props for compatibility
+  icon?: ReactNode;
+  description?: string;
+  dateRange?: { from: Date; to: Date };
 }
 
 export function ChartCard({
@@ -119,6 +123,10 @@ export function ChartCard({
   onRangeChange,
   availableRanges,
   controls,
+  // Legacy props - ignored but accepted for compatibility
+  icon: _icon,
+  description: _description,
+  dateRange: _dateRange,
 }: ChartCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -133,7 +141,10 @@ export function ChartCard({
     },
   };
 
-  const { label, className: badgeClassName } = sourceConfig[source];
+  // Safe source config access with fallback
+  const sourceEntry = source ? sourceConfig[source] : null;
+  const label = sourceEntry?.label ?? "";
+  const badgeClassName = sourceEntry?.className ?? "";
 
   const renderChart = (height: string, content: ReactNode) => (
     <div className={height}>
@@ -197,10 +208,12 @@ export function ChartCard({
               )}
               {/* Additional controls */}
               {controls}
-              {/* Source badge */}
-              <Badge variant="secondary" className={`text-[10px] ${badgeClassName}`}>
-                {label}
-              </Badge>
+              {/* Source badge - only show if source is provided */}
+              {source && label && (
+                <Badge variant="secondary" className={`text-[10px] ${badgeClassName}`}>
+                  {label}
+                </Badge>
+              )}
               {/* Expand button */}
               {isExpandable && !isEmpty && (
                 <TooltipProvider delayDuration={300}>
@@ -240,9 +253,11 @@ export function ChartCard({
                   <DialogTitle className="text-lg font-semibold text-foreground">
                     {title}
                   </DialogTitle>
-                  <Badge variant="secondary" className={`text-[10px] ${badgeClassName}`}>
-                    {label}
-                  </Badge>
+                  {source && label && (
+                    <Badge variant="secondary" className={`text-[10px] ${badgeClassName}`}>
+                      {label}
+                    </Badge>
+                  )}
                   {summary && (
                     <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded">
                       {summary}

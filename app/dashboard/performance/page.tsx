@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatChartTime, type CCUHistoryRange } from "@/hooks/use-analytics";
-import { ChartCard, RangeControls, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
+import { CHART_COLORS } from "@/components/dashboard/chart-card";
 import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import {
   AreaChart,
@@ -744,142 +744,22 @@ export default function PerformancePage() {
           {hasTrackerData && (
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Activity Chart */}
-              <ChartCard
-                title="Activity"
-                icon={<Activity className="w-4 h-4 text-indigo-500" />}
-                description="Tracked events over time"
-                dateRange={{
-                  from: new Date(Date.now() - (chartRange === "24h" ? 24 : chartRange === "72h" ? 72 : chartRange === "7d" ? 168 : chartRange === "28d" ? 672 : 2160) * 60 * 60 * 1000),
-                  to: new Date(),
-                }}
-                onRangeChange={(range) => setChartRange(range.preset as PerformanceRange)}
-              >
-                {normalizedActivity.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={200}>
-                    <AreaChart data={normalizedActivity}>
-                      <defs>
-                        <linearGradient id="activityGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={CHART_COLORS.violet} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={CHART_COLORS.violet} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid {...gridProps} />
-                      <XAxis 
-                        dataKey="time" 
-                        {...axisProps}
-                        tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
-                      />
-                      <YAxis {...axisProps} />
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (!active || !payload?.length) return null;
-                          const firstPayload = Array.isArray(payload) ? payload[0] : null;
-                          if (!firstPayload?.payload) return null;
-                          const dataPoint = firstPayload.payload;
-                          return (
-                            <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                              <p className="text-sm font-medium text-foreground mb-1">
-                                {formatChartTime(dataPoint?.time ?? "", toChartTimeRange(chartRange))}
-                              </p>
-                              <p className="text-sm text-foreground">Events: {dataPoint?.value?.toLocaleString() ?? "—"}</p>
-                            </div>
-                          );
-                        }}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="value" 
-                        stroke={CHART_COLORS.violet}
-                        strokeWidth={2}
-                        fill="url(#activityGradient)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No activity data
+              <Card className="border-border/50">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-indigo-500" />
+                    <CardTitle className="text-base">Activity</CardTitle>
                   </div>
-                )}
-              </ChartCard>
-
-              {/* Sessions Chart */}
-              <ChartCard
-                title="Sessions"
-                icon={<Activity className="w-4 h-4 text-violet-500" />}
-                description="Player sessions over time"
-                dateRange={{
-                  from: new Date(Date.now() - (chartRange === "24h" ? 24 : chartRange === "72h" ? 72 : chartRange === "7d" ? 168 : chartRange === "28d" ? 672 : 2160) * 60 * 60 * 1000),
-                  to: new Date(),
-                }}
-                onRangeChange={(range) => setChartRange(range.preset as PerformanceRange)}
-              >
-                {normalizedSessions.length > 0 ? (
-                  <ResponsiveContainer width="100%" height={200}>
-                    <AreaChart data={normalizedSessions}>
-                      <defs>
-                        <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={CHART_COLORS.cyan} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={CHART_COLORS.cyan} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid {...gridProps} />
-                      <XAxis 
-                        dataKey="time" 
-                        {...axisProps}
-                        tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
-                      />
-                      <YAxis {...axisProps} />
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (!active || !payload?.length) return null;
-                          const firstPayload = Array.isArray(payload) ? payload[0] : null;
-                          if (!firstPayload?.payload) return null;
-                          const dataPoint = firstPayload.payload;
-                          return (
-                            <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                              <p className="text-sm font-medium text-foreground mb-1">
-                                {formatChartTime(dataPoint?.time ?? "", toChartTimeRange(chartRange))}
-                              </p>
-                              <p className="text-sm text-foreground">Sessions: {dataPoint?.value?.toLocaleString() ?? "—"}</p>
-                            </div>
-                          );
-                        }}
-                      />
-                      <Area 
-                        type="monotone" 
-                        dataKey="value" 
-                        stroke={CHART_COLORS.cyan}
-                        strokeWidth={2}
-                        fill="url(#sessionsGradient)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                ) : (
-                  <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                    No sessions data
-                  </div>
-                )}
-              </ChartCard>
-
-              {/* Purchases Chart */}
-              {!monetizationLocked && (
-                <ChartCard
-                  title="Purchases"
-                  icon={<ShoppingCart className="w-4 h-4 text-rose-500" />}
-                  description="Purchases over time"
-                  dateRange={{
-                    from: new Date(Date.now() - (chartRange === "24h" ? 24 : chartRange === "72h" ? 72 : chartRange === "7d" ? 168 : chartRange === "28d" ? 672 : 2160) * 60 * 60 * 1000),
-                    to: new Date(),
-                  }}
-                  onRangeChange={(range) => setChartRange(range.preset as PerformanceRange)}
-                >
-                  {normalizedPurchases.length > 0 ? (
+                  <p className="text-xs text-muted-foreground">Tracked events over time</p>
+                </CardHeader>
+                <CardContent>
+                  {normalizedActivity.length > 0 ? (
                     <ResponsiveContainer width="100%" height={200}>
-                      <AreaChart data={normalizedPurchases}>
+                      <AreaChart data={normalizedActivity}>
                         <defs>
-                          <linearGradient id="purchasesGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={CHART_COLORS.green} stopOpacity={0.3} />
-                    <stop offset="95%" stopColor={CHART_COLORS.green} stopOpacity={0} />
+                          <linearGradient id="activityGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={CHART_COLORS.violet} stopOpacity={0.3} />
+                            <stop offset="95%" stopColor={CHART_COLORS.violet} stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid {...gridProps} />
@@ -889,37 +769,112 @@ export default function PerformancePage() {
                           tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                         />
                         <YAxis {...axisProps} />
-                        <Tooltip
-                          content={({ active, payload }) => {
-                            if (!active || !payload?.length) return null;
-                            const firstPayload = Array.isArray(payload) ? payload[0] : null;
-                            if (!firstPayload?.payload) return null;
-                            const dataPoint = firstPayload.payload;
-                            return (
-                              <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                                <p className="text-sm font-medium text-foreground mb-1">
-                                  {formatChartTime(dataPoint?.time ?? "", toChartTimeRange(chartRange))}
-                                </p>
-                                <p className="text-sm text-foreground">Purchases: {dataPoint?.value?.toLocaleString() ?? "—"}</p>
-                              </div>
-                            );
-                          }}
-                        />
+                        <Tooltip />
                         <Area 
                           type="monotone" 
                           dataKey="value" 
-                          stroke={CHART_COLORS.green}
+                          stroke={CHART_COLORS.violet}
                           strokeWidth={2}
-                          fill="url(#purchasesGradient)"
+                          fill="url(#activityGradient)"
                         />
                       </AreaChart>
                     </ResponsiveContainer>
                   ) : (
                     <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
-                      No purchases data
+                      No activity data
                     </div>
                   )}
-                </ChartCard>
+                </CardContent>
+              </Card>
+
+              {/* Sessions Chart */}
+              <Card className="border-border/50">
+                <CardHeader className="pb-2">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-violet-500" />
+                    <CardTitle className="text-base">Sessions</CardTitle>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Player sessions over time</p>
+                </CardHeader>
+                <CardContent>
+                  {normalizedSessions.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={200}>
+                      <AreaChart data={normalizedSessions}>
+                        <defs>
+                          <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={CHART_COLORS.cyan} stopOpacity={0.3} />
+                            <stop offset="95%" stopColor={CHART_COLORS.cyan} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid {...gridProps} />
+                        <XAxis 
+                          dataKey="time" 
+                          {...axisProps}
+                          tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
+                        />
+                        <YAxis {...axisProps} />
+                        <Tooltip />
+                        <Area 
+                          type="monotone" 
+                          dataKey="value" 
+                          stroke={CHART_COLORS.cyan}
+                          strokeWidth={2}
+                          fill="url(#sessionsGradient)"
+                        />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  ) : (
+                    <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+                      No sessions data
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Purchases Chart */}
+              {!monetizationLocked && (
+                <Card className="border-border/50">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2">
+                      <ShoppingCart className="w-4 h-4 text-rose-500" />
+                      <CardTitle className="text-base">Purchases</CardTitle>
+                    </div>
+                    <p className="text-xs text-muted-foreground">Purchases over time</p>
+                  </CardHeader>
+                  <CardContent>
+                    {normalizedPurchases.length > 0 ? (
+                      <ResponsiveContainer width="100%" height={200}>
+                        <AreaChart data={normalizedPurchases}>
+                          <defs>
+                            <linearGradient id="purchasesGradient" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="5%" stopColor={CHART_COLORS.green} stopOpacity={0.3} />
+                              <stop offset="95%" stopColor={CHART_COLORS.green} stopOpacity={0} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid {...gridProps} />
+                          <XAxis 
+                            dataKey="time" 
+                            {...axisProps}
+                            tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
+                          />
+                          <YAxis {...axisProps} />
+                          <Tooltip />
+                          <Area 
+                            type="monotone" 
+                            dataKey="value" 
+                            stroke={CHART_COLORS.green}
+                            strokeWidth={2}
+                            fill="url(#purchasesGradient)"
+                          />
+                        </AreaChart>
+                      </ResponsiveContainer>
+                    ) : (
+                      <div className="h-[200px] flex items-center justify-center text-muted-foreground text-sm">
+                        No purchases data
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
               )}
             </div>
           )}
