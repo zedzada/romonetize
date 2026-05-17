@@ -131,6 +131,12 @@ export default function PerformancePage() {
     latest10CcuSnapshots: Array<{ ccu: number; created_at: string; source: string }>;
   } | null>(null);
   
+  // Raw debug API response (debug mode only) - SOURCE OF TRUTH for cards
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [rawDebugResponse, setRawDebugResponse] = useState<any>(null);
+  const [rawDebugError, setRawDebugError] = useState<string | null>(null);
+  const [isLoadingRawDebug, setIsLoadingRawDebug] = useState(false);
+  
   // Handle CCU range change - simple, no interval logic
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
     setCcuRange(newRange);
@@ -195,6 +201,32 @@ export default function PerformancePage() {
         });
     }
   }, []);
+  
+  // Fetch raw debug API response when debug mode is enabled or chart range changes
+  useEffect(() => {
+    if (!isDebugMode) return;
+    
+    setIsLoadingRawDebug(true);
+    setRawDebugError(null);
+    
+    // Map performance range to helper range
+    const apiRange = chartRange === "24h" ? "1d" : chartRange === "72h" ? "3d" : chartRange;
+    
+    fetch(`/api/debug/game-performance?range=${apiRange}`)
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(data => {
+        setRawDebugResponse(data);
+      })
+      .catch(err => {
+        setRawDebugError(err.message);
+      })
+      .finally(() => {
+        setIsLoadingRawDebug(false);
+      });
+  }, [isDebugMode, chartRange]);
   
   // Auto-polling for CCU snapshots (every 60 seconds while page is open)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -857,6 +889,20 @@ const handleSyncAndRefresh = useCallback(async () => {
     rangeEnd: new Date().toISOString(),
     totalPurchases: 0,
   };
+  
+  // DEBUG MODE OVERRIDE: When debug mode is enabled and we have API response,
+  // use the raw debug API values directly for cards (bypasses all client-side logic)
+  const debugOverrideStats = isDebugMode && rawDebugResponse ? {
+    totalEvents: rawDebugResponse.trackedActions ?? 0,
+    uniquePlayers: rawDebugResponse.uniquePlayers ?? 0,
+    totalSessions: rawDebugResponse.totalSessions ?? 0,
+    avgSessionDuration: rawDebugResponse.avgSessionSeconds ?? null,
+    newPlayers: rawDebugResponse.newPlayers ?? 0,
+    totalPurchases: rawDebugResponse.purchases ?? 0,
+  } : null;
+  
+  // In debug mode, prefer debugOverrideStats; otherwise use safeTrackerStats
+  const cardStats = debugOverrideStats ?? safeTrackerStats;
 
   // DEBUG: Log when trackerStats is null but we have tracker events
   // This helps identify if the API is returning data but the UI is not displaying it
@@ -1118,7 +1164,7 @@ const handleSyncAndRefresh = useCallback(async () => {
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.totalEvents)}
+                  {formatNumber(cardStats.totalEvents)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -1134,7 +1180,7 @@ const handleSyncAndRefresh = useCallback(async () => {
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.uniquePlayers)}
+                  {formatNumber(cardStats.uniquePlayers)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -1150,7 +1196,7 @@ const handleSyncAndRefresh = useCallback(async () => {
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeTrackerStats.totalSessions)}
+                  {formatNumber(cardStats.totalSessions)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -1160,15 +1206,15 @@ const handleSyncAndRefresh = useCallback(async () => {
 
           <Card className="border-border/50">
             <CardContent className="pt-5 pb-4">
-              <div className="flex items-center gap-2 mb-2">
-                <Clock className="w-4 h-4 text-orange-500" />
-                <span className="text-xs text-muted-foreground">Avg Session</span>
-              </div>
-              {safeDataHealth.hasTrackerEvents ? (
-                safeTrackerStats.avgSessionDuration !== null ? (
-                  <div className="text-2xl font-bold text-foreground">
-                    {formatDuration(safeTrackerStats.avgSessionDuration)}
-                  </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Clock className="w-4 h-4 text-orange-500" />
+              <span className="text-xs text-muted-foreground">Avg Session</span>
+            </div>
+            {safeDataHealth.hasTrackerEvents ? (
+              cardStats.avgSessionDuration !== null ? (
+                <div className="text-2xl font-bold text-foreground">
+                  {formatDuration(cardStats.avgSessionDuration)}
+                </div>
                 ) : (
                   <div className="text-sm text-muted-foreground">Not enough data yet</div>
                 )
@@ -1178,16 +1224,16 @@ const handleSyncAndRefresh = useCallback(async () => {
             </CardContent>
           </Card>
 
-<Card className="border-border/50">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <UserPlus className="w-4 h-4 text-emerald-500" />
-              <span className="text-xs text-muted-foreground">New Players</span>
-            </div>
-            {safeDataHealth.hasTrackerEvents ? (
-              <div className="text-2xl font-bold text-foreground">
-                {formatNumber(safeTrackerStats.newPlayers)}
+          <Card className="border-border/50">
+            <CardContent className="pt-5 pb-4">
+              <div className="flex items-center gap-2 mb-2">
+                <UserPlus className="w-4 h-4 text-emerald-500" />
+                <span className="text-xs text-muted-foreground">New Players</span>
               </div>
+              {safeDataHealth.hasTrackerEvents ? (
+                <div className="text-2xl font-bold text-foreground">
+                  {formatNumber(cardStats.newPlayers)}
+                </div>
             ) : (
               <div className="text-xs text-muted-foreground">Requires tracking script</div>
             )}
@@ -1206,13 +1252,13 @@ const handleSyncAndRefresh = useCallback(async () => {
             <Card className="border-border/50">
               <CardContent className="pt-5 pb-4">
                 <div className="flex items-center gap-2 mb-2">
-                  <ShoppingCart className="w-4 h-4 text-rose-500" />
-                  <span className="text-xs text-muted-foreground">Purchases</span>
-                </div>
-                {safeDataHealth.hasTrackerEvents ? (
-                  <div className="text-2xl font-bold text-foreground">
-                    {formatNumber(safeTrackerStats.totalPurchases)}
-                  </div>
+            <ShoppingCart className="w-4 h-4 text-rose-500" />
+              <span className="text-xs text-muted-foreground">Purchases</span>
+            </div>
+            {safeDataHealth.hasTrackerEvents ? (
+              <div className="text-2xl font-bold text-foreground">
+                {formatNumber(cardStats.totalPurchases)}
+              </div>
                 ) : (
                   <div className="text-xs text-muted-foreground">Requires tracking script</div>
                 )}
@@ -1300,6 +1346,88 @@ const handleSyncAndRefresh = useCallback(async () => {
             {/* Dev Debug Block - only shown with ?debug=true */}
             {isDebugMode && (
               <div className="mx-6 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono">
+                
+                {/* PROOF OF CORRECT FILE - This MUST be visible */}
+                <div className="mb-4 p-4 bg-black border-4 border-green-500 rounded-lg text-lg">
+                  <div className="text-green-400 font-bold">Rendered Performance File: <span className="text-white">/app/dashboard/performance/page.tsx</span></div>
+                  <div className="text-green-400 font-bold">Debug API Loaded: <span className={rawDebugResponse ? "text-green-300" : "text-red-400"}>{rawDebugResponse ? "true" : "false"}</span></div>
+                  <div className="text-green-400 font-bold">Build: <span className="text-white">v-gp-step1-proof</span></div>
+                  {isLoadingRawDebug && <div className="text-yellow-400">Loading...</div>}
+                  {rawDebugError && <div className="text-red-400">Error: {rawDebugError}</div>}
+                </div>
+                
+                {/* RAW API DEBUG PANEL - SOURCE OF TRUTH */}
+                <div className="mb-4 p-3 bg-red-900/30 border border-red-500 rounded-lg">
+                  <div className="font-bold text-red-400 mb-2">
+                    RAW DEBUG API RESPONSE (SOURCE OF TRUTH)
+                    <span className="ml-2 text-xs font-normal text-red-300">
+                      /api/debug/game-performance?range={chartRange === "24h" ? "1d" : chartRange === "72h" ? "3d" : chartRange}
+                    </span>
+                  </div>
+                  
+                  {isLoadingRawDebug && (
+                    <div className="text-yellow-400">Loading debug API...</div>
+                  )}
+                  
+                  {rawDebugError && (
+                    <div className="text-red-400">Error: {rawDebugError}</div>
+                  )}
+                  
+                  {rawDebugResponse && (
+                    <div className="space-y-2">
+                      {/* Key card values - THESE SHOULD MATCH THE UI CARDS */}
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2 p-2 bg-green-900/30 border border-green-500/50 rounded">
+                        <div className="font-bold text-green-400 col-span-full">CARD VALUES (UI must match these):</div>
+                        <div>trackedActions: <span className="text-white font-bold">{rawDebugResponse.trackedActions}</span></div>
+                        <div>uniquePlayers: <span className="text-white font-bold">{rawDebugResponse.uniquePlayers}</span></div>
+                        <div>totalSessions: <span className="text-white font-bold">{rawDebugResponse.totalSessions}</span></div>
+                        <div>newPlayers: <span className="text-white font-bold">{rawDebugResponse.newPlayers}</span></div>
+                        <div>purchases: <span className="text-white font-bold">{rawDebugResponse.purchases}</span></div>
+                        <div>avgSessionSeconds: <span className="text-white font-bold">{rawDebugResponse.avgSessionSeconds ?? "null"}</span></div>
+                      </div>
+                      
+                      {/* Player ID debug */}
+                      {rawDebugResponse.playerIdDebug && (
+                        <div className="p-2 bg-blue-900/30 border border-blue-500/50 rounded">
+                          <div className="font-bold text-blue-400">PLAYER ID DEBUG:</div>
+                          <div>rootPlayerIdCount: <span className="text-white">{rawDebugResponse.playerIdDebug.rootPlayerIdCount}</span></div>
+                          <div>distinctRootPlayers: <span className="text-white">{rawDebugResponse.playerIdDebug.distinctRootPlayers}</span></div>
+                          <div>validPlayerIdCount: <span className="text-white">{rawDebugResponse.playerIdDebug.validPlayerIdCount}</span></div>
+                          <div>sampleRootPlayerIds: <span className="text-white text-[10px]">{JSON.stringify(rawDebugResponse.playerIdDebug.sampleRootPlayerIds)}</span></div>
+                        </div>
+                      )}
+                      
+                      {/* Chart debug */}
+                      {rawDebugResponse.chartDebug && (
+                        <div className="p-2 bg-purple-900/30 border border-purple-500/50 rounded">
+                          <div className="font-bold text-purple-400">CHART DEBUG:</div>
+                          <div>activityBucketsLength: {rawDebugResponse.chartDebug.activityBucketsLength}, total: {rawDebugResponse.chartDebug.activityVisualTotal}</div>
+                          <div>sessionsBucketsLength: {rawDebugResponse.chartDebug.sessionsBucketsLength}, total: {rawDebugResponse.chartDebug.sessionsVisualTotal}</div>
+                          <div>purchasesBucketsLength: {rawDebugResponse.chartDebug.purchasesBucketsLength}, total: {rawDebugResponse.chartDebug.purchasesVisualTotal}</div>
+                        </div>
+                      )}
+                      
+                      {/* Summary */}
+                      {rawDebugResponse.summary && (
+                        <div className="p-2 bg-yellow-900/30 border border-yellow-500/50 rounded">
+                          <div className="font-bold text-yellow-400">SUMMARY:</div>
+                          <div>allChartsMatchCards: <span className={rawDebugResponse.summary.allChartsMatchCards ? "text-green-400" : "text-red-400"}>{String(rawDebugResponse.summary.allChartsMatchCards)}</span></div>
+                          <div>newPlayersValid: <span className={rawDebugResponse.summary.newPlayersValid ? "text-green-400" : "text-red-400"}>{String(rawDebugResponse.summary.newPlayersValid)}</span></div>
+                          <div>noPaginationIssues: <span className={rawDebugResponse.summary.noPaginationIssues ? "text-green-400" : "text-red-400"}>{String(rawDebugResponse.summary.noPaginationIssues)}</span></div>
+                        </div>
+                      )}
+                      
+                      {/* Full raw JSON */}
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-gray-400 hover:text-white">Full raw JSON response</summary>
+                        <pre className="mt-2 p-2 bg-black/50 rounded overflow-auto max-h-96 text-[10px]">
+                          {JSON.stringify(rawDebugResponse, null, 2)}
+                        </pre>
+                      </details>
+                    </div>
+                  )}
+                </div>
+                
                 <div className="font-semibold text-amber-500 mb-2">Game Switching &amp; Cache Debug</div>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
                   {/* Game identity & cache validation */}
@@ -1368,11 +1496,11 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* BUILD VERIFICATION MARKER - Remove after confirming deployment freshness */}
                   <div className="col-span-full mb-2 p-2 bg-purple-900/50 border border-purple-500 rounded text-purple-200 font-mono text-[10px]">
-                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-5</span></div>
+                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-step1-rawapi</span></div>
                     <div>Rendered file: <span className="text-purple-100">/app/dashboard/performance/page.tsx</span></div>
                     <div>Backend helper: <span className="text-purple-100">/lib/helpers/game-performance.ts</span></div>
-                    <div>Chart fix: <span className="text-purple-100">Normalized to time/value with dataKey=value</span></div>
-                    <div>Debug: <span className="text-purple-100">Added _debug parsed fields for value source diagnosis</span></div>
+                    <div>Debug API: <span className="text-purple-100">/api/debug/game-performance (NEW format with playerIdDebug)</span></div>
+                    <div>Cards: <span className="text-purple-100">In debug mode, wired DIRECTLY to raw API response</span></div>
                   </div>
                   
                   {/* NORMALIZED CHART DATA VERIFICATION */}
