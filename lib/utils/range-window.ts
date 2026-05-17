@@ -49,7 +49,8 @@ export function getRangeWindow(selectedRange: RangeKey, now?: Date): RangeWindow
     "6h":  { rangeMs: 6 * HOUR,  bucketMs: 5 * MINUTE, bucketSize: "5m",  bucketType: "minute", bucketLabelFormat: "HH:mm" },
     "24h": { rangeMs: 24 * HOUR, bucketMs: 1 * HOUR,   bucketSize: "1h",  bucketType: "hour",   bucketLabelFormat: "HH:00" },
     "72h": { rangeMs: 72 * HOUR, bucketMs: 1 * HOUR,   bucketSize: "1h",  bucketType: "hour",   bucketLabelFormat: "HH:00" },
-    "7d":  { rangeMs: 7 * DAY,   bucketMs: 1 * DAY,    bucketSize: "1d",  bucketType: "day",    bucketLabelFormat: "MMM dd" },
+    // 7D now uses 1-hour buckets (168 max points) for better granularity when data is recent
+    "7d":  { rangeMs: 7 * DAY,   bucketMs: 1 * HOUR,   bucketSize: "1h",  bucketType: "hour",   bucketLabelFormat: "HH:00" },
     "28d": { rangeMs: 28 * DAY,  bucketMs: 1 * DAY,    bucketSize: "1d",  bucketType: "day",    bucketLabelFormat: "MMM dd" },
     "90d": { rangeMs: 90 * DAY,  bucketMs: 1 * DAY,    bucketSize: "1d",  bucketType: "day",    bucketLabelFormat: "MMM dd" },
   };
