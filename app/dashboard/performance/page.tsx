@@ -1234,6 +1234,14 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
                     <span className="text-amber-400">Card vs Chart Alignment (from API debug):</span>
                   </div>
+                  
+                  {/* BUILD VERIFICATION MARKER - Remove after confirming deployment freshness */}
+                  <div className="col-span-full mb-2 p-2 bg-purple-900/50 border border-purple-500 rounded text-purple-200 font-mono text-[10px]">
+                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-1</span></div>
+                    <div>Rendered file: <span className="text-purple-100">/app/dashboard/performance/page.tsx</span></div>
+                    <div>Backend helper: <span className="text-purple-100">/lib/helpers/game-performance.ts</span></div>
+                  </div>
+                  
                   <div>selectedRange: <span className="text-foreground">{performanceCharts?.debug?.selectedRange || chartRange}</span></div>
                   <div>bucketType: <span className="text-foreground">{performanceCharts?.debug?.bucketType || "unknown"}</span></div>
                   <div>bucketCount: <span className="text-foreground">{performanceCharts?.debug?.bucketCount || 0}</span></div>
