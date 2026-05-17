@@ -130,14 +130,13 @@ export async function GET(request: NextRequest) {
           continue;
         }
 
-        // Insert CCU snapshot
-        // NOTE: Only use columns that exist in the schema: id, game_id, ccu, created_at
-        // The source/captured_at columns require a migration that may not have been run
+        // Insert CCU snapshot with source for tracking
         const { error: insertError } = await supabase
           .from("ccu_snapshots")
           .insert({
             game_id: game.id,
             ccu: stats.currentPlayers,
+            source: "roblox_api",
             created_at: new Date().toISOString(),
           });
 

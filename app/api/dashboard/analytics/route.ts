@@ -1626,18 +1626,20 @@ export async function GET(request: NextRequest) {
       ccuStats.source = "roblox_api";
     }
 
-    // Use captured_at for time filtering (preferred), fallback to created_at
+    // Query ccu_snapshots for historical data (only created_at exists in schema)
     const { data: ccuSnapshots } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, captured_at, created_at")
+      .select("ccu, source, created_at")
       .eq("game_id", gameId)
-      .or(`captured_at.gte.${startDate.toISOString()},and(captured_at.is.null,created_at.gte.${startDate.toISOString()})`)
-      .order("captured_at", { ascending: true, nullsFirst: false });
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", now.toISOString())
+      .order("created_at", { ascending: true });
 
     if (ccuSnapshots && ccuSnapshots.length > 0) {
-      ccuStats.snapshots = ccuSnapshots.map((s: { ccu: number; captured_at: string | null; created_at: string }) => ({
-        time: s.captured_at || s.created_at,
+      ccuStats.snapshots = ccuSnapshots.map((s: { ccu: number; source: string | null; created_at: string }) => ({
+        time: s.created_at,
         ccu: s.ccu,
+        source: s.source || "unknown",
       }));
       // Only override current if not already set from tracker heartbeats
       if (ccuStats.current === null) {
@@ -1691,10 +1693,10 @@ let ccuHistory: {
     // PRIMARY: Fetch from ccu_snapshots table (populated by tracker heartbeats and sync)
     // Include source field for tooltip display
     // Fetch ALL snapshots in last 90 days, ordered by timestamp
-    // Use created_at as the primary filter (always populated), then prefer captured_at for display
+    // Only created_at exists in schema (no captured_at column)
     const { data: ccuSnapshotsData, error: ccuQueryError } = await supabase
       .from("ccu_snapshots")
-      .select("ccu, captured_at, created_at, source")
+      .select("ccu, created_at, source")
       .eq("game_id", gameId)
       .gte("created_at", ccuHistoryStart.toISOString())
       .order("created_at", { ascending: true })
@@ -1707,8 +1709,8 @@ let ccuHistory: {
     if (ccuSnapshotsData && ccuSnapshotsData.length > 0) {
       ccuHistory.rawSnapshots = ccuSnapshotsData
         .filter((snap: { ccu: number | null }) => snap.ccu !== null)
-        .map((snap: { captured_at: string | null; created_at: string; ccu: number; source: string | null }) => ({
-          time: snap.captured_at || snap.created_at,
+        .map((snap: { created_at: string; ccu: number; source: string | null }) => ({
+          time: snap.created_at,
           ccu: snap.ccu as number,
           source: snap.source || "unknown",
         }));
@@ -1748,10 +1750,10 @@ let ccuHistory: {
     const fifteenMinutesAgo = new Date(now.getTime() - 15 * 60 * 1000);
     const { data: cronSnapshots } = await supabase
       .from("ccu_snapshots")
-      .select("source, captured_at")
+      .select("source, created_at")
       .eq("game_id", gameId)
-      .gte("captured_at", fifteenMinutesAgo.toISOString())
-      .order("captured_at", { ascending: false });
+      .gte("created_at", fifteenMinutesAgo.toISOString())
+      .order("created_at", { ascending: false });
     
     // Find latest snapshot overall
     const latestSnapshot = cronSnapshots?.[0];
@@ -1760,7 +1762,7 @@ let ccuHistory: {
     const latestBrowserSnapshot = cronSnapshots?.find((s: { source: string | null }) => s.source !== "vercel_cron" && s.source !== null);
     
     // Calculate minutes since latest snapshot
-    const latestSnapshotAt = latestSnapshot?.captured_at ? new Date(latestSnapshot.captured_at) : null;
+    const latestSnapshotAt = latestSnapshot?.created_at ? new Date(latestSnapshot.created_at) : null;
     const minutesSinceLatestSnapshot = latestSnapshotAt 
       ? Math.round((now.getTime() - latestSnapshotAt.getTime()) / 60000) 
       : null;
@@ -1791,8 +1793,8 @@ let ccuHistory: {
       expectedSnapshotsLast15Minutes: 15, // 1 per minute if browser open, or 3 if only cron (5-min interval)
       cronRunsLast15Minutes,
       latestCronRun,
-      latestCronSnapshotAt: latestCronSnapshot?.captured_at ?? null,
-      latestBrowserSnapshotAt: latestBrowserSnapshot?.captured_at ?? null,
+      latestCronSnapshotAt: latestCronSnapshot?.created_at ?? null,
+      latestBrowserSnapshotAt: latestBrowserSnapshot?.created_at ?? null,
       cronConfigured: !!process.env.CRON_SECRET,
       // Note: Vercel cron runs every minute, browser polling every 60s when dashboard open
       cronInterval: "1m (Vercel)",
