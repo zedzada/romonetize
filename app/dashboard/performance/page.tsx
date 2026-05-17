@@ -1777,25 +1777,32 @@ const handleSyncAndRefresh = useCallback(async () => {
                   ) : (
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
                       <div>endpoint: <span className="text-foreground">/api/dashboard/ccu-history</span></div>
-                      <div>selectedGameId: <span className="text-foreground">{processedCcuHistory.debugInfo?.selectedGameId?.slice(0, 8) ?? "none"}...</span></div>
-                      <div>range: <span className="text-foreground">{processedCcuHistory.debugInfo?.range ?? ccuRange}</span></div>
-                      <div>rangeStartIso: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.rangeStartIso?.slice(0, 19) ?? "—"}</span></div>
-                      <div>rangeEndIso: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.rangeEndIso?.slice(0, 19) ?? "—"}</span></div>
-                      <div>snapshotsReturned: <span className={(processedCcuHistory.debugInfo?.snapshotsReturned ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.snapshotsReturned ?? 0}</span></div>
-                      <div>usedSnapshots: <span className={(processedCcuHistory.debugInfo?.usedSnapshots ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.usedSnapshots ?? 0}</span></div>
-                      <div>chartDataLength: <span className={(processedCcuHistory.debugInfo?.chartDataLength ?? 0) > 1 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.chartDataLength ?? 0}</span></div>
-                      <div>usedSource: <span className={processedCcuHistory.debugInfo?.usedSource === "romonetize_tracker" ? "text-green-400 font-bold" : "text-foreground"}>{processedCcuHistory.debugInfo?.usedSource ?? "none"}</span></div>
-                      <div>latestSnapshotAt: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.latestSnapshotAt?.slice(0, 19) ?? "none"}</span></div>
-                      <div>currentCcu: <span className="text-foreground">{processedCcuHistory.debugInfo?.currentCcu ?? "—"}</span></div>
-                      <div className="col-span-full">sourceCounts: <span className="text-foreground">{JSON.stringify(processedCcuHistory.debugInfo?.sourceCounts ?? {})}</span></div>
-                      {processedCcuHistory.debugInfo?.firstChartPoint && (
-                        <div className="col-span-full">firstChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.debugInfo.firstChartPoint)}</span></div>
+                      <div>selectedGameId: <span className="text-foreground">{ccuHistoryData?.selectedGameId?.slice(0, 8) ?? "none"}...</span></div>
+                      <div>selectedGameName: <span className="text-foreground">{ccuHistoryData?.selectedGameName ?? "—"}</span></div>
+                      <div>range: <span className="text-foreground">{ccuHistoryData?.range ?? ccuRange}</span></div>
+                      <div>rangeStartIso: <span className="text-foreground text-[10px]">{ccuHistoryData?.rangeStartIso?.slice(0, 19) ?? "—"}</span></div>
+                      <div>rangeEndIso: <span className="text-foreground text-[10px]">{ccuHistoryData?.rangeEndIso?.slice(0, 19) ?? "—"}</span></div>
+                      <div>rowsFoundBeforeSourceFilter: <span className={(ccuHistoryData?.rowsFoundBeforeSourceFilter ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{ccuHistoryData?.rowsFoundBeforeSourceFilter ?? 0}</span></div>
+                      <div>usedSnapshots: <span className={(ccuHistoryData?.usedSnapshots ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{ccuHistoryData?.usedSnapshots ?? 0}</span></div>
+                      <div>chartDataLength: <span className={(ccuHistoryData?.chartDataLength ?? 0) > 1 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{ccuHistoryData?.chartDataLength ?? 0}</span></div>
+                      <div>usedSource: <span className={ccuHistoryData?.usedSource === "romonetize_tracker" ? "text-green-400 font-bold" : "text-foreground"}>{ccuHistoryData?.usedSource ?? "none"}</span></div>
+                      <div>latestSnapshotAt: <span className="text-foreground text-[10px]">{ccuHistoryData?.latestSnapshotAt?.slice(0, 19) ?? "none"}</span></div>
+                      <div>currentCcu: <span className="text-foreground">{ccuHistoryData?.currentCcu ?? "—"}</span></div>
+                      <div className="col-span-full">sourceCounts: <span className="text-foreground">{JSON.stringify(ccuHistoryData?.sourceCounts ?? {})}</span></div>
+                      {ccuHistoryData?.chartData?.[0] && (
+                        <div className="col-span-full">firstChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(ccuHistoryData.chartData[0])}</span></div>
                       )}
-                      {processedCcuHistory.debugInfo?.lastChartPoint && (
-                        <div className="col-span-full">lastChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.debugInfo.lastChartPoint)}</span></div>
+                      {ccuHistoryData?.chartData?.length > 0 && (
+                        <div className="col-span-full">lastChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(ccuHistoryData.chartData[ccuHistoryData.chartData.length - 1])}</span></div>
                       )}
-                      {processedCcuHistory.debugInfo?.filteringIssue && (
-                        <div className="col-span-full text-red-400 font-bold">ISSUE: {processedCcuHistory.debugInfo.filteringIssue}</div>
+                      {ccuHistoryData?.rowsFoundBeforeSourceFilter === 0 && ccuHistoryData?.debugRecentSnapshotsAnyGame && (
+                        <div className="col-span-full text-amber-400">
+                          debugRecentSnapshotsAnyGame (20 most recent for ANY game): 
+                          <span className="text-foreground text-[10px] block mt-1">{JSON.stringify(ccuHistoryData.debugRecentSnapshotsAnyGame.slice(0, 5))}</span>
+                        </div>
+                      )}
+                      {ccuHistoryData?.rowsFoundBeforeSourceFilter > 0 && ccuHistoryData?.usedSnapshots === 0 && (
+                        <div className="col-span-full text-red-400 font-bold">ISSUE: Rows exist but no preferred source matched</div>
                       )}
                     </div>
                   )}
@@ -1953,28 +1960,41 @@ const handleSyncAndRefresh = useCallback(async () => {
                           {ccuHistoryData.usedSnapshots} snapshots exist but chart could not be generated.
                         </p>
                       </>
-                    ) : ccuHistoryData?.snapshotsReturned === 0 ? (
-                      // No snapshots at all
+                    ) : ccuHistoryData?.rowsFoundBeforeSourceFilter === 0 ? (
+                      // No snapshots at all for this game
                       <>
                         <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
-                        <h4 className="font-medium text-foreground mb-2">No CCU history yet</h4>
+                        <h4 className="font-medium text-foreground mb-2">No CCU data for this range</h4>
                         <p className="text-sm text-muted-foreground max-w-md">
-                          Refresh Roblox data to start collecting CCU snapshots. History will build up over time as more snapshots are recorded.
+                          No CCU snapshots found for this game in the selected time range.
+                          Refresh Roblox data to start collecting snapshots.
                         </p>
                         <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" className="mt-4">
                           <RefreshCw className="w-4 h-4 mr-2" />
                           Refresh Data
                         </Button>
                       </>
+                    ) : ccuHistoryData?.rowsFoundBeforeSourceFilter > 0 && ccuHistoryData?.usedSnapshots === 0 ? (
+                      // Rows exist but no preferred source matched
+                      <>
+                        <Activity className="w-10 h-10 mb-3 text-amber-400" />
+                        <h4 className="font-medium text-amber-400 mb-2">Snapshots exist but no preferred source matched</h4>
+                        <p className="text-sm text-muted-foreground max-w-md">
+                          {ccuHistoryData.rowsFoundBeforeSourceFilter} snapshots found, but none from romonetize_tracker or roblox_api.
+                        </p>
+                      </>
                     ) : (
-                      // usedSnapshots === 0 but snapshotsReturned > 0 (all snapshots from wrong source)
+                      // Fallback empty state
                       <>
                         <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
-                        <h4 className="font-medium text-foreground mb-2">No CCU data for this range</h4>
+                        <h4 className="font-medium text-foreground mb-2">No CCU data available</h4>
                         <p className="text-sm text-muted-foreground max-w-md">
-                          {ccuHistoryData?.snapshotsReturned ?? 0} snapshots found, but none matched the source filter.
-                          Try a different time range.
+                          CCU snapshots will appear after your game starts sending data.
                         </p>
+                        <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" className="mt-4">
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          Refresh Data
+                        </Button>
                       </>
                     )}
                   </div>

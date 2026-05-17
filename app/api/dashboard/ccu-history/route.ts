@@ -92,7 +92,7 @@ export async function GET(request: Request) {
       );
     }
 
-    // Query Supabase directly - filter by range in database
+    // Query Supabase directly - filter by game_id and range only (NO source filter)
     const { data: rows, error: queryError } = await supabase
       .from("ccu_snapshots")
       .select("id, game_id, ccu, source, created_at")
@@ -110,13 +110,35 @@ export async function GET(request: Request) {
     }
 
     const allRows = rows ?? [];
+    const rowsFoundBeforeSourceFilter = allRows.length;
 
-    // Source priority: romonetize_tracker > roblox_api
+    // Source priority: romonetize_tracker > roblox_api > other
     const trackerRows = allRows.filter(r => r.source === "romonetize_tracker");
     const robloxRows = allRows.filter(r => r.source === "roblox_api");
+    const otherRows = allRows.filter(r => r.source !== "romonetize_tracker" && r.source !== "roblox_api");
     
-    const usedRows = trackerRows.length > 0 ? trackerRows : robloxRows;
-    const usedSource = trackerRows.length > 0 ? "romonetize_tracker" : robloxRows.length > 0 ? "roblox_api" : "none";
+    const usedRows = trackerRows.length > 0 ? trackerRows : robloxRows.length > 0 ? robloxRows : otherRows;
+    const usedSource = trackerRows.length > 0 
+      ? "romonetize_tracker" 
+      : robloxRows.length > 0 
+        ? "roblox_api" 
+        : otherRows.length > 0 
+          ? otherRows[0].source 
+          : "none";
+
+    // Debug fallback: if no rows for this game, check if ANY snapshots exist in range
+    let debugRecentSnapshotsAnyGame: Array<{ game_id: string; source: string; ccu: number; created_at: string }> | null = null;
+    if (rowsFoundBeforeSourceFilter === 0) {
+      const { data: recentAnyGameRows } = await supabase
+        .from("ccu_snapshots")
+        .select("game_id, source, ccu, created_at")
+        .gte("created_at", rangeStartIso)
+        .lte("created_at", rangeEndIso)
+        .order("created_at", { ascending: false })
+        .limit(20);
+      
+      debugRecentSnapshotsAnyGame = recentAnyGameRows ?? [];
+    }
 
     // Build chart data directly from used rows (no extra filtering)
     let chartData = usedRows.map(row => ({
@@ -147,12 +169,16 @@ export async function GET(request: Request) {
       range: normalizedRange,
       rangeStartIso,
       rangeEndIso,
+      
+      // Key diagnostic fields
+      rowsFoundBeforeSourceFilter,
       sourceCounts: {
         romonetize_tracker: trackerRows.length,
         roblox_api: robloxRows.length,
+        other: otherRows.length,
       },
+      
       usedSource,
-      snapshotsReturned: allRows.length,
       usedSnapshots: usedRows.length,
       chartDataLength: chartData.length,
       latestSnapshotAt: usedRows.length > 0 ? usedRows[usedRows.length - 1].created_at : null,
@@ -160,6 +186,9 @@ export async function GET(request: Request) {
       peakCcu,
       avgCcu,
       chartData,
+      
+      // Debug fallback (only populated if rowsFoundBeforeSourceFilter === 0)
+      debugRecentSnapshotsAnyGame,
     }, { headers });
 
   } catch (error) {
