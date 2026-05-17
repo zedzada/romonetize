@@ -149,6 +149,12 @@ export default function PerformancePage() {
   const [sessionsChartError, setSessionsChartError] = useState<string | null>(null);
   const [isLoadingSessionsChart, setIsLoadingSessionsChart] = useState(false);
   
+  // NEW: Performance Data state from unified endpoint - SOURCE OF TRUTH for cards and charts
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [performanceData, setPerformanceData] = useState<any>(null);
+  const [performanceDataError, setPerformanceDataError] = useState<string | null>(null);
+  const [isLoadingPerformanceData, setIsLoadingPerformanceData] = useState(false);
+  
   // Handle CCU range change - simple, no interval logic
   const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
     setCcuRange(newRange);
@@ -296,6 +302,34 @@ export default function PerformancePage() {
     fetchSessionsChart();
   }, [fetchSessionsChart]);
   
+  // Fetch Performance Data from unified endpoint - SOURCE OF TRUTH
+  const fetchPerformanceData = useCallback(async () => {
+    setIsLoadingPerformanceData(true);
+    setPerformanceDataError(null);
+    
+    try {
+      const response = await fetch(`/api/dashboard/performance-data?range=${chartRange}&t=${Date.now()}`, {
+        cache: "no-store",
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const data = await response.json();
+      setPerformanceData(data);
+    } catch (err) {
+      setPerformanceDataError(err instanceof Error ? err.message : "Failed to fetch performance data");
+    } finally {
+      setIsLoadingPerformanceData(false);
+    }
+  }, [chartRange]);
+  
+  // Fetch performance data on mount and when range changes
+  useEffect(() => {
+    fetchPerformanceData();
+  }, [fetchPerformanceData]);
+  
   // Auto-polling for CCU snapshots (every 60 seconds while page is open)
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [lastPollTime, setLastPollTime] = useState<Date | null>(null);
@@ -323,9 +357,10 @@ const handleSyncAndRefresh = useCallback(async () => {
         console.error("[v0] Roblox sync failed:", errorData);
       }
       
-      // Refresh analytics data and CCU history to pick up the new sync
+      // Refresh analytics data, CCU history, and performance data to pick up the new sync
       await refresh();
       await fetchCcuHistory();
+      await fetchPerformanceData();
       setLastPollTime(new Date());
       setPollCount((c) => c + 1);
     } catch (err) {
@@ -834,34 +869,36 @@ const handleSyncAndRefresh = useCallback(async () => {
     };
   };
 
-  // Normalize all chart arrays
+  // NEW: All chart arrays come from /api/dashboard/performance-data - SOURCE OF TRUTH
+  // These directly use performanceData.charts which are already in { time, value } format
   const normalizedActivity = useMemo(() => {
-    const raw = performanceCharts?.eventsOverTime ?? [];
-    return raw.map(b => normalizeChartPoint(b as Record<string, unknown>, "activity"));
-  }, [performanceCharts?.eventsOverTime]);
-
-  // Sessions chart now comes from dedicated /api/dashboard/sessions-chart endpoint
-  // Already has { time, value } format - just ensure normalization
-  const normalizedSessions = useMemo(() => {
-    if (!sessionsChartData?.chartData) return [];
-    return sessionsChartData.chartData.map((b: { time: string; value: number }) => ({
+    if (!performanceData?.charts?.activityOverTime) return [];
+    return performanceData.charts.activityOverTime.map((b: { time: string; value: number }) => ({
       time: b.time,
       value: Number(b.value) || 0,
     }));
-  }, [sessionsChartData?.chartData]);
+  }, [performanceData?.charts?.activityOverTime]);
+
+  const normalizedSessions = useMemo(() => {
+    if (!performanceData?.charts?.sessionsOverTime) return [];
+    return performanceData.charts.sessionsOverTime.map((b: { time: string; value: number }) => ({
+      time: b.time,
+      value: Number(b.value) || 0,
+    }));
+  }, [performanceData?.charts?.sessionsOverTime]);
 
   const normalizedPurchases = useMemo(() => {
-    const raw = performanceCharts?.purchasesOverTime ?? [];
-    return raw.map(b => normalizeChartPoint(b as Record<string, unknown>, "purchases"));
-  }, [performanceCharts?.purchasesOverTime]);
+    if (!performanceData?.charts?.purchasesOverTime) return [];
+    return performanceData.charts.purchasesOverTime.map((b: { time: string; value: number }) => ({
+      time: b.time,
+      value: Number(b.value) || 0,
+    }));
+  }, [performanceData?.charts?.purchasesOverTime]);
 
-  // Calculate visual totals from normalized data
+  // Calculate visual totals from normalized data (MUST match card values from same endpoint)
   const activityVisualTotal = normalizedActivity.reduce((s, p) => s + p.value, 0);
   const sessionsVisualTotal = normalizedSessions.reduce((s, p) => s + p.value, 0);
   const purchasesVisualTotal = normalizedPurchases.reduce((s, p) => s + p.value, 0);
-  
-  // Sessions card total comes from the dedicated endpoint
-  const sessionsCardTotal = sessionsChartData?.totalSessions ?? 0;
 
   // ==========================================================================
   // SAFE DEFAULTS
@@ -890,19 +927,23 @@ const handleSyncAndRefresh = useCallback(async () => {
     totalPurchases: 0,
   };
   
-  // DEBUG MODE OVERRIDE: When debug mode is enabled and we have API response,
-  // use the raw debug API values directly for cards (bypasses all client-side logic)
-  const debugOverrideStats = isDebugMode && rawDebugResponse ? {
-    totalEvents: rawDebugResponse.trackedActions ?? 0,
-    uniquePlayers: rawDebugResponse.uniquePlayers ?? 0,
-    totalSessions: rawDebugResponse.totalSessions ?? 0,
-    avgSessionDuration: rawDebugResponse.avgSessionSeconds ?? null,
-    newPlayers: rawDebugResponse.newPlayers ?? 0,
-    totalPurchases: rawDebugResponse.purchases ?? 0,
-  } : null;
-  
-  // In debug mode, prefer debugOverrideStats; otherwise use safeTrackerStats
-  const cardStats = debugOverrideStats ?? safeTrackerStats;
+  // NEW: cardStats from /api/dashboard/performance-data - SOURCE OF TRUTH
+  // This replaces all previous card stat sources
+  const cardStats = performanceData?.metrics ? {
+    totalEvents: performanceData.metrics.trackedActions ?? 0,
+    uniquePlayers: performanceData.metrics.uniquePlayers ?? 0,
+    totalSessions: performanceData.metrics.totalSessions ?? 0,
+    avgSessionDuration: performanceData.metrics.avgSessionSeconds ?? null,
+    newPlayers: performanceData.metrics.newPlayers ?? 0,
+    totalPurchases: performanceData.metrics.purchases ?? 0,
+  } : {
+    totalEvents: 0,
+    uniquePlayers: 0,
+    totalSessions: 0,
+    avgSessionDuration: null,
+    newPlayers: 0,
+    totalPurchases: 0,
+  };
 
   // DEBUG: Log when trackerStats is null but we have tracker events
   // This helps identify if the API is returning data but the UI is not displaying it
@@ -913,18 +954,6 @@ const handleSyncAndRefresh = useCallback(async () => {
       hasTrackerData,
       isLoading,
       error,
-    });
-  }
-
-  // DEBUG: Log when backend has values but safeTrackerStats shows 0
-  if (typeof window !== "undefined" && trackerStats && (
-    (trackerStats.uniquePlayers > 0 && safeTrackerStats.uniquePlayers === 0) ||
-    (trackerStats.totalSessions > 0 && safeTrackerStats.totalSessions === 0) ||
-    (trackerStats.newPlayers > 0 && safeTrackerStats.newPlayers === 0)
-  )) {
-    console.error("[v0] WIRING BUG: Backend has values but UI shows 0", {
-      backendTrackerStats: trackerStats,
-      safeTrackerStats,
     });
   }
 
@@ -1196,7 +1225,7 @@ const handleSyncAndRefresh = useCallback(async () => {
   </div>
   {safeDataHealth.hasTrackerEvents ? (
   <div className="text-2xl font-bold text-foreground">
-  {formatNumber(sessionsCardTotal)}
+  {formatNumber(cardStats.totalSessions)}
   </div>
   ) : (
   <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -1347,56 +1376,71 @@ const handleSyncAndRefresh = useCallback(async () => {
             {isDebugMode && (
               <div className="mx-6 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono">
                 
-                {/* PROOF OF CORRECT FILE - This MUST be visible */}
-                <div className="mb-4 p-4 bg-black border-4 border-green-500 rounded-lg text-lg">
-                  <div className="text-green-400 font-bold">Rendered Performance File: <span className="text-white">/app/dashboard/performance/page.tsx</span></div>
-                  <div className="text-green-400 font-bold">Debug API Loaded: <span className={rawDebugResponse ? "text-green-300" : "text-red-400"}>{rawDebugResponse ? "true" : "false"}</span></div>
-                  <div className="text-green-400 font-bold">Build: <span className="text-white">v-gp-rawjson-visible</span></div>
-                  {isLoadingRawDebug && <div className="text-yellow-400">Loading debug API...</div>}
-                  {rawDebugError && <div className="text-red-400">Error: {rawDebugError}</div>}
+                {/* PART F: RAW JSON DEBUG - ALWAYS VISIBLE */}
+                <div className="mb-4 p-4 bg-black border-4 border-green-500 rounded-lg">
+                  <div className="text-green-400 font-bold text-lg mb-2">DEBUG MODE - RAW ENDPOINT DATA</div>
+                  <div className="text-green-300 text-sm mb-4">Source of Truth: /api/dashboard/performance-data and /api/dashboard/ccu-history</div>
+                  
+                  {/* Performance Data JSON */}
+                  <div className="mb-4">
+                    <div className="text-cyan-400 font-bold mb-1">performanceData (from /api/dashboard/performance-data?range={chartRange}):</div>
+                    {isLoadingPerformanceData && <div className="text-yellow-400">Loading...</div>}
+                    {performanceDataError && <div className="text-red-400">Error: {performanceDataError}</div>}
+                    <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, color: "#00ff00", maxHeight: 400, overflow: "auto", background: "#111", padding: 8, borderRadius: 4 }}>
+                      {performanceData ? JSON.stringify(performanceData, null, 2) : "No data"}
+                    </pre>
+                  </div>
+                  
+                  {/* CCU History JSON */}
+                  <div>
+                    <div className="text-purple-400 font-bold mb-1">ccuHistoryData (from /api/dashboard/ccu-history?range={ccuRange}):</div>
+                    {isLoadingCcuHistory && <div className="text-yellow-400">Loading...</div>}
+                    {ccuHistoryError && <div className="text-red-400">Error: {ccuHistoryError}</div>}
+                    <pre style={{ whiteSpace: "pre-wrap", fontSize: 11, color: "#ff00ff", maxHeight: 400, overflow: "auto", background: "#111", padding: 8, borderRadius: 4 }}>
+                      {ccuHistoryData ? JSON.stringify(ccuHistoryData, null, 2) : "No data"}
+                    </pre>
+                  </div>
                 </div>
                 
-                {/* RAW JSON - ALWAYS VISIBLE AS REQUESTED */}
-                <div className="mb-4 p-3 bg-black border-2 border-white rounded-lg">
-                  <div className="text-white font-bold mb-2">RAW performanceData (from /api/debug/game-performance):</div>
-                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "#00ff00", maxHeight: 400, overflow: "auto" }}>
-                    {rawDebugResponse ? JSON.stringify(rawDebugResponse, null, 2) : "Loading or no data..."}
-                  </pre>
+                {/* Card vs Chart Verification */}
+                <div className="mb-4 p-3 bg-green-900/50 border border-green-500 rounded-lg">
+                  <div className="text-green-300 font-bold mb-2">CARD vs CHART TOTALS (must match):</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <div className="text-muted-foreground">Tracked Actions</div>
+                      <div>Card: <span className="text-foreground font-bold">{cardStats.totalEvents}</span></div>
+                      <div>Chart: <span className={activityVisualTotal === cardStats.totalEvents ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{activityVisualTotal}</span></div>
+                      <div className={activityVisualTotal === cardStats.totalEvents ? "text-green-400" : "text-red-400"}>{activityVisualTotal === cardStats.totalEvents ? "MATCH" : "MISMATCH"}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Total Sessions</div>
+                      <div>Card: <span className="text-foreground font-bold">{cardStats.totalSessions}</span></div>
+                      <div>Chart: <span className={sessionsVisualTotal === cardStats.totalSessions ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{sessionsVisualTotal}</span></div>
+                      <div className={sessionsVisualTotal === cardStats.totalSessions ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal === cardStats.totalSessions ? "MATCH" : "MISMATCH"}</div>
+                    </div>
+                    <div>
+                      <div className="text-muted-foreground">Purchases</div>
+                      <div>Card: <span className="text-foreground font-bold">{cardStats.totalPurchases}</span></div>
+                      <div>Chart: <span className={purchasesVisualTotal === cardStats.totalPurchases ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{purchasesVisualTotal}</span></div>
+                      <div className={purchasesVisualTotal === cardStats.totalPurchases ? "text-green-400" : "text-red-400"}>{purchasesVisualTotal === cardStats.totalPurchases ? "MATCH" : "MISMATCH"}</div>
+                    </div>
+                  </div>
                 </div>
                 
                 {/* CCU DEBUG PANEL - Live CCU History diagnosis */}
                 <div className="mb-4 p-3 bg-cyan-900/30 border border-cyan-500 rounded-lg">
                   <div className="font-bold text-cyan-400 mb-2">CCU HISTORY DEBUG (Live CCU Chart)</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
-                    <div>selectedGameId: <span className="text-white">{selectedGameId ?? "none"}</span></div>
+                    <div>selectedGameId: <span className="text-white">{ccuHistoryData?.selectedGameId ?? "none"}</span></div>
                     <div>selectedRange: <span className="text-white">{ccuRange}</span></div>
-                    <div>totalSnapshots (raw): <span className="text-white font-bold">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
-                    <div>chartDataLength: <span className={processedCcuHistory.data.length > 1 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.data.length}</span></div>
-                    <div>latestSnapshotAt: <span className="text-white">{processedCcuHistory.latestSnapshotTime ?? "none"}</span></div>
-                    <div>latestSnapshotAgeMinutes: <span className={
-                      (processedCcuHistory.latestSnapshotAgeMinutes ?? 9999) < 60 
-                        ? "text-green-400 font-bold" 
-                        : "text-red-400 font-bold"
-                    }>{processedCcuHistory.latestSnapshotAgeMinutes ?? "n/a"}</span></div>
-                    <div>dominantSource: <span className="text-white">{processedCcuHistory.dominantSource}</span></div>
-                    <div>rangeStartUtc: <span className="text-white text-[10px]">{processedCcuHistory.rangeStartUtc}</span></div>
-                    <div>rangeEndUtc: <span className="text-white text-[10px]">{processedCcuHistory.rangeEndUtc}</span></div>
-                    <div className="col-span-full">sourceCounts: <span className="text-white">{JSON.stringify(processedCcuHistory.sourceCounts)}</span></div>
-                    {/* Compute snapshots in last 1h from raw data */}
-                    <div className="col-span-full">
-                      snapshotsLast1h: <span className="text-green-400 font-bold">
-                        {(() => {
-                          const oneHourAgo = Date.now() - 60 * 60 * 1000;
-                          return rawCcuHistory?.rawSnapshots?.filter(s => new Date(s.time).getTime() >= oneHourAgo).length ?? 0;
-                        })()}
-                      </span>
-                    </div>
-                    {/* Sample latest 3 snapshots for quick verification */}
-                    <div className="col-span-full">
-                      latest3Snapshots: <span className="text-white text-[10px]">
-                        {JSON.stringify(rawCcuHistory?.rawSnapshots?.slice(-3) ?? [])}
-                      </span>
-                    </div>
+                    <div>rowsFoundBeforeSourceFilter: <span className={(ccuHistoryData?.rowsFoundBeforeSourceFilter ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{ccuHistoryData?.rowsFoundBeforeSourceFilter ?? 0}</span></div>
+                    <div>usedSnapshots: <span className={(ccuHistoryData?.usedSnapshots ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{ccuHistoryData?.usedSnapshots ?? 0}</span></div>
+                    <div>chartDataLength: <span className={(ccuHistoryData?.chartDataLength ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{ccuHistoryData?.chartDataLength ?? 0}</span></div>
+                    <div>usedSource: <span className={ccuHistoryData?.usedSource === "romonetize_tracker" ? "text-purple-400 font-bold" : "text-blue-400"}>{ccuHistoryData?.usedSource ?? "none"}</span></div>
+                    <div>latestSnapshotAt: <span className="text-white">{ccuHistoryData?.latestSnapshotAt ?? "none"}</span></div>
+                    <div>currentCcu: <span className="text-white">{ccuHistoryData?.currentCcu ?? "—"}</span></div>
+                    <div>peakCcu: <span className="text-white">{ccuHistoryData?.peakCcu ?? "—"}</span></div>
+                    <div className="col-span-full">sourceCounts: <span className="text-foreground">{JSON.stringify(ccuHistoryData?.sourceCounts ?? {})}</span></div>
                   </div>
                 </div>
                 
@@ -1553,9 +1597,9 @@ const handleSyncAndRefresh = useCallback(async () => {
                     <div>activityBadge: <span className="text-green-100">{safeTrackerStats.totalEvents}</span></div>
                     <div>activityVisualTotal: <span className={activityVisualTotal === safeTrackerStats.totalEvents ? "text-green-400" : "text-red-400"}>{activityVisualTotal}</span></div>
                     <div>activityMatch: <span className={activityVisualTotal === safeTrackerStats.totalEvents ? "text-green-400" : "text-red-400"}>{activityVisualTotal === safeTrackerStats.totalEvents ? "EXACT" : "MISMATCH!"}</span></div>
-                    <div>sessionsBadge: <span className="text-green-100">{sessionsCardTotal}</span></div>
-                    <div>sessionsVisualTotal: <span className={sessionsVisualTotal === sessionsCardTotal ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal}</span></div>
-                    <div>sessionsMatch: <span className={sessionsVisualTotal === sessionsCardTotal ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal === sessionsCardTotal ? "EXACT" : "MISMATCH!"}</span></div>
+                    <div>sessionsBadge: <span className="text-green-100">{cardStats.totalSessions}</span></div>
+                    <div>sessionsVisualTotal: <span className={sessionsVisualTotal === cardStats.totalSessions ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal}</span></div>
+                    <div>sessionsMatch: <span className={sessionsVisualTotal === cardStats.totalSessions ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal === cardStats.totalSessions ? "EXACT" : "MISMATCH!"}</span></div>
                     <div>purchasesBadge: <span className="text-green-100">{safeTrackerStats.totalPurchases ?? 0}</span></div>
                     <div>purchasesVisualTotal: <span className={purchasesVisualTotal === (safeTrackerStats.totalPurchases ?? 0) ? "text-green-400" : "text-red-400"}>{purchasesVisualTotal}</span></div>
                     <div>purchasesMatch: <span className={purchasesVisualTotal === (safeTrackerStats.totalPurchases ?? 0) ? "text-green-400" : "text-red-400"}>{purchasesVisualTotal === (safeTrackerStats.totalPurchases ?? 0) ? "EXACT" : "MISMATCH!"}</span></div>
@@ -1595,8 +1639,8 @@ const handleSyncAndRefresh = useCallback(async () => {
                         <div>selectedRange: <span className="text-foreground">{sessionsChartData.range}</span></div>
                         <div>rangeStartIso: <span className="text-foreground text-[9px]">{sessionsChartData.rangeStartIso}</span></div>
                         <div>rangeEndIso: <span className="text-foreground text-[9px]">{sessionsChartData.rangeEndIso}</span></div>
-                        <div>totalSessionsCard: <span className={sessionsCardTotal > 0 ? "text-green-400 font-bold" : "text-red-400"}>{sessionsCardTotal}</span></div>
-                        <div>totalSessionsVisualTotal: <span className={sessionsVisualTotal === sessionsCardTotal ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{sessionsVisualTotal}</span></div>
+                        <div>totalSessionsCard: <span className={cardStats.totalSessions > 0 ? "text-green-400 font-bold" : "text-red-400"}>{cardStats.totalSessions}</span></div>
+                        <div>totalSessionsVisualTotal: <span className={sessionsVisualTotal === cardStats.totalSessions ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{sessionsVisualTotal}</span></div>
                         <div>bucketCount: <span className={sessionsChartData.bucketCount > 0 ? "text-green-400" : "text-red-400"}>{sessionsChartData.bucketCount}</span></div>
                         <div>bucketType: <span className="text-foreground">{sessionsChartData.bucketType}</span></div>
                         <div>method: <span className="text-foreground">{sessionsChartData.method}</span></div>
@@ -2064,8 +2108,8 @@ const handleSyncAndRefresh = useCallback(async () => {
               title="Activity Over Time"
               subtitle="All tracked actions from your game"
               source="tracker"
-              summary={safeTrackerStats.totalEvents > 0 ? `Total: ${safeTrackerStats.totalEvents.toLocaleString()}` : undefined}
-              isEmpty={normalizedActivity.length === 0 && safeTrackerStats.totalEvents === 0}
+              summary={cardStats.totalEvents > 0 ? `Total: ${cardStats.totalEvents.toLocaleString()}` : undefined}
+              isEmpty={normalizedActivity.length === 0 && cardStats.totalEvents === 0}
               emptyTitle="No tracking data yet"
               emptyMessage="Activity will appear after players interact with your game."
             >
@@ -2111,8 +2155,8 @@ const handleSyncAndRefresh = useCallback(async () => {
               title="Total Sessions Over Time"
               subtitle="Player join events (session starts)"
               source="tracker"
-              summary={sessionsCardTotal > 0 ? `Total: ${sessionsCardTotal.toLocaleString()}` : undefined}
-              isEmpty={normalizedSessions.length === 0 && sessionsCardTotal === 0}
+              summary={cardStats.totalSessions > 0 ? `Total: ${cardStats.totalSessions.toLocaleString()}` : undefined}
+              isEmpty={normalizedSessions.length === 0 && cardStats.totalSessions === 0}
               emptyTitle="No session data yet"
               emptyMessage="Sessions will appear after players start sessions in your game."
             >
@@ -2171,8 +2215,8 @@ const handleSyncAndRefresh = useCallback(async () => {
                 title="Purchases Over Time"
                 subtitle="Successful product purchases"
                 source="tracker"
-                summary={safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 ? `Total: ${safeTrackerStats.totalPurchases.toLocaleString()}` : undefined}
-                isEmpty={normalizedPurchases.length === 0 && (!safeTrackerStats.totalPurchases || safeTrackerStats.totalPurchases === 0)}
+              summary={cardStats.totalPurchases && cardStats.totalPurchases > 0 ? `Total: ${cardStats.totalPurchases.toLocaleString()}` : undefined}
+              isEmpty={normalizedPurchases.length === 0 && (!cardStats.totalPurchases || cardStats.totalPurchases === 0)}
                 emptyTitle="No purchases yet"
                 emptyMessage="Purchases will appear after players make purchases in your game."
               >
