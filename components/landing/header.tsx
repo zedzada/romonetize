@@ -109,23 +109,13 @@ export function Header({ onOpenBetaModal, onOpenAuthModal }: HeaderProps) {
               <Link href="/dashboard">Dashboard</Link>
             </Button>
           ) : (
-            <>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={onOpenAuthModal}
-                className="text-muted-foreground hover:text-foreground cursor-pointer transition-all duration-200 hover:scale-[1.03] active:scale-[0.98]"
-              >
-                Log in
-              </Button>
-              <Button 
-                size="sm" 
-                onClick={handleJoinBeta}
-                className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]"
-              >
-                Join Beta
-              </Button>
-            </>
+            <Button 
+              size="sm" 
+              onClick={handleJoinBeta}
+              className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer transition-all duration-200 hover:scale-[1.03] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]"
+            >
+              Join Beta
+            </Button>
           )}
         </div>
 
@@ -162,26 +152,13 @@ export function Header({ onOpenBetaModal, onOpenAuthModal }: HeaderProps) {
                   <Link href="/dashboard" onClick={() => setMobileMenuOpen(false)}>Dashboard</Link>
                 </Button>
               ) : (
-                <>
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    onClick={() => {
-                      onOpenAuthModal();
-                      setMobileMenuOpen(false);
-                    }}
-                    className="justify-start text-muted-foreground cursor-pointer transition-all duration-200 hover:scale-[1.02] active:scale-[0.98]"
-                  >
-                    Log in
-                  </Button>
-                  <Button 
-                    size="sm" 
-                    onClick={handleJoinBeta}
-                    className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]"
-                  >
-                    Join Beta
-                  </Button>
-                </>
+                <Button 
+                  size="sm" 
+                  onClick={handleJoinBeta}
+                  className="bg-primary hover:bg-primary/90 text-primary-foreground cursor-pointer transition-all duration-200 hover:scale-[1.02] hover:shadow-lg hover:shadow-primary/25 active:scale-[0.98]"
+                >
+                  Join Beta
+                </Button>
               )}
             </div>
           </nav>
