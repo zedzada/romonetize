@@ -23,7 +23,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
-      <Header onOpenBetaModal={openBetaModal} />
+      <Header onOpenBetaModal={openBetaModal} onOpenAuthModal={openAuthModal} />
       <Hero onOpenAuthModal={openAuthModal} />
       <Features />
       <DashboardPreview />
