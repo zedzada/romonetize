@@ -602,7 +602,9 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", monetizatio
     syncedProducts: safeData?.syncedProducts ?? null,
     retentionStats: safeData?.retentionStats ?? null,
     ccuStats: safeData?.ccuStats ?? null,
-    ccuHistory: safeData?.ccuHistory ?? null,
+    // CRITICAL FIX: Always return ccuHistory from data (not safeData) to prevent stale cache
+    // Fresh snapshots should show immediately after refresh, not wait for cache invalidation
+    ccuHistory: data?.ccuHistory ?? null,
     charts: safeData?.charts ?? null,
     // CRITICAL FIX: Always return performanceCharts from data (not safeData)
     performanceCharts: data?.performanceCharts ?? null,

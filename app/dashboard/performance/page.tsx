@@ -584,12 +584,14 @@ const handleSyncAndRefresh = useCallback(async () => {
   }, [rawCcuHistory, ccuRange, lastPollTime]);
 
   // Auto-select useful range on first load
-  // If current range (24h default) has 0 snapshots but total snapshots exist, try wider ranges
+  // If current range has 0 snapshots but total snapshots exist, try 1h first (for recent data), then wider ranges
   useEffect(() => {
     if (autoRangeApplied || !rawCcuHistory?.rawSnapshots?.length) return;
     
     const now = Date.now();
+    // IMPORTANT: Start with 1h to catch recent heartbeat data first
     const ranges: { range: CCUHistoryRange; ms: number }[] = [
+      { range: "1h", ms: 1 * 60 * 60 * 1000 },
       { range: "24h", ms: 24 * 60 * 60 * 1000 },
       { range: "7d", ms: 7 * 24 * 60 * 60 * 1000 },
       { range: "28d", ms: 28 * 24 * 60 * 60 * 1000 },
@@ -1362,6 +1364,42 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "#00ff00", maxHeight: 400, overflow: "auto" }}>
                     {rawDebugResponse ? JSON.stringify(rawDebugResponse, null, 2) : "Loading or no data..."}
                   </pre>
+                </div>
+                
+                {/* CCU DEBUG PANEL - Live CCU History diagnosis */}
+                <div className="mb-4 p-3 bg-cyan-900/30 border border-cyan-500 rounded-lg">
+                  <div className="font-bold text-cyan-400 mb-2">CCU HISTORY DEBUG (Live CCU Chart)</div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-xs">
+                    <div>selectedGameId: <span className="text-white">{selectedGameId ?? "none"}</span></div>
+                    <div>selectedRange: <span className="text-white">{ccuRange}</span></div>
+                    <div>totalSnapshots (raw): <span className="text-white font-bold">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
+                    <div>chartDataLength: <span className={processedCcuHistory.data.length > 1 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.data.length}</span></div>
+                    <div>latestSnapshotAt: <span className="text-white">{processedCcuHistory.latestSnapshotTime ?? "none"}</span></div>
+                    <div>latestSnapshotAgeMinutes: <span className={
+                      (processedCcuHistory.latestSnapshotAgeMinutes ?? 9999) < 60 
+                        ? "text-green-400 font-bold" 
+                        : "text-red-400 font-bold"
+                    }>{processedCcuHistory.latestSnapshotAgeMinutes ?? "n/a"}</span></div>
+                    <div>dominantSource: <span className="text-white">{processedCcuHistory.dominantSource}</span></div>
+                    <div>rangeStartUtc: <span className="text-white text-[10px]">{processedCcuHistory.rangeStartUtc}</span></div>
+                    <div>rangeEndUtc: <span className="text-white text-[10px]">{processedCcuHistory.rangeEndUtc}</span></div>
+                    <div className="col-span-full">sourceCounts: <span className="text-white">{JSON.stringify(processedCcuHistory.sourceCounts)}</span></div>
+                    {/* Compute snapshots in last 1h from raw data */}
+                    <div className="col-span-full">
+                      snapshotsLast1h: <span className="text-green-400 font-bold">
+                        {(() => {
+                          const oneHourAgo = Date.now() - 60 * 60 * 1000;
+                          return rawCcuHistory?.rawSnapshots?.filter(s => new Date(s.time).getTime() >= oneHourAgo).length ?? 0;
+                        })()}
+                      </span>
+                    </div>
+                    {/* Sample latest 3 snapshots for quick verification */}
+                    <div className="col-span-full">
+                      latest3Snapshots: <span className="text-white text-[10px]">
+                        {JSON.stringify(rawCcuHistory?.rawSnapshots?.slice(-3) ?? [])}
+                      </span>
+                    </div>
+                  </div>
                 </div>
                 
                 {/* RAW API DEBUG PANEL - SOURCE OF TRUTH */}
