@@ -589,10 +589,14 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", monetizatio
     // Data - return null if response is stale or pending game change
     data: safeData,
     game: safeData?.game ?? null,
-    dataHealth: safeData?.dataHealth ?? null,
+    // CRITICAL FIX: Always return dataHealth from data (not safeData) so hasTrackerEvents is correct
+    dataHealth: data?.dataHealth ?? null,
     robloxStats: safeData?.robloxStats ?? null,
     overview: safeData?.overview ?? null,
-    trackerStats: safeData?.trackerStats ?? null,
+    // CRITICAL FIX: Always return trackerStats from data (not safeData) to prevent zeros
+    // The stale check is for game-switching scenarios, but trackerStats should always show
+    // the latest backend values. The backend already validates game ownership.
+    trackerStats: data?.trackerStats ?? null,
     revenueStats: safeData?.revenueStats ?? null,
     productStats: safeData?.productStats ?? null,
     syncedProducts: safeData?.syncedProducts ?? null,
@@ -600,7 +604,8 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", monetizatio
     ccuStats: safeData?.ccuStats ?? null,
     ccuHistory: safeData?.ccuHistory ?? null,
     charts: safeData?.charts ?? null,
-    performanceCharts: safeData?.performanceCharts ?? null,
+    // CRITICAL FIX: Always return performanceCharts from data (not safeData)
+    performanceCharts: data?.performanceCharts ?? null,
     monetizationCharts: safeData?.monetizationCharts ?? null,
     productAnalytics: safeData?.productAnalytics ?? null,
     sectionErrors: safeData?.sectionErrors ?? {},

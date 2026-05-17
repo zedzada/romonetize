@@ -1237,9 +1237,10 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* BUILD VERIFICATION MARKER - Remove after confirming deployment freshness */}
                   <div className="col-span-full mb-2 p-2 bg-purple-900/50 border border-purple-500 rounded text-purple-200 font-mono text-[10px]">
-                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-2</span></div>
+                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-3</span></div>
                     <div>Rendered file: <span className="text-purple-100">/app/dashboard/performance/page.tsx</span></div>
                     <div>Backend helper: <span className="text-purple-100">/lib/helpers/game-performance.ts</span></div>
+                    <div>Hook fix: <span className="text-purple-100">trackerStats, performanceCharts, dataHealth from data (not safeData)</span></div>
                   </div>
                   
                   {/* CHART WIRING DEBUG - shows if chart arrays have data */}
