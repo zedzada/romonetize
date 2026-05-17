@@ -987,7 +987,7 @@ const handleSyncAndRefresh = useCallback(async () => {
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents)}
+                  {formatNumber(safeTrackerStats.totalEvents)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
