@@ -739,6 +739,102 @@ const handleSyncAndRefresh = useCallback(async () => {
     };
   }, [rawPerformanceCharts, rawCcuStats, chartRange]);
 
+  // ==========================================================================
+  // CHART DATA NORMALIZATION
+  // ==========================================================================
+  // Normalize chart data to ensure consistent { time, value } format for Recharts
+  // This handles any backend key variations
+  
+  type NormalizedChartPoint = { time: string; value: number };
+  
+  const normalizeChartPoint = (
+    bucket: Record<string, unknown>,
+    metric: "activity" | "sessions" | "purchases"
+  ): NormalizedChartPoint => {
+    const time = String(
+      bucket.time ??
+      bucket.label ??
+      bucket.date ??
+      bucket.bucket ??
+      bucket.created_at ??
+      ""
+    );
+
+    let rawValue = 0;
+
+    if (metric === "activity") {
+      rawValue = Number(
+        bucket.value ??
+        bucket.count ??
+        bucket.total ??
+        bucket.trackedActions ??
+        bucket.tracked_actions ??
+        bucket.actions ??
+        bucket.events ??
+        bucket.eventCount ??
+        bucket.event_count ??
+        0
+      );
+    }
+
+    if (metric === "sessions") {
+      rawValue = Number(
+        bucket.value ??
+        bucket.count ??
+        bucket.total ??
+        bucket.sessions ??
+        bucket.totalSessions ??
+        bucket.total_sessions ??
+        bucket.joins ??
+        bucket.playerJoins ??
+        bucket.player_joins ??
+        0
+      );
+    }
+
+    if (metric === "purchases") {
+      rawValue = Number(
+        bucket.value ??
+        bucket.count ??
+        bucket.total ??
+        bucket.purchases ??
+        bucket.purchaseCount ??
+        bucket.purchase_count ??
+        0
+      );
+    }
+
+    return {
+      time,
+      value: rawValue || 0,
+    };
+  };
+
+  // Normalize all chart arrays
+  const normalizedActivity = useMemo(() => {
+    const raw = performanceCharts?.eventsOverTime ?? [];
+    return raw.map(b => normalizeChartPoint(b as Record<string, unknown>, "activity"));
+  }, [performanceCharts?.eventsOverTime]);
+
+  const normalizedSessions = useMemo(() => {
+    const raw = performanceCharts?.sessionsOverTime ?? [];
+    return raw.map(b => normalizeChartPoint(b as Record<string, unknown>, "sessions"));
+  }, [performanceCharts?.sessionsOverTime]);
+
+  const normalizedPurchases = useMemo(() => {
+    const raw = performanceCharts?.purchasesOverTime ?? [];
+    return raw.map(b => normalizeChartPoint(b as Record<string, unknown>, "purchases"));
+  }, [performanceCharts?.purchasesOverTime]);
+
+  // Calculate visual totals from normalized data
+  const activityVisualTotal = normalizedActivity.reduce((s, p) => s + p.value, 0);
+  const sessionsVisualTotal = normalizedSessions.reduce((s, p) => s + p.value, 0);
+  const purchasesVisualTotal = normalizedPurchases.reduce((s, p) => s + p.value, 0);
+
+  // ==========================================================================
+  // SAFE DEFAULTS
+  // ==========================================================================
+  
   // Safe defaults
   const safeDataHealth = dataHealth ?? {
     hasTrackerEvents: false,
@@ -1272,33 +1368,63 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* BUILD VERIFICATION MARKER - Remove after confirming deployment freshness */}
                   <div className="col-span-full mb-2 p-2 bg-purple-900/50 border border-purple-500 rounded text-purple-200 font-mono text-[10px]">
-                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-3</span></div>
+                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-5</span></div>
                     <div>Rendered file: <span className="text-purple-100">/app/dashboard/performance/page.tsx</span></div>
                     <div>Backend helper: <span className="text-purple-100">/lib/helpers/game-performance.ts</span></div>
-                    <div>Hook fix: <span className="text-purple-100">trackerStats, performanceCharts, dataHealth from data (not safeData)</span></div>
+                    <div>Chart fix: <span className="text-purple-100">Normalized to time/value with dataKey=value</span></div>
+                    <div>Debug: <span className="text-purple-100">Added _debug parsed fields for value source diagnosis</span></div>
+                  </div>
+                  
+                  {/* NORMALIZED CHART DATA VERIFICATION */}
+                  <div className="col-span-full mb-2 p-2 bg-green-900/50 border border-green-500 rounded text-green-200 font-mono text-[10px]">
+                    <div className="text-green-300 font-bold mb-1">Normalized Chart Verification (VISUAL TOTALS):</div>
+                    <div>activityBadge: <span className="text-green-100">{safeTrackerStats.totalEvents}</span></div>
+                    <div>activityVisualTotal: <span className={activityVisualTotal === safeTrackerStats.totalEvents ? "text-green-400" : "text-red-400"}>{activityVisualTotal}</span></div>
+                    <div>activityMatch: <span className={activityVisualTotal === safeTrackerStats.totalEvents ? "text-green-400" : "text-red-400"}>{activityVisualTotal === safeTrackerStats.totalEvents ? "EXACT" : "MISMATCH!"}</span></div>
+                    <div>sessionsBadge: <span className="text-green-100">{safeTrackerStats.totalSessions}</span></div>
+                    <div>sessionsVisualTotal: <span className={sessionsVisualTotal === safeTrackerStats.totalSessions ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal}</span></div>
+                    <div>sessionsMatch: <span className={sessionsVisualTotal === safeTrackerStats.totalSessions ? "text-green-400" : "text-red-400"}>{sessionsVisualTotal === safeTrackerStats.totalSessions ? "EXACT" : "MISMATCH!"}</span></div>
+                    <div>purchasesBadge: <span className="text-green-100">{safeTrackerStats.totalPurchases ?? 0}</span></div>
+                    <div>purchasesVisualTotal: <span className={purchasesVisualTotal === (safeTrackerStats.totalPurchases ?? 0) ? "text-green-400" : "text-red-400"}>{purchasesVisualTotal}</span></div>
+                    <div>purchasesMatch: <span className={purchasesVisualTotal === (safeTrackerStats.totalPurchases ?? 0) ? "text-green-400" : "text-red-400"}>{purchasesVisualTotal === (safeTrackerStats.totalPurchases ?? 0) ? "EXACT" : "MISMATCH!"}</span></div>
+                    <div>normalizedActivityLength: <span className={normalizedActivity.length > 0 ? "text-green-400" : "text-red-400"}>{normalizedActivity.length}</span></div>
+                    <div>normalizedSessionsLength: <span className={normalizedSessions.length > 0 ? "text-green-400" : "text-red-400"}>{normalizedSessions.length}</span></div>
+                    <div>normalizedPurchasesLength: <span className={normalizedPurchases.length > 0 ? "text-green-400" : "text-red-400"}>{normalizedPurchases.length}</span></div>
+                    {normalizedActivity.length > 0 && activityVisualTotal === 0 && (
+                      <div className="text-red-400 font-bold mt-1">ERROR: Activity buckets exist but sum to 0 - wrong data key!</div>
+                    )}
+                    {normalizedSessions.length > 0 && sessionsVisualTotal === 0 && (
+                      <div className="text-red-400 font-bold mt-1">ERROR: Sessions buckets exist but sum to 0 - wrong data key!</div>
+                    )}
+                    {normalizedPurchases.length > 0 && purchasesVisualTotal === 0 && safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 && (
+                      <div className="text-red-400 font-bold mt-1">ERROR: Purchases buckets exist but sum to 0 - wrong data key!</div>
+                    )}
+                    <div className="mt-1 text-[9px] break-all">
+                      activitySample: {JSON.stringify(normalizedActivity.slice(0, 3))}
+                    </div>
+                    <div className="text-[9px] break-all">
+                      sessionsSample: {JSON.stringify(normalizedSessions.slice(0, 3))}
+                    </div>
+                    <div className="text-[9px] break-all">
+                      purchasesSample: {JSON.stringify(normalizedPurchases.slice(0, 3))}
+                    </div>
                   </div>
                   
                   {/* CHART WIRING DEBUG - shows if chart arrays have data */}
                   <div className="col-span-full mb-2 p-2 bg-blue-900/50 border border-blue-500 rounded text-blue-200 font-mono text-[10px]">
-                    <div className="text-blue-300 font-bold mb-1">Chart Wiring Verification:</div>
-                    <div>cardTrackedActions: <span className="text-blue-100">{safeTrackerStats.totalEvents}</span></div>
-                    <div>cardTotalSessions: <span className="text-blue-100">{safeTrackerStats.totalSessions}</span></div>
-                    <div>cardPurchases: <span className="text-blue-100">{safeTrackerStats.totalPurchases ?? "null"}</span></div>
-                    <div>activityBucketsLength: <span className={performanceCharts?.eventsOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.eventsOverTime?.length ?? 0}</span></div>
-                    <div>sessionsBucketsLength: <span className={performanceCharts?.sessionsOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.sessionsOverTime?.length ?? 0}</span></div>
-                    <div>purchasesBucketsLength: <span className={performanceCharts?.purchasesOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.purchasesOverTime?.length ?? 0}</span></div>
-                    <div>activityChartTotal (badge): <span className={safeTrackerStats.totalEvents > 0 ? "text-green-400" : "text-red-400"}>{safeTrackerStats.totalEvents}</span></div>
-                    <div>sessionsChartTotal (badge): <span className={safeTrackerStats.totalSessions > 0 ? "text-green-400" : "text-red-400"}>{safeTrackerStats.totalSessions}</span></div>
-                    <div>purchasesChartTotal (badge): <span className={safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.totalPurchases ?? "null"}</span></div>
-                    {safeTrackerStats.totalEvents > 0 && (!performanceCharts?.eventsOverTime?.length) && (
-                      <div className="text-red-400 font-bold mt-1">ERROR: Cards have data but Activity chart buckets are empty!</div>
-                    )}
-                    {safeTrackerStats.totalSessions > 0 && (!performanceCharts?.sessionsOverTime?.length) && (
-                      <div className="text-red-400 font-bold mt-1">ERROR: Cards have data but Sessions chart buckets are empty!</div>
-                    )}
-                    {safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 && (!performanceCharts?.purchasesOverTime?.length) && (
-                      <div className="text-red-400 font-bold mt-1">ERROR: Cards have data but Purchases chart buckets are empty!</div>
-                    )}
+                    <div className="text-blue-300 font-bold mb-1">Raw Chart Buckets (from API):</div>
+                    <div>rawActivityLength: <span className={performanceCharts?.eventsOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.eventsOverTime?.length ?? 0}</span></div>
+                    <div>rawSessionsLength: <span className={performanceCharts?.sessionsOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.sessionsOverTime?.length ?? 0}</span></div>
+                    <div>rawPurchasesLength: <span className={performanceCharts?.purchasesOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.purchasesOverTime?.length ?? 0}</span></div>
+                    <div className="mt-1 text-[9px] break-all">
+                      rawActivitySample: {JSON.stringify((performanceCharts?.eventsOverTime ?? []).slice(0, 3))}
+                    </div>
+                    <div className="text-[9px] break-all">
+                      rawSessionsSample: {JSON.stringify((performanceCharts?.sessionsOverTime ?? []).slice(0, 3))}
+                    </div>
+                    <div className="text-[9px] break-all">
+                      rawPurchasesSample: {JSON.stringify((performanceCharts?.purchasesOverTime ?? []).slice(0, 3))}
+                    </div>
                   </div>
                   
                   <div>selectedRange: <span className="text-foreground">{performanceCharts?.debug?.selectedRange || chartRange}</span></div>
@@ -1349,7 +1475,28 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>safe_uniquePlayers: <span className={safeTrackerStats.uniquePlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.uniquePlayers}</span></div>
                   <div>safe_totalSessions: <span className={safeTrackerStats.totalSessions > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.totalSessions}</span></div>
                   <div>safe_newPlayers: <span className={safeTrackerStats.newPlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.newPlayers}</span></div>
-                  <div className="col-span-full">_debug: <span className="text-foreground text-[9px] break-all">{JSON.stringify(trackerStats?._debug ?? "null")}</span></div>
+                  
+                  {/* _debug parsed fields - CRITICAL for diagnosing zeros */}
+                  {trackerStats?._debug && (
+                    <div className="col-span-full mt-2 p-2 bg-red-900/30 border border-red-500/50 rounded">
+                      <div className="text-red-300 font-bold mb-1">Backend _debug (Value Sources):</div>
+                      <div>sharedHelperUsed: <span className={trackerStats._debug.sharedHelperUsed ? "text-green-400" : "text-red-400"}>{trackerStats._debug.sharedHelperUsed ? "YES" : "NO (using fallback!)"}</span></div>
+                      <div>helperUniquePlayers: <span className="text-foreground">{trackerStats._debug.helperUniquePlayers ?? "null"}</span></div>
+                      <div>fallbackUniquePlayers: <span className="text-foreground">{trackerStats._debug.fallbackUniquePlayers ?? "null"}</span></div>
+                      <div>usedUniquePlayers: <span className={trackerStats._debug.usedUniquePlayers > 0 ? "text-green-400" : "text-red-400"}>{trackerStats._debug.usedUniquePlayers}</span></div>
+                      <div>helperNewPlayers: <span className="text-foreground">{trackerStats._debug.helperNewPlayers ?? "null"}</span></div>
+                      <div>fallbackNewPlayers: <span className="text-foreground">{trackerStats._debug.fallbackNewPlayers ?? "null"}</span></div>
+                      <div>usedNewPlayers: <span className={trackerStats._debug.usedNewPlayers > 0 ? "text-green-400" : "text-red-400"}>{trackerStats._debug.usedNewPlayers}</span></div>
+                      <div>helperTotalSessions: <span className="text-foreground">{trackerStats._debug.helperTotalSessions ?? "null"}</span></div>
+                      <div>fallbackTotalSessions: <span className="text-foreground">{trackerStats._debug.fallbackTotalSessions ?? "null"}</span></div>
+                      <div>usedTotalSessions: <span className={trackerStats._debug.usedTotalSessions > 0 ? "text-green-400" : "text-red-400"}>{trackerStats._debug.usedTotalSessions}</span></div>
+                      {trackerStats._debug.sharedHelperMismatches?.length > 0 && (
+                        <div className="text-red-400 mt-1">Mismatches: {JSON.stringify(trackerStats._debug.sharedHelperMismatches)}</div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="col-span-full">_debug (raw): <span className="text-foreground text-[9px] break-all">{JSON.stringify(trackerStats?._debug ?? "null")}</span></div>
                   
                   {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
@@ -1662,12 +1809,12 @@ const handleSyncAndRefresh = useCallback(async () => {
               subtitle="All tracked actions from your game"
               source="tracker"
               summary={safeTrackerStats.totalEvents > 0 ? `Total: ${safeTrackerStats.totalEvents.toLocaleString()}` : undefined}
-              isEmpty={!performanceCharts?.eventsOverTime?.length && safeTrackerStats.totalEvents === 0}
+              isEmpty={normalizedActivity.length === 0 && safeTrackerStats.totalEvents === 0}
               emptyTitle="No tracking data yet"
               emptyMessage="Activity will appear after players interact with your game."
             >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={performanceCharts?.eventsOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                <BarChart data={normalizedActivity} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="eventsGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={CHART_COLORS.violet} stopOpacity={1}/>
@@ -1676,7 +1823,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </defs>
                   <CartesianGrid {...gridProps} />
                   <XAxis 
-                    dataKey="date" 
+                    dataKey="time" 
                     tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                     {...axisProps}
                   />
@@ -1690,13 +1837,13 @@ const handleSyncAndRefresh = useCallback(async () => {
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 
-                    dataKey="events" 
+                    dataKey="value" 
                     fill="url(#eventsGradient)"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
-                    {(performanceCharts?.eventsOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="events" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
+                    {normalizedActivity.length <= 3 && (
+                      <LabelList dataKey="value" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -1709,12 +1856,12 @@ const handleSyncAndRefresh = useCallback(async () => {
               subtitle="Player join events (session starts)"
               source="tracker"
               summary={safeTrackerStats.totalSessions > 0 ? `Total: ${safeTrackerStats.totalSessions.toLocaleString()}` : undefined}
-              isEmpty={!performanceCharts?.sessionsOverTime?.length && safeTrackerStats.totalSessions === 0}
+              isEmpty={normalizedSessions.length === 0 && safeTrackerStats.totalSessions === 0}
               emptyTitle="No session data yet"
               emptyMessage="Sessions will appear after players start sessions in your game."
             >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={performanceCharts?.sessionsOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                <BarChart data={normalizedSessions} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                   <defs>
                     <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={CHART_COLORS.cyan} stopOpacity={1}/>
@@ -1723,7 +1870,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </defs>
                   <CartesianGrid {...gridProps} />
                   <XAxis 
-                    dataKey="date" 
+                    dataKey="time" 
                     tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                     {...axisProps}
                   />
@@ -1737,13 +1884,13 @@ const handleSyncAndRefresh = useCallback(async () => {
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 
-                    dataKey="sessions" 
+                    dataKey="value" 
                     fill="url(#sessionsGradient)"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
-                    {(performanceCharts?.sessionsOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="sessions" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
+                    {normalizedSessions.length <= 3 && (
+                      <LabelList dataKey="value" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -1769,12 +1916,12 @@ const handleSyncAndRefresh = useCallback(async () => {
                 subtitle="Successful product purchases"
                 source="tracker"
                 summary={safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 ? `Total: ${safeTrackerStats.totalPurchases.toLocaleString()}` : undefined}
-                isEmpty={!performanceCharts?.purchasesOverTime?.length && (!safeTrackerStats.totalPurchases || safeTrackerStats.totalPurchases === 0)}
+                isEmpty={normalizedPurchases.length === 0 && (!safeTrackerStats.totalPurchases || safeTrackerStats.totalPurchases === 0)}
                 emptyTitle="No purchases yet"
                 emptyMessage="Purchases will appear after players make purchases in your game."
               >
                 <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={performanceCharts?.purchasesOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                  <BarChart data={normalizedPurchases} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="purchasesBarGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor={CHART_COLORS.green} stopOpacity={1}/>
@@ -1783,7 +1930,7 @@ const handleSyncAndRefresh = useCallback(async () => {
                     </defs>
                     <CartesianGrid {...gridProps} />
                     <XAxis 
-                      dataKey="date" 
+                      dataKey="time" 
                       tickFormatter={(v) => formatChartTime(v, toChartTimeRange(chartRange))}
                       {...axisProps}
                     />
@@ -1797,13 +1944,13 @@ const handleSyncAndRefresh = useCallback(async () => {
                       labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                     />
                     <Bar 
-                      dataKey="purchases" 
+                      dataKey="value" 
                       fill="url(#purchasesBarGradient)"
                       radius={[6, 6, 0, 0]}
                       maxBarSize={50}
                     >
-                      {(performanceCharts?.purchasesOverTime?.length ?? 0) <= 3 && (
-                        <LabelList dataKey="purchases" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
+                      {normalizedPurchases.length <= 3 && (
+                        <LabelList dataKey="value" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                       )}
                     </Bar>
                   </BarChart>
