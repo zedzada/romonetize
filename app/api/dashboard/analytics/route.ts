@@ -1912,22 +1912,72 @@ let ccuHistory: {
     .map(([time, data]) => ({ time, players: data.total.size }))
     .sort((a, b) => a.time.localeCompare(b.time));
 
+  // === GENERATE ALL BUCKETS FOR SELECTED RANGE ===
+  // Per spec: 24H/72H = hourly, 7D/28D/90D = daily
+  // Empty buckets = 0 to prevent missing bars
+  const useHourlyBuckets = range === "1h" || range === "1d" || range === "3d";
+  const bucketIntervalMs = useHourlyBuckets ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000; // 1 hour or 1 day
+  
+  // For 1h range, use 5-minute buckets
+  const useMinuteBuckets = range === "1h";
+  const minuteBucketIntervalMs = 5 * 60 * 1000; // 5 minutes
+  
+  // Generate all bucket keys for the range
+  const allBucketKeys: string[] = [];
+  const bucketStart = new Date(startDate);
+  const bucketEnd = new Date(now);
+  
+  if (useMinuteBuckets) {
+    // 5-minute buckets for 1h range
+    let current = new Date(bucketStart);
+    current.setMinutes(Math.floor(current.getMinutes() / 5) * 5, 0, 0);
+    while (current <= bucketEnd) {
+      const minutes = current.getMinutes();
+      const key = `${current.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+      allBucketKeys.push(key);
+      current = new Date(current.getTime() + minuteBucketIntervalMs);
+    }
+  } else if (useHourlyBuckets) {
+    // Hourly buckets for 24H/72H
+    let current = new Date(bucketStart);
+    current.setMinutes(0, 0, 0);
+    while (current <= bucketEnd) {
+      allBucketKeys.push(current.toISOString().slice(0, 13) + ":00");
+      current = new Date(current.getTime() + bucketIntervalMs);
+    }
+  } else {
+    // Daily buckets for 7D/28D/90D
+    let current = new Date(bucketStart);
+    current.setUTCHours(0, 0, 0, 0);
+    while (current <= bucketEnd) {
+      allBucketKeys.push(current.toISOString().slice(0, 10));
+      current = new Date(current.getTime() + bucketIntervalMs);
+    }
+  }
+
+  // Helper to get bucket key from event date
+  const getBucketKey = (eventDate: Date): string => {
+    if (useMinuteBuckets) {
+      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
+      return `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
+    } else if (useHourlyBuckets) {
+      return eventDate.toISOString().slice(0, 13) + ":00";
+    } else {
+      return eventDate.toISOString().slice(0, 10);
+    }
+  };
+
   // === EVENTS OVER TIME CHART ===
   // Use activityEvents (ALL events except ccu_heartbeat, script_started)
   // This must match totalEventsInRange for card/chart consistency
   const eventsBuckets = new Map<string, number>();
+  // Initialize all buckets to 0
+  allBucketKeys.forEach(key => eventsBuckets.set(key, 0));
   activityEvents.forEach((e) => {
-    const eventDate = new Date(e.created_at);
-    let bucketKey: string;
-    if (range === "1h") {
-      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
-      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
-    } else if (range === "1d") {
-      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
-    } else {
-      bucketKey = eventDate.toISOString().slice(0, 10);
+    const bucketKey = getBucketKey(new Date(e.created_at));
+    if (eventsBuckets.has(bucketKey)) {
+      eventsBuckets.set(bucketKey, (eventsBuckets.get(bucketKey) || 0) + 1);
     }
-    eventsBuckets.set(bucketKey, (eventsBuckets.get(bucketKey) || 0) + 1);
   });
   const eventsOverTime = Array.from(eventsBuckets.entries())
     .map(([date, events]) => ({ date, events }))
@@ -1937,43 +1987,60 @@ let ccuHistory: {
   // IMPORTANT: Only count session START events (player_join + session_start)
   // This must match the Total Sessions card calculation
   const sessionsBuckets = new Map<string, number>();
+  // Initialize all buckets to 0
+  allBucketKeys.forEach(key => sessionsBuckets.set(key, 0));
   sessionEvents
     .filter((e) => sessionStartTypes.includes(e.event_type))
     .forEach((e) => {
-    const eventDate = new Date(e.created_at);
-    let bucketKey: string;
-    if (range === "1h") {
-      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
-      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
-    } else if (range === "1d") {
-      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
-    } else {
-      bucketKey = eventDate.toISOString().slice(0, 10);
-    }
-    sessionsBuckets.set(bucketKey, (sessionsBuckets.get(bucketKey) || 0) + 1);
-  });
+      const bucketKey = getBucketKey(new Date(e.created_at));
+      if (sessionsBuckets.has(bucketKey)) {
+        sessionsBuckets.set(bucketKey, (sessionsBuckets.get(bucketKey) || 0) + 1);
+      }
+    });
   const sessionsOverTime = Array.from(sessionsBuckets.entries())
     .map(([date, sessions]) => ({ date, sessions }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
   // === PURCHASES OVER TIME CHART ===
   const purchasesBuckets = new Map<string, number>();
+  // Initialize all buckets to 0
+  allBucketKeys.forEach(key => purchasesBuckets.set(key, 0));
   purchaseEvents.forEach((e) => {
-    const eventDate = new Date(e.created_at);
-    let bucketKey: string;
-    if (range === "1h") {
-      const minutes = Math.floor(eventDate.getMinutes() / 5) * 5;
-      bucketKey = `${eventDate.toISOString().slice(0, 13)}:${minutes.toString().padStart(2, "0")}`;
-    } else if (range === "1d") {
-      bucketKey = eventDate.toISOString().slice(0, 13) + ":00";
-    } else {
-      bucketKey = eventDate.toISOString().slice(0, 10);
+    const bucketKey = getBucketKey(new Date(e.created_at));
+    if (purchasesBuckets.has(bucketKey)) {
+      purchasesBuckets.set(bucketKey, (purchasesBuckets.get(bucketKey) || 0) + 1);
     }
-    purchasesBuckets.set(bucketKey, (purchasesBuckets.get(bucketKey) || 0) + 1);
   });
   const purchasesOverTime = Array.from(purchasesBuckets.entries())
     .map(([date, purchases]) => ({ date, purchases }))
     .sort((a, b) => a.date.localeCompare(b.date));
+
+  // === CHART DEBUG INFO (for ?debug=true) ===
+  const activityChartTotal = eventsOverTime.reduce((sum, d) => sum + d.events, 0);
+  const playerJoinsChartTotal = sessionsOverTime.reduce((sum, d) => sum + d.sessions, 0);
+  const purchasesChartTotal = purchasesOverTime.reduce((sum, d) => sum + d.purchases, 0);
+  
+  const performanceChartsDebug = {
+    selectedRange: range,
+    rangeStart: startDate.toISOString(),
+    rangeEnd: now.toISOString(),
+    bucketType: useMinuteBuckets ? "5min" : useHourlyBuckets ? "hourly" : "daily",
+    bucketCount: allBucketKeys.length,
+    trackedActionsCard: totalEventsInRange,
+    activityChartTotal,
+    activityMatch: activityChartTotal === totalEventsInRange,
+    totalSessionsCard: totalSessions,
+    playerJoinsChartTotal,
+    sessionsMatch: playerJoinsChartTotal === totalSessions,
+    purchasesCard: purchaseEvents.length,
+    purchasesChartTotal,
+    purchasesMatch: purchasesChartTotal === purchaseEvents.length,
+    mismatches: [
+      activityChartTotal !== totalEventsInRange ? `activity: card=${totalEventsInRange} chart=${activityChartTotal}` : null,
+      playerJoinsChartTotal !== totalSessions ? `sessions: card=${totalSessions} chart=${playerJoinsChartTotal}` : null,
+      purchasesChartTotal !== purchaseEvents.length ? `purchases: card=${purchaseEvents.length} chart=${purchasesChartTotal}` : null,
+    ].filter(Boolean),
+  };
 
   // === REVENUE BY PRODUCT TYPE ===
   const revenueByProductType = [
@@ -2183,14 +2250,16 @@ trackerStats: hasTrackerEvents ? {
         revenue: revenueChart,
         players: playersChart,
       } : null,
-      // Performance charts
-      performanceCharts: hasTrackerEvents ? {
-        eventsOverTime,
-        playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
-        sessionsOverTime,
-        purchasesOverTime,
-        ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
-      } : null,
+  // Performance charts
+  performanceCharts: hasTrackerEvents ? {
+  eventsOverTime,
+  playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
+  sessionsOverTime,
+  purchasesOverTime,
+  ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
+  // Debug info for card/chart alignment verification
+  debug: performanceChartsDebug,
+  } : null,
   // Monetization charts - locked for free users
   // Uses same shared product aggregation for consistency with Products page
   monetizationCharts: monetizationLocked ? null : (hasTrackerEvents ? {
