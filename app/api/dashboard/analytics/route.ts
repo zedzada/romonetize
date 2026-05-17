@@ -371,8 +371,8 @@ export async function GET(request: NextRequest) {
   // For chart data and basic counts, we use separate targeted queries
   // DO NOT fetch all events - this is what caused the timeout
   
-  // Fetch limited purchase events for revenue chart (last 2000 only for JS bucketing)
-  // This is the fallback data source when SQL RPCs fail
+  // Fetch ALL purchase events using pagination (bypasses 1000/2000 row limits)
+  // This is critical for accurate revenue/purchase counts
   step = "read_chart_events";
   let purchaseEvents: Array<{
     id: string;
@@ -386,21 +386,59 @@ export async function GET(request: NextRequest) {
     game_id: string;
     metadata: Record<string, unknown> | null;
   }> = [];
+  let purchaseExactCount = 0;
+  let purchasePagesFetched = 0;
+  let hitSupabaseLimit = false;
   
   try {
-    const { data: purchaseData, error: purchaseError } = await supabase
+    // First get exact count to verify we fetch all rows
+    const { count, error: countError } = await supabase
       .from("events")
-      .select("id, event_type, player_id, product_id, product_name, product_type, robux, created_at, game_id, metadata")
+      .select("id", { count: "exact", head: true })
       .eq("game_id", gameId)
       .in("event_type", purchaseTypes)
       .gte("created_at", startDate.toISOString())
-      .order("created_at", { ascending: true })
-      .limit(2000); // Limit to prevent timeout
+      .lte("created_at", now.toISOString());
     
-    if (purchaseError) {
-      sectionErrors.chartEvents = purchaseError.message;
+    if (countError) {
+      sectionErrors.chartEventsCount = countError.message;
     } else {
-      purchaseEvents = purchaseData || [];
+      purchaseExactCount = count ?? 0;
+    }
+    
+    // Fetch all purchase events with pagination
+    const PAGE_SIZE = 1000;
+    let from = 0;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from("events")
+        .select("id, event_type, player_id, product_id, product_name, product_type, robux, created_at, game_id, metadata")
+        .eq("game_id", gameId)
+        .in("event_type", purchaseTypes)
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", now.toISOString())
+        .order("created_at", { ascending: true })
+        .range(from, from + PAGE_SIZE - 1);
+      
+      if (pageError) {
+        sectionErrors.chartEvents = pageError.message;
+        hasMore = false;
+      } else if (pageData && pageData.length > 0) {
+        purchaseEvents.push(...pageData);
+        purchasePagesFetched++;
+        from += PAGE_SIZE;
+        hasMore = pageData.length === PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
+    }
+    
+    // Verify we got all rows
+    if (purchaseExactCount > 0 && purchaseEvents.length !== purchaseExactCount) {
+      hitSupabaseLimit = true;
+      sectionErrors.chartEventsPartial = `Fetched ${purchaseEvents.length} of ${purchaseExactCount} purchase events`;
     }
   } catch (err) {
     sectionErrors.chartEvents = err instanceof Error ? err.message : "Failed to fetch chart events";
@@ -2036,6 +2074,11 @@ trackerStats: hasTrackerEvents ? {
         // Additional debug info for monetization range
         monetizationRangeHours: monetizationRangeHours || null,
         effectiveMonetizationRangeHours,
+        // Pagination debug info (to verify all rows fetched)
+        purchaseExactCount,
+        purchaseRowsFetched: purchaseEvents.length,
+        purchasePagesFetched,
+        hitSupabaseLimit,
       } : null),
       // Product stats (for Products tab)
       // For free users, return locked state
@@ -2185,7 +2228,12 @@ trackerStats: hasTrackerEvents ? {
           rangeStart: startDate.toISOString(),
           rangeEnd: now.toISOString(),
           summaryStats,
-          purchaseEventsFound: purchaseEvents.length,
+          // Pagination debug info
+          purchaseExactCount,
+          purchaseRowsFetched: purchaseEvents.length,
+          purchasePagesFetched,
+          pageSize: 1000,
+          hitSupabaseLimit,
           revenue72h,
           purchases72hCount,
           grossRevenue: totalRevenue,
@@ -2217,7 +2265,10 @@ trackerStats: hasTrackerEvents ? {
         })),
         // Purchase revenue debug info
         purchaseRevenueDebug: {
-          purchaseEventCount: purchaseEvents.length,
+          purchaseExactCount,
+          purchaseRowsFetched: purchaseEvents.length,
+          purchasePagesFetched,
+          hitSupabaseLimit,
           purchaseEvents: purchaseEvents.slice(0, 20).map(e => ({
             id: e.id,
             event_type: e.event_type,
