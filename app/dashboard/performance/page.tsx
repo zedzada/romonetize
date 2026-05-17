@@ -59,14 +59,24 @@ function formatDuration(seconds: number | null | undefined): string {
   return `${mins}m ${secs}s`;
 }
 
-// Performance page range type - supports 24h to 90d
-type PerformanceRange = "24h" | "72h" | "7d" | "28d" | "90d";
+// Performance page range type - supports 1d to 90d
+type PerformanceRange = "1d" | "7d" | "28d" | "90d";
+
+// Map to API range format
+function toApiRange(range: PerformanceRange): string {
+  switch (range) {
+    case "1d": return "24h";
+    case "7d": return "7d";
+    case "28d": return "28d";
+    case "90d": return "90d";
+    default: return "7d";
+  }
+}
 
 // Map to chart time format range
 function toChartTimeRange(range: PerformanceRange): "1d" | "7d" | "30d" {
   switch (range) {
-    case "24h": return "1d";
-    case "72h": return "1d";
+    case "1d": return "1d";
     case "7d": return "7d";
     case "28d": 
     case "90d": return "30d";
@@ -120,7 +130,7 @@ export default function PerformancePage() {
     setPerformanceDataError(null);
     
     try {
-      const response = await fetch(`/api/dashboard/performance-data?range=${chartRange}&t=${Date.now()}`, {
+      const response = await fetch(`/api/dashboard/performance-data?range=${toApiRange(chartRange)}&t=${Date.now()}`, {
         cache: "no-store",
       });
       
@@ -183,6 +193,19 @@ export default function PerformancePage() {
   const selectedGameId = performanceData?.selectedGameId ?? null;
   const selectedGameName = performanceData?.selectedGameName ?? null;
   
+  // Roblox URL - use root_place_id if available, otherwise roblox_game_id
+  const robloxUrl = useMemo(() => {
+    if (!game) return null;
+    const rootPlaceId = (game as Record<string, unknown>).root_place_id;
+    if (rootPlaceId) {
+      return `https://www.roblox.com/games/${rootPlaceId}`;
+    }
+    if (game.roblox_game_id) {
+      return `https://www.roblox.com/games/${game.roblox_game_id}`;
+    }
+    return null;
+  }, [game]);
+
   // Roblox stats from performance data
   const robloxStats = useMemo(() => ({
     ccu: performanceData?.robloxStats?.ccu ?? 0,
@@ -404,13 +427,15 @@ export default function PerformancePage() {
                   <CheckCircle2 className="w-3 h-3 mr-1" />
                   Connected
                 </Badge>
-                <Link href={`https://www.roblox.com/games/${game.roblox_game_id}`} target="_blank">
-                  <Button variant="ghost" size="sm">
-                    <Gamepad2 className="w-4 h-4 mr-2" />
-                    View on Roblox
-                    <ExternalLink className="w-3 h-3 ml-2" />
-                  </Button>
-                </Link>
+                {robloxUrl && (
+                  <Link href={robloxUrl} target="_blank">
+                    <Button variant="ghost" size="sm">
+                      <Gamepad2 className="w-4 h-4 mr-2" />
+                      View on Roblox
+                      <ExternalLink className="w-3 h-3 ml-2" />
+                    </Button>
+                  </Link>
+                )}
               </div>
             </div>
           </CardContent>
@@ -564,12 +589,12 @@ export default function PerformancePage() {
                 <span className="text-xs text-muted-foreground">Avg Session</span>
               </div>
               {safeDataHealth.hasTrackerEvents ? (
-                cardStats.avgSessionDuration !== null ? (
+                cardStats.avgSessionDuration !== null && cardStats.avgSessionDuration > 0 ? (
                   <div className="text-2xl font-bold text-foreground">
                     {formatDuration(cardStats.avgSessionDuration)}
                   </div>
                 ) : (
-                  <div className="text-sm text-muted-foreground">Not enough data yet</div>
+                  <div className="text-2xl font-bold text-foreground">—</div>
                 )
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -742,7 +767,26 @@ export default function PerformancePage() {
 
           {/* Activity, Sessions, Purchases Charts */}
           {hasTrackerData && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="space-y-4">
+              {/* Range Controls for Performance Charts */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-foreground">Performance Charts</h3>
+                <div className="flex items-center gap-1">
+                  {(["1d", "7d", "28d", "90d"] as const).map((range) => (
+                    <Button
+                      key={range}
+                      variant={chartRange === range ? "default" : "ghost"}
+                      size="sm"
+                      onClick={() => setChartRange(range)}
+                      className="h-7 px-2 text-xs"
+                    >
+                      {range.toUpperCase()}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {/* Activity Chart */}
               <Card className="border-border/50">
                 <CardHeader className="pb-2">
@@ -877,6 +921,7 @@ export default function PerformancePage() {
                 </Card>
               )}
             </div>
+          </div>
           )}
         </div>
       )}
@@ -895,6 +940,7 @@ export default function PerformancePage() {
                   {JSON.stringify({
                     selectedGameId,
                     selectedGameName,
+                    robloxUrl,
                   }, null, 2)}
                 </pre>
               </div>
@@ -905,21 +951,35 @@ export default function PerformancePage() {
                 </pre>
               </div>
               <div>
-                <strong>Performance Data:</strong>
+                <strong>Performance Range:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    metrics: performanceData?.metrics,
-                    totals: performanceData?.totals,
-                    eventTypeCounts: performanceData?.debug?.eventTypeCounts,
-                    eventsFound: performanceData?.eventsFound,
-                    chartsActivity: normalizedActivity.length,
-                    chartsSessions: normalizedSessions.length,
-                    chartsPurchases: normalizedPurchases.length,
+                    performanceRange: chartRange,
+                    metrics: {
+                      trackedActions: cardStats.totalEvents,
+                      uniquePlayers: cardStats.uniquePlayers,
+                      totalSessions: cardStats.totalSessions,
+                      avgSessionSeconds: cardStats.avgSessionDuration,
+                      newPlayers: cardStats.newPlayers,
+                      purchases: cardStats.totalPurchases,
+                    },
                   }, null, 2)}
                 </pre>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm font-mono">
+              <div>
+                <strong>Chart Totals:</strong>
+                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
+                  {JSON.stringify({
+                    activityTotal: activityVisualTotal,
+                    sessionsTotal: sessionsVisualTotal,
+                    purchasesTotal: purchasesVisualTotal,
+                    eventTypeCounts: performanceData?.debug?.eventTypeCounts,
+                    latestEventAt: performanceData?.debug?.latestEventAt,
+                  }, null, 2)}
+                </pre>
+              </div>
               <div>
                 <strong>CCU Data:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
@@ -932,17 +992,6 @@ export default function PerformancePage() {
                     peakCcu,
                     avgCcu,
                     latestSnapshot: ccuHistoryData?.latestSnapshotAt,
-                  }, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <strong>Data Health:</strong>
-                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify({
-                    hasTrackerData,
-                    hasRobloxData,
-                    monetizationLocked,
-                    needsTrackingScript,
                   }, null, 2)}
                 </pre>
               </div>
