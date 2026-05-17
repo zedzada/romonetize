@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+import { getSelectedGameForUser } from "@/lib/server/selected-game";
 
 export const dynamic = "force-dynamic";
 
@@ -27,23 +28,28 @@ export async function GET(request: Request) {
     return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
   }
   
-  // Get user's selected game
-  const { data: userData } = await supabase
-    .from("users")
-    .select("selected_game_id")
-    .eq("id", user.id)
-    .single();
+  // Get selected game using shared utility
+  const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
   
-  if (!userData?.selected_game_id) {
+  if (gameError) {
     return NextResponse.json({ 
       success: false, 
-      error: "No game selected",
+      error: gameError,
       chartData: [],
       totalSessions: 0,
     });
   }
   
-  const gameId = userData.selected_game_id;
+  if (!selectedGame) {
+    return NextResponse.json({ 
+      success: false, 
+      error: "No game found",
+      chartData: [],
+      totalSessions: 0,
+    });
+  }
+  
+  const gameId = selectedGame.id;
   
   // Calculate range
   const now = new Date();
