@@ -430,11 +430,27 @@ const handleSyncAndRefresh = useCallback(async () => {
   // the chart updates when data refreshes, even if raw data is unchanged.
   const processedCcuHistory = useMemo(() => {
     const now = new Date();
+    const nowMs = now.getTime();
     
-    // Use shared range helper for consistent range/bucket config (UTC-based)
+    // Range definitions in milliseconds (match spec exactly)
+    const RANGE_MS: Record<string, number> = {
+      "1h": 60 * 60 * 1000,
+      "24h": 24 * 60 * 60 * 1000,
+      "7d": 7 * 24 * 60 * 60 * 1000,
+      "28d": 28 * 24 * 60 * 60 * 1000,
+      "90d": 90 * 24 * 60 * 60 * 1000,
+    };
+    
+    // Normalize ccuRange to lowercase for consistent lookup
+    const normalizedRange = ccuRange.toLowerCase();
+    const rangeMs = RANGE_MS[normalizedRange] ?? RANGE_MS["24h"];
+    const rangeStartMs = nowMs - rangeMs;
+    const rangeEndMs = nowMs;
+    const rangeStartIso = new Date(rangeStartMs).toISOString();
+    const rangeEndIso = new Date(rangeEndMs).toISOString();
+    
+    // Use shared range helper for bucket config only
     const rangeConfig = getRangeWindow(ccuRange as RangeKey, now);
-    const cutoffTime = new Date(rangeConfig.rangeStartUtc);
-    const rangeEndTime = new Date(rangeConfig.rangeEndUtc);
     const { bucketMs, bucketType } = rangeConfig;
     
     // Track raw snapshots count for debug info
@@ -452,26 +468,55 @@ const handleSyncAndRefresh = useCallback(async () => {
         dominantSource: rawCcuHistory?.source ?? "none",
         latestSnapshotTime: null as string | null,
         latestSnapshotAgeMinutes: null as number | null,
-        rangeStartUtc: rangeConfig.rangeStartUtc,
-        rangeEndUtc: rangeConfig.rangeEndUtc,
+        rangeStartUtc: rangeStartIso,
+        rangeEndUtc: rangeEndIso,
         sourceCounts: {} as Record<string, number>,
         // Debug info
         debugInfo: {
-          rawSnapshotsCount: 0,
-          snapshotsInRangeCount: 0,
+          selectedRange: ccuRange,
+          rangeStartIso,
+          rangeEndIso,
+          rangeStartMs,
+          rangeEndMs,
+          totalSnapshotsFromDb: 0,
+          snapshotsAfterRangeFilter: 0,
+          sourceCounts: {} as Record<string, number>,
+          preferredSource: "none",
+          latestSnapshotRawCreatedAt: null as string | null,
+          latestSnapshotParsedMs: null as number | null,
+          latestSnapshotAgeMinutes: null as number | null,
+          invalidTimestampCount: 0,
+          firstSnapshotRaw: null as string | null,
+          lastSnapshotRaw: null as string | null,
+          chartDataLength: 0,
+          firstChartPoint: null,
+          lastChartPoint: null,
           filteringIssue: "no_raw_snapshots",
         },
       };
     }
     
-    // Filter snapshots by time range
-    const filteredSnapshots = rawCcuHistory.rawSnapshots
-      .filter(s => s.time && typeof s.ccu === "number")
-      .filter(s => {
-        const snapTime = new Date(s.time).getTime();
-        const inRange = snapTime >= cutoffTime.getTime() && snapTime <= rangeEndTime.getTime();
-        return inRange;
-      });
+    // Validate and filter snapshots by time range using milliseconds only
+    // CRITICAL: Use only created_at (mapped to .time), parse with new Date().getTime()
+    let invalidTimestampCount = 0;
+    const filteredSnapshots = rawCcuHistory.rawSnapshots.filter(s => {
+      // Validate required fields
+      if (!s.time || typeof s.ccu !== "number") {
+        return false;
+      }
+      
+      // Parse timestamp - use only created_at (which is mapped to .time)
+      const timestampMs = new Date(s.time).getTime();
+      
+      // Validate parsed timestamp
+      if (!Number.isFinite(timestampMs)) {
+        invalidTimestampCount++;
+        return false;
+      }
+      
+      // Filter by range using milliseconds comparison
+      return timestampMs >= rangeStartMs && timestampMs <= rangeEndMs;
+    });
     
     // Aggregate into buckets using UTC-based getBucketKey - keep latest snapshot per bucket
     const buckets = new Map<string, { ccu: number; snapshotsCount: number; latestTimestamp: number }>();
@@ -551,29 +596,32 @@ const handleSyncAndRefresh = useCallback(async () => {
       ? Math.round(ccuValues.reduce((sum, c) => sum + c, 0) / ccuValues.length) 
       : null;
     
-    // Determine dominant source from filtered snapshots
-    // Priority: romonetize_tracker > vercel_cron/roblox_api > roblox_game_syncs
+    // Count sources from filtered snapshots
     const sourceCounts: Record<string, number> = {};
     filteredSnapshots.forEach(snap => {
       const src = snap.source || "unknown";
       sourceCounts[src] = (sourceCounts[src] || 0) + 1;
     });
-    const hasTrackerSource = "romonetize_tracker" in sourceCounts;
-    const dominantSource: string = hasTrackerSource
+    
+    // Determine preferred source (priority: romonetize_tracker > everything else)
+    const preferredSource: string = (sourceCounts["romonetize_tracker"] ?? 0) > 0
       ? "romonetize_tracker"
-      : rawCcuHistory?.source === "roblox_game_syncs"
-        ? "roblox_game_syncs"
+      : (sourceCounts["roblox_api"] ?? 0) > 0
+        ? "roblox_api"
         : Object.keys(sourceCounts).length > 0
           ? Object.entries(sourceCounts).sort((a, b) => b[1] - a[1])[0][0]
           : "none";
     
-    // Find latest snapshot time for empty state message
-    const latestSnapshotTime = rawCcuHistory.rawSnapshots.length > 0
-      ? rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1].time
+    // Find latest snapshot time for empty state message (from ALL raw snapshots, not filtered)
+    const lastRawSnapshot = rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1];
+    const latestSnapshotTime = lastRawSnapshot?.time ?? null;
+    const latestSnapshotParsedMs = latestSnapshotTime ? new Date(latestSnapshotTime).getTime() : null;
+    const latestSnapshotAgeMinutes = latestSnapshotParsedMs && Number.isFinite(latestSnapshotParsedMs)
+      ? Math.round((nowMs - latestSnapshotParsedMs) / 60000)
       : null;
-    const latestSnapshotAgeMinutes = latestSnapshotTime
-      ? Math.round((now.getTime() - new Date(latestSnapshotTime).getTime()) / 60000)
-      : null;
+    
+    // First/last raw snapshots for debug
+    const firstRawSnapshot = rawCcuHistory.rawSnapshots[0];
     
     return {
       data,
@@ -582,17 +630,32 @@ const handleSyncAndRefresh = useCallback(async () => {
       avgCcu,
       snapshotCount: data.length,
       totalSnapshots: rawCcuHistory.rawSnapshots.length,
-      dominantSource,
+      dominantSource: preferredSource,
       latestSnapshotTime,
       latestSnapshotAgeMinutes,
-      rangeStartUtc: rangeConfig.rangeStartUtc,
-      rangeEndUtc: rangeConfig.rangeEndUtc,
+      rangeStartUtc: rangeStartIso,
+      rangeEndUtc: rangeEndIso,
       sourceCounts,
-      // Debug info for the debug panel
+      // Comprehensive debug info per spec
       debugInfo: {
-        rawSnapshotsCount: rawCcuHistory.rawSnapshots.length,
-        snapshotsInRangeCount: filteredSnapshots.length,
+        selectedRange: ccuRange,
+        rangeStartIso,
+        rangeEndIso,
+        rangeStartMs,
+        rangeEndMs,
+        totalSnapshotsFromDb: rawCcuHistory.rawSnapshots.length,
+        snapshotsAfterRangeFilter: filteredSnapshots.length,
+        sourceCounts,
+        preferredSource,
+        latestSnapshotRawCreatedAt: latestSnapshotTime,
+        latestSnapshotParsedMs,
+        latestSnapshotAgeMinutes,
+        invalidTimestampCount,
+        firstSnapshotRaw: firstRawSnapshot?.time ?? null,
+        lastSnapshotRaw: lastRawSnapshot?.time ?? null,
         chartDataLength: data.length,
+        firstChartPoint: data[0] ?? null,
+        lastChartPoint: data[data.length - 1] ?? null,
         filteringIssue: filteredSnapshots.length === 0 && rawCcuHistory.rawSnapshots.length > 0 
           ? "snapshots_exist_but_none_in_range" 
           : data.length === 0 && filteredSnapshots.length > 0 
@@ -1765,23 +1828,29 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div className="font-semibold text-cyan-500 mb-2">CCU History Debug (Live CCU Chart)</div>
                   <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2 text-muted-foreground">
                     <div>selectedGameId: <span className="text-foreground">{selectedGameId?.slice(0, 8) ?? "none"}...</span></div>
-                    <div>selectedRange: <span className="text-foreground">{ccuRange}</span></div>
-                    <div>queryRangeStartUtc: <span className="text-foreground text-[10px]">{processedCcuHistory.rangeStartUtc?.slice(0, 19)}</span></div>
-                    <div>queryRangeEndUtc: <span className="text-foreground text-[10px]">{processedCcuHistory.rangeEndUtc?.slice(0, 19)}</span></div>
-                    <div>rawSnapshotsFromApi: <span className={processedCcuHistory.totalSnapshots > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.totalSnapshots}</span></div>
-                    <div>snapshotsInSelectedRange: <span className={processedCcuHistory.debugInfo?.snapshotsInRangeCount > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.snapshotsInRangeCount ?? 0}</span></div>
-                    <div>chartDataLength: <span className={processedCcuHistory.data.length > 1 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.data.length}</span></div>
-                    <div>latestSnapshotAt: <span className="text-foreground text-[10px]">{processedCcuHistory.latestSnapshotTime?.slice(0, 19) ?? "none"}</span></div>
-                    <div>latestSnapshotAgeMinutes: <span className={(processedCcuHistory.latestSnapshotAgeMinutes ?? 9999) < 60 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.latestSnapshotAgeMinutes ?? "n/a"}</span></div>
-                    <div>usedSource: <span className="text-foreground">{processedCcuHistory.dominantSource}</span></div>
+                    <div>selectedRange: <span className="text-foreground">{processedCcuHistory.debugInfo?.selectedRange ?? ccuRange}</span></div>
+                    <div>rangeStartIso: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.rangeStartIso?.slice(0, 19) ?? "—"}</span></div>
+                    <div>rangeEndIso: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.rangeEndIso?.slice(0, 19) ?? "—"}</span></div>
+                    <div>rangeStartMs: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.rangeStartMs ?? "—"}</span></div>
+                    <div>rangeEndMs: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.rangeEndMs ?? "—"}</span></div>
+                    <div>totalSnapshotsFromDb: <span className={processedCcuHistory.debugInfo?.totalSnapshotsFromDb > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.totalSnapshotsFromDb ?? 0}</span></div>
+                    <div>snapshotsAfterRangeFilter: <span className={(processedCcuHistory.debugInfo?.snapshotsAfterRangeFilter ?? 0) > 0 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.snapshotsAfterRangeFilter ?? 0}</span></div>
+                    <div>preferredSource: <span className={processedCcuHistory.debugInfo?.preferredSource === "romonetize_tracker" ? "text-green-400 font-bold" : "text-foreground"}>{processedCcuHistory.debugInfo?.preferredSource ?? "none"}</span></div>
+                    <div>latestSnapshotRawCreatedAt: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.latestSnapshotRawCreatedAt?.slice(0, 19) ?? "none"}</span></div>
+                    <div>latestSnapshotParsedMs: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.latestSnapshotParsedMs ?? "—"}</span></div>
+                    <div>latestSnapshotAgeMinutes: <span className={(processedCcuHistory.debugInfo?.latestSnapshotAgeMinutes ?? 9999) < 60 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.latestSnapshotAgeMinutes ?? "n/a"}</span></div>
+                    <div>invalidTimestampCount: <span className={(processedCcuHistory.debugInfo?.invalidTimestampCount ?? 0) === 0 ? "text-green-400" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.invalidTimestampCount ?? 0}</span></div>
+                    <div>chartDataLength: <span className={(processedCcuHistory.debugInfo?.chartDataLength ?? 0) > 1 ? "text-green-400 font-bold" : "text-red-400 font-bold"}>{processedCcuHistory.debugInfo?.chartDataLength ?? 0}</span></div>
                     <div>currentCcu: <span className="text-foreground">{processedCcuHistory.currentCcu ?? "—"}</span></div>
                     <div>peakCcu: <span className="text-foreground">{processedCcuHistory.peakCcu ?? "—"}</span></div>
-                    <div className="col-span-full">sourceCounts: <span className="text-foreground">{JSON.stringify(processedCcuHistory.sourceCounts)}</span></div>
-                    {processedCcuHistory.data.length > 0 && (
-                      <>
-                        <div className="col-span-full">firstChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.data[0])}</span></div>
-                        <div className="col-span-full">lastChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.data[processedCcuHistory.data.length - 1])}</span></div>
-                      </>
+                    <div className="col-span-full">sourceCounts: <span className="text-foreground">{JSON.stringify(processedCcuHistory.debugInfo?.sourceCounts ?? {})}</span></div>
+                    <div className="col-span-full">firstSnapshotRaw: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.firstSnapshotRaw ?? "none"}</span></div>
+                    <div className="col-span-full">lastSnapshotRaw: <span className="text-foreground text-[10px]">{processedCcuHistory.debugInfo?.lastSnapshotRaw ?? "none"}</span></div>
+                    {processedCcuHistory.debugInfo?.firstChartPoint && (
+                      <div className="col-span-full">firstChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.debugInfo.firstChartPoint)}</span></div>
+                    )}
+                    {processedCcuHistory.debugInfo?.lastChartPoint && (
+                      <div className="col-span-full">lastChartPoint: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.debugInfo.lastChartPoint)}</span></div>
                     )}
                     {processedCcuHistory.debugInfo?.filteringIssue && (
                       <div className="col-span-full text-red-400 font-bold">ISSUE: {processedCcuHistory.debugInfo.filteringIssue}</div>
