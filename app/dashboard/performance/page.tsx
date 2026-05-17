@@ -1368,10 +1368,11 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* BUILD VERIFICATION MARKER - Remove after confirming deployment freshness */}
                   <div className="col-span-full mb-2 p-2 bg-purple-900/50 border border-purple-500 rounded text-purple-200 font-mono text-[10px]">
-                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-4</span></div>
+                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-5</span></div>
                     <div>Rendered file: <span className="text-purple-100">/app/dashboard/performance/page.tsx</span></div>
                     <div>Backend helper: <span className="text-purple-100">/lib/helpers/game-performance.ts</span></div>
                     <div>Chart fix: <span className="text-purple-100">Normalized to time/value with dataKey=value</span></div>
+                    <div>Debug: <span className="text-purple-100">Added _debug parsed fields for value source diagnosis</span></div>
                   </div>
                   
                   {/* NORMALIZED CHART DATA VERIFICATION */}
@@ -1474,7 +1475,28 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>safe_uniquePlayers: <span className={safeTrackerStats.uniquePlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.uniquePlayers}</span></div>
                   <div>safe_totalSessions: <span className={safeTrackerStats.totalSessions > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.totalSessions}</span></div>
                   <div>safe_newPlayers: <span className={safeTrackerStats.newPlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.newPlayers}</span></div>
-                  <div className="col-span-full">_debug: <span className="text-foreground text-[9px] break-all">{JSON.stringify(trackerStats?._debug ?? "null")}</span></div>
+                  
+                  {/* _debug parsed fields - CRITICAL for diagnosing zeros */}
+                  {trackerStats?._debug && (
+                    <div className="col-span-full mt-2 p-2 bg-red-900/30 border border-red-500/50 rounded">
+                      <div className="text-red-300 font-bold mb-1">Backend _debug (Value Sources):</div>
+                      <div>sharedHelperUsed: <span className={trackerStats._debug.sharedHelperUsed ? "text-green-400" : "text-red-400"}>{trackerStats._debug.sharedHelperUsed ? "YES" : "NO (using fallback!)"}</span></div>
+                      <div>helperUniquePlayers: <span className="text-foreground">{trackerStats._debug.helperUniquePlayers ?? "null"}</span></div>
+                      <div>fallbackUniquePlayers: <span className="text-foreground">{trackerStats._debug.fallbackUniquePlayers ?? "null"}</span></div>
+                      <div>usedUniquePlayers: <span className={trackerStats._debug.usedUniquePlayers > 0 ? "text-green-400" : "text-red-400"}>{trackerStats._debug.usedUniquePlayers}</span></div>
+                      <div>helperNewPlayers: <span className="text-foreground">{trackerStats._debug.helperNewPlayers ?? "null"}</span></div>
+                      <div>fallbackNewPlayers: <span className="text-foreground">{trackerStats._debug.fallbackNewPlayers ?? "null"}</span></div>
+                      <div>usedNewPlayers: <span className={trackerStats._debug.usedNewPlayers > 0 ? "text-green-400" : "text-red-400"}>{trackerStats._debug.usedNewPlayers}</span></div>
+                      <div>helperTotalSessions: <span className="text-foreground">{trackerStats._debug.helperTotalSessions ?? "null"}</span></div>
+                      <div>fallbackTotalSessions: <span className="text-foreground">{trackerStats._debug.fallbackTotalSessions ?? "null"}</span></div>
+                      <div>usedTotalSessions: <span className={trackerStats._debug.usedTotalSessions > 0 ? "text-green-400" : "text-red-400"}>{trackerStats._debug.usedTotalSessions}</span></div>
+                      {trackerStats._debug.sharedHelperMismatches?.length > 0 && (
+                        <div className="text-red-400 mt-1">Mismatches: {JSON.stringify(trackerStats._debug.sharedHelperMismatches)}</div>
+                      )}
+                    </div>
+                  )}
+                  
+                  <div className="col-span-full">_debug (raw): <span className="text-foreground text-[9px] break-all">{JSON.stringify(trackerStats?._debug ?? "null")}</span></div>
                   
                   {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
