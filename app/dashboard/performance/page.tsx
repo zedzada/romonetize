@@ -193,18 +193,30 @@ export default function PerformancePage() {
   const selectedGameId = performanceData?.selectedGameId ?? null;
   const selectedGameName = performanceData?.selectedGameName ?? null;
   
-  // Roblox URL - use root_place_id if available, otherwise roblox_game_id
+  // Roblox URL - use root_place_id ONLY (roblox_game_id is universe ID, not place ID)
   const robloxUrl = useMemo(() => {
     if (!game) return null;
     const rootPlaceId = (game as Record<string, unknown>).root_place_id;
     if (rootPlaceId) {
       return `https://www.roblox.com/games/${rootPlaceId}`;
     }
-    if (game.roblox_game_id) {
-      return `https://www.roblox.com/games/${game.roblox_game_id}`;
-    }
+    // Don't use roblox_game_id as it's actually the universe ID which doesn't work in /games/ URLs
     return null;
   }, [game]);
+
+  // Resolved Universe ID - use roblox_game_id as that's actually the universe ID in our schema
+  const resolvedUniverseId = useMemo(() => {
+    if (!game) return null;
+    return (
+      (game as Record<string, unknown>).universe_id ||
+      game.roblox_game_id ||
+      (game as Record<string, unknown>).robloxGameId ||
+      null
+    );
+  }, [game]);
+
+  // Check if game has a Roblox connection (has universe ID)
+  const hasRobloxConnection = !!resolvedUniverseId;
 
   // Roblox stats from performance data
   const robloxStats = useMemo(() => ({
@@ -418,7 +430,7 @@ export default function PerformancePage() {
                 <div>
                   <h2 className="font-semibold text-foreground">{game.name}</h2>
                   <p className="text-sm text-muted-foreground">
-                    Universe ID: {game.roblox_universe_id || "Not set"}
+                    Universe ID: {resolvedUniverseId || "Not set"}
                   </p>
                 </div>
               </div>
@@ -446,11 +458,19 @@ export default function PerformancePage() {
       <div>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-foreground">Roblox Stats</h3>
-          <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
-            Roblox API
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="bg-blue-500/10 text-blue-600 border-blue-500/20 text-[10px]">
+              Roblox API
+            </Badge>
+            {hasRobloxConnection && (
+              <Button onClick={handleSyncAndRefresh} variant="outline" size="sm" disabled={isSyncing}>
+                <RefreshCw className={`w-3 h-3 mr-1 ${isSyncing ? "animate-spin" : ""}`} />
+                {isSyncing ? "Syncing..." : "Sync"}
+              </Button>
+            )}
+          </div>
         </div>
-        {hasRobloxData ? (
+        {hasRobloxConnection ? (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <Card className="border-border/50">
               <CardContent className="pt-5 pb-4">
@@ -459,7 +479,7 @@ export default function PerformancePage() {
                   <span className="text-xs text-muted-foreground">Current CCU</span>
                 </div>
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(robloxStats.ccu)}
+                  {robloxStats.ccu > 0 ? formatNumber(robloxStats.ccu) : "—"}
                 </div>
               </CardContent>
             </Card>
@@ -471,7 +491,7 @@ export default function PerformancePage() {
                   <span className="text-xs text-muted-foreground">Total Visits</span>
                 </div>
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(robloxStats.visits)}
+                  {robloxStats.visits > 0 ? formatNumber(robloxStats.visits) : "—"}
                 </div>
               </CardContent>
             </Card>
@@ -483,7 +503,7 @@ export default function PerformancePage() {
                   <span className="text-xs text-muted-foreground">Favorites</span>
                 </div>
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(robloxStats.favorites)}
+                  {robloxStats.favorites > 0 ? formatNumber(robloxStats.favorites) : "—"}
                 </div>
               </CardContent>
             </Card>
@@ -495,7 +515,7 @@ export default function PerformancePage() {
                   <span className="text-xs text-muted-foreground">Likes</span>
                 </div>
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(robloxStats.likes)}
+                  {robloxStats.likes > 0 ? formatNumber(robloxStats.likes) : "—"}
                 </div>
               </CardContent>
             </Card>
@@ -507,7 +527,7 @@ export default function PerformancePage() {
                   <span className="text-xs text-muted-foreground">Dislikes</span>
                 </div>
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(robloxStats.dislikes)}
+                  {robloxStats.dislikes > 0 ? formatNumber(robloxStats.dislikes) : "—"}
                 </div>
               </CardContent>
             </Card>
@@ -515,11 +535,12 @@ export default function PerformancePage() {
         ) : (
           <Card className="border-border/50">
             <CardContent className="pt-6 pb-6 text-center">
-              <p className="text-muted-foreground mb-4">No Roblox data available yet</p>
-              <Button onClick={handleSyncAndRefresh} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Sync Roblox Data
-              </Button>
+              <p className="text-muted-foreground mb-4">No Roblox game connected</p>
+              <Link href="/dashboard/game">
+                <Button variant="outline">
+                  Connect Roblox Game
+                </Button>
+              </Link>
             </CardContent>
           </Card>
         )}
@@ -938,8 +959,20 @@ export default function PerformancePage() {
                 <strong>Selected Game:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    selectedGameId,
-                    selectedGameName,
+                    id: selectedGameId,
+                    name: selectedGameName,
+                    roblox_game_id: game?.roblox_game_id,
+                    universe_id: (game as Record<string, unknown>)?.universe_id,
+                    root_place_id: (game as Record<string, unknown>)?.root_place_id,
+                  }, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>Resolved Universe ID:</strong>
+                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
+                  {JSON.stringify({
+                    resolvedUniverseId,
+                    hasRobloxConnection,
                     robloxUrl,
                   }, null, 2)}
                 </pre>
@@ -947,36 +980,32 @@ export default function PerformancePage() {
               <div>
                 <strong>Roblox Stats:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify(robloxStats, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <strong>Performance Range:</strong>
-                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    performanceRange: chartRange,
-                    metrics: {
-                      trackedActions: cardStats.totalEvents,
-                      uniquePlayers: cardStats.uniquePlayers,
-                      totalSessions: cardStats.totalSessions,
-                      avgSessionSeconds: cardStats.avgSessionDuration,
-                      newPlayers: cardStats.newPlayers,
-                      purchases: cardStats.totalPurchases,
-                    },
+                    ...robloxStats,
+                    source: performanceData?.robloxStatsSource ?? "games_table",
                   }, null, 2)}
                 </pre>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm font-mono">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm font-mono">
               <div>
-                <strong>Chart Totals:</strong>
+                <strong>Avg Session Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    activityTotal: activityVisualTotal,
-                    sessionsTotal: sessionsVisualTotal,
-                    purchasesTotal: purchasesVisualTotal,
-                    eventTypeCounts: performanceData?.debug?.eventTypeCounts,
-                    latestEventAt: performanceData?.debug?.latestEventAt,
+                    sessionEndCount: performanceData?.debug?.sessionEndCount ?? 0,
+                    validSessionDurationCount: performanceData?.debug?.validSessionDurationCount ?? 0,
+                    avgSessionSeconds: cardStats.avgSessionDuration,
+                    sampleSessionEndMetadata: performanceData?.debug?.sampleSessionEndMetadata ?? null,
+                  }, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <strong>New Players Debug:</strong>
+                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
+                  {JSON.stringify({
+                    activePlayersInRange: cardStats.uniquePlayers,
+                    firstSeenPlayersChecked: performanceData?.debug?.firstSeenPlayersChecked ?? 0,
+                    newPlayers: cardStats.newPlayers,
                   }, null, 2)}
                 </pre>
               </div>
@@ -991,7 +1020,6 @@ export default function PerformancePage() {
                     currentCcu,
                     peakCcu,
                     avgCcu,
-                    latestSnapshot: ccuHistoryData?.latestSnapshotAt,
                   }, null, 2)}
                 </pre>
               </div>
