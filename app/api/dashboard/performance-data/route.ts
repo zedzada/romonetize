@@ -153,30 +153,28 @@ export async function GET(request: NextRequest) {
         raw_data: (selectedGame as Record<string, unknown>).raw_data,
       };
 
-      // Safe mapping for likes - check all possible field variants
+      // Safe mapping for likes - check liveGame FIRST (public API is most reliable)
       const likes =
+        liveGame?.upVotes ??
+        liveGame?.likes ??
+        (liveGame?.voteCounts as Record<string, unknown>)?.upVotes ??
         syncRow?.likes ??
         syncRow?.up_votes ??
         syncRow?.upVotes ??
         (syncRow?.raw as Record<string, unknown>)?.upVotes ??
         (syncRow?.raw_data as Record<string, unknown>)?.upVotes ??
-        liveGame?.upVotes ??
-        liveGame?.likes ??
-        (liveGame?.voteCounts as Record<string, unknown>)?.upVotes ??
-        (liveGame?.raw as Record<string, unknown>)?.upVotes ??
         null;
 
-      // Safe mapping for dislikes - check all possible field variants
+      // Safe mapping for dislikes - check liveGame FIRST (public API is most reliable)
       const dislikes =
+        liveGame?.downVotes ??
+        liveGame?.dislikes ??
+        (liveGame?.voteCounts as Record<string, unknown>)?.downVotes ??
         syncRow?.dislikes ??
         syncRow?.down_votes ??
         syncRow?.downVotes ??
         (syncRow?.raw as Record<string, unknown>)?.downVotes ??
         (syncRow?.raw_data as Record<string, unknown>)?.downVotes ??
-        liveGame?.downVotes ??
-        liveGame?.dislikes ??
-        (liveGame?.voteCounts as Record<string, unknown>)?.downVotes ??
-        (liveGame?.raw as Record<string, unknown>)?.downVotes ??
         null;
 
       if (liveGame) {
