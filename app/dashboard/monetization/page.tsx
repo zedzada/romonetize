@@ -593,8 +593,6 @@ function MonetizationContent() {
   }, [processedChartData, chartMode]);
 
   // Get current mode display info (labels depend on display mode)
-  // Use exact count from API for total purchases (bypasses Supabase 1000 row limit)
-  const exactPurchaseCount72h = monetizationCharts?.purchaseCount72h ?? 0;
 
   // === DERIVED SECONDARY CHART DATA (from hero chart's processedChartData) ===
   // This ensures all charts use the SAME purchase data source
@@ -653,15 +651,14 @@ function MonetizationContent() {
   const modeConfig = useMemo(() => {
     const prefix = revenueDisplayMode === "gross" ? "" : "Est. ";
     if (chartMode === "total") {
-      // Use exact count from API for accurate total (not capped at 1000)
-      // Fall back to chart totals only if API count not available
-      const totalPurchases = exactPurchaseCount72h > 0 ? exactPurchaseCount72h : chartTotals.purchases;
+      // Use chartTotals.purchases for consistency with card data source
+      // This ensures chart totals match the selected range, not 72h
       return {
         label: `${prefix}Revenue`,
         color: COLORS.totalRevenue,
         dataKey: "totalRevenue" as const,
         revenue: chartTotals.total,
-        purchases: totalPurchases,
+        purchases: chartTotals.purchases,
         purchaseLabel: "Purchases",
       };
     } else if (chartMode === "gamepasses") {
@@ -683,7 +680,7 @@ function MonetizationContent() {
         purchaseLabel: "Dev Product Purchases",
       };
     }
-  }, [chartMode, chartTotals, revenueDisplayMode, exactPurchaseCount72h]);
+  }, [chartMode, chartTotals, revenueDisplayMode]);
 
   const handleRefresh = async () => {
     if (refresh) await refresh();
