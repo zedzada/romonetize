@@ -1351,9 +1351,17 @@ const handleSyncAndRefresh = useCallback(async () => {
                 <div className="mb-4 p-4 bg-black border-4 border-green-500 rounded-lg text-lg">
                   <div className="text-green-400 font-bold">Rendered Performance File: <span className="text-white">/app/dashboard/performance/page.tsx</span></div>
                   <div className="text-green-400 font-bold">Debug API Loaded: <span className={rawDebugResponse ? "text-green-300" : "text-red-400"}>{rawDebugResponse ? "true" : "false"}</span></div>
-                  <div className="text-green-400 font-bold">Build: <span className="text-white">v-gp-step1-proof</span></div>
-                  {isLoadingRawDebug && <div className="text-yellow-400">Loading...</div>}
+                  <div className="text-green-400 font-bold">Build: <span className="text-white">v-gp-rawjson-visible</span></div>
+                  {isLoadingRawDebug && <div className="text-yellow-400">Loading debug API...</div>}
                   {rawDebugError && <div className="text-red-400">Error: {rawDebugError}</div>}
+                </div>
+                
+                {/* RAW JSON - ALWAYS VISIBLE AS REQUESTED */}
+                <div className="mb-4 p-3 bg-black border-2 border-white rounded-lg">
+                  <div className="text-white font-bold mb-2">RAW performanceData (from /api/debug/game-performance):</div>
+                  <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "#00ff00", maxHeight: 400, overflow: "auto" }}>
+                    {rawDebugResponse ? JSON.stringify(rawDebugResponse, null, 2) : "Loading or no data..."}
+                  </pre>
                 </div>
                 
                 {/* RAW API DEBUG PANEL - SOURCE OF TRUTH */}
@@ -1417,13 +1425,13 @@ const handleSyncAndRefresh = useCallback(async () => {
                         </div>
                       )}
                       
-                      {/* Full raw JSON */}
-                      <details className="mt-2">
-                        <summary className="cursor-pointer text-gray-400 hover:text-white">Full raw JSON response</summary>
-                        <pre className="mt-2 p-2 bg-black/50 rounded overflow-auto max-h-96 text-[10px]">
+                      {/* Full raw JSON - EXPANDED by default */}
+                      <div className="mt-2">
+                        <div className="text-gray-400 mb-1">Full raw JSON response:</div>
+                        <pre className="p-2 bg-black/50 rounded overflow-auto max-h-96 text-[10px]" style={{ whiteSpace: "pre-wrap" }}>
                           {JSON.stringify(rawDebugResponse, null, 2)}
                         </pre>
-                      </details>
+                      </div>
                     </div>
                   )}
                 </div>
