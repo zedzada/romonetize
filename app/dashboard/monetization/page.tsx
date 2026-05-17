@@ -1707,6 +1707,11 @@ function MonetizationContent() {
   hourlyMonetizationLength: monetizationCharts?.hourlyMonetization?.length ?? 0,
   minuteMonetizationLength: monetizationCharts?.minuteMonetization?.length ?? 0,
   effectiveBucketType,
+  // === Pagination debug (Supabase 1000 row limit) ===
+  purchaseExactCount: revenueStats?.purchaseExactCount ?? null,
+  purchaseRowsFetched: revenueStats?.purchaseRowsFetched ?? null,
+  purchasePagesFetched: revenueStats?.purchasePagesFetched ?? null,
+  hitSupabaseLimit: revenueStats?.hitSupabaseLimit ?? false,
   // === PCR & ARPDAU debug (from spec) ===
   // PCR uses shared_payer_conversion_helper for consistency with Products page
   selectedRange: chartRange,
