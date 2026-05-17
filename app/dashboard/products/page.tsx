@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -62,8 +63,10 @@ function toAnalyticsRange(range: ProductsRange): DateRange {
   }
 }
 
-export default function ProductsPage() {
+function ProductsPageContent() {
   const [chartRange, setChartRange] = useState<ProductsRange>("28d");
+  const searchParams = useSearchParams();
+  const debugMode = searchParams.get("debug") === "true";
   
   // Check plan access - use canAccessProducts for proper gating
   const { canAccessProducts, loading: planLoading } = usePlanAccess();
@@ -79,6 +82,7 @@ export default function ProductsPage() {
     productStats,
     syncedProducts,
     productAnalytics,
+    revenueStats,
     selectedGameName,
     refresh,
   } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
@@ -93,10 +97,13 @@ export default function ProductsPage() {
   const hasTrackerEvents = dataHealth?.hasTrackerEvents ?? false;
   const hasSyncedProducts = safeSyncedProducts.length > 0;
 
-  // Shared helper: single source of truth for product metrics
+  // Shared helper: single source of truth for product metrics and PCR
+  // PCR uses tracker metrics (trackerPayingUsers, trackerActiveUsers) from the API
   const sharedMetrics = getProductPurchaseMetrics({
     productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
     revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+    trackerPayingUsers: revenueStats?.trackerPayingUsers,
+    trackerActiveUsers: revenueStats?.trackerActiveUsers,
   });
 
   // Products from shared aggregation
@@ -108,10 +115,11 @@ export default function ProductsPage() {
     estimatedTotalRevenue: sharedMetrics.estimatedTotalRevenue,
     totalPurchases: sharedMetrics.totalPurchases,
     totalBuyers: sharedMetrics.totalBuyers,
-    uniqueActiveUsers: sharedMetrics.uniqueActivePlayers,
+    payingUsers: sharedMetrics.payingUsers,
+    activeUsers: sharedMetrics.activeUsers,
   };
   
-  // Payer Conversion Rate from shared helper
+  // Payer Conversion Rate from shared helper (same formula as Monetization page)
   const payerConversionRate = sharedMetrics.payerConversionRate;
 
   const hasTrackerProducts = trackerProducts.length > 0;
@@ -561,6 +569,34 @@ export default function ProductsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* Debug Panel - visible when ?debug=true */}
+      {debugMode && (
+        <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-amber-400">PCR Debug (Products Page)</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
+{JSON.stringify({
+  selectedRange: chartRange,
+  payingUsers: sharedMetrics.payingUsers,
+  activeUsers: sharedMetrics.activeUsers,
+  pcr: payerConversionRate,
+  source: "shared_payer_conversion_helper",
+}, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
+  );
+}
+
+export default function ProductsPage() {
+  return (
+    <Suspense fallback={<div className="space-y-6"><div className="flex items-center justify-center py-20"><span className="text-muted-foreground">Loading...</span></div></div>}>
+      <ProductsPageContent />
+    </Suspense>
   );
 }

@@ -381,10 +381,12 @@ function MonetizationContent() {
 
   // === SINGLE SOURCE OF TRUTH: Use productAnalytics for API-range totals ===
   // But for DISPLAY, cards will use chartTotals (same range as chart) below.
-  // sharedMetrics is kept for payingUsers/uniqueActivePlayers (not available in hourly buckets)
+  // sharedMetrics provides PCR metrics using tracker data (payingUsers/activeUsers)
   const sharedMetrics = getProductPurchaseMetrics({
     productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
     revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+    trackerPayingUsers: revenueStats?.trackerPayingUsers,
+    trackerActiveUsers: revenueStats?.trackerActiveUsers,
   });
   
   // Effective bucket type for chart axis formatting (derived from range)
@@ -509,7 +511,7 @@ function MonetizationContent() {
 
   // === CARD VALUES: Derived from chartTotals (same range as chart) ===
   // This ensures cards and chart ALWAYS show the same numbers for the selected range.
-  // payingUsers and activeUsers come from API's tracker-based calculation.
+  // payingUsers and activeUsers come from sharedMetrics (using tracker data)
   const summaryStats = useMemo(() => {
     // chartTotals.total already has revenue mode (gross or estimated) applied
     const displayRevenue = chartTotals.total;
@@ -521,10 +523,10 @@ function MonetizationContent() {
       ? displayRevenue 
       : Math.round(displayRevenue / CREATOR_REVENUE_RATE);
     
-    // Use tracker-based active users from API (ACTIVE_USER_EVENT_TYPES)
-    // These are the canonical values for PCR and ARPDAU
-    const payingUsers = revenueStats?.trackerPayingUsers ?? sharedMetrics.totalBuyers;
-    const activeUsers = revenueStats?.trackerActiveUsers ?? 0;
+    // Use tracker-based active users from shared helper (ACTIVE_USER_EVENT_TYPES)
+    // These are the canonical values for PCR and ARPDAU - same source as Products page
+    const payingUsers = sharedMetrics.payingUsers;
+    const activeUsers = sharedMetrics.activeUsers;
 
     return {
       grossRevenue,
@@ -533,12 +535,10 @@ function MonetizationContent() {
       payingUsers,
       activeUsers,
     };
-  }, [chartTotals, sharedMetrics, revenueStats, revenueDisplayMode]);
+  }, [chartTotals, sharedMetrics, revenueDisplayMode]);
 
-  // PCR = payingUsers / activeUsers * 100 (from tracker ACTIVE_USER_EVENT_TYPES)
-  const pcr = summaryStats.activeUsers > 0
-    ? (summaryStats.payingUsers / summaryStats.activeUsers) * 100
-    : null;
+  // PCR = payingUsers / activeUsers * 100 (from shared helper, same as Products page)
+  const pcr = sharedMetrics.payerConversionRate;
   
   // ARPPU = revenue / payingUsers (uses chart range revenue)
   const displayArppu = summaryStats.payingUsers > 0 
@@ -1708,10 +1708,13 @@ function MonetizationContent() {
   minuteMonetizationLength: monetizationCharts?.minuteMonetization?.length ?? 0,
   effectiveBucketType,
   // === PCR & ARPDAU debug (from spec) ===
-  payingUsers: summaryStats.payingUsers,
-  activeUsers: summaryStats.activeUsers,
-  activeUserEventCounts: revenueStats?.trackerActiveUserEventCounts ?? {},
+  // PCR uses shared_payer_conversion_helper for consistency with Products page
+  selectedRange: chartRange,
+  payingUsers: sharedMetrics.payingUsers,
+  activeUsers: sharedMetrics.activeUsers,
   pcr,
+  source: "shared_payer_conversion_helper",
+  activeUserEventCounts: revenueStats?.trackerActiveUserEventCounts ?? {},
   arppu: displayArppu,
   revenue: displayRevenue,
   grossRevenue: summaryStats.grossRevenue,

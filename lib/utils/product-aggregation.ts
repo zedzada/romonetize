@@ -408,9 +408,12 @@ export interface ProductPurchaseMetricsResult {
   estimatedTotalRevenue: number;
   /** Revenue value based on selected mode */
   displayTotalRevenue: number;
-  /** Payer conversion rate = totalBuyers / uniqueActivePlayers */
+  /** Payer conversion rate = payingUsers / activeUsers * 100 */
   payerConversionRate: number | null;
-  uniqueActivePlayers: number;
+  /** Number of distinct paying users (from tracker events) */
+  payingUsers: number;
+  /** Number of distinct active users (from tracker events) */
+  activeUsers: number;
   aggregationSource: string;
 }
 
@@ -420,14 +423,23 @@ export interface ProductPurchaseMetricsResult {
  * directly.  
  *
  * This is the ONLY function pages should call to get purchase/revenue numbers.
+ * 
+ * PCR (Payer Conversion Rate) is calculated from tracker metrics:
+ * - payingUsers: distinct player_id from purchase events
+ * - activeUsers: distinct player_id from ACTIVE_USER_EVENT_TYPES
+ * - PCR = payingUsers / activeUsers * 100
  */
 export function getProductPurchaseMetrics(opts: {
   /** The `productAnalytics` object from the analytics API response */
   productAnalytics: Record<string, unknown> | null | undefined;
   /** "gross" or "estimated" */
   revenueMode: "gross" | "estimated";
+  /** Tracker-based paying users (from revenueStats.trackerPayingUsers) */
+  trackerPayingUsers?: number;
+  /** Tracker-based active users (from revenueStats.trackerActiveUsers) */
+  trackerActiveUsers?: number;
 }): ProductPurchaseMetricsResult {
-  const { productAnalytics, revenueMode } = opts;
+  const { productAnalytics, revenueMode, trackerPayingUsers, trackerActiveUsers } = opts;
 
   const empty: ProductPurchaseMetricsResult = {
     products: [],
@@ -437,7 +449,8 @@ export function getProductPurchaseMetrics(opts: {
     estimatedTotalRevenue: 0,
     displayTotalRevenue: 0,
     payerConversionRate: null,
-    uniqueActivePlayers: 0,
+    payingUsers: 0,
+    activeUsers: 0,
     aggregationSource: "none",
   };
 
@@ -472,8 +485,14 @@ export function getProductPurchaseMetrics(opts: {
   const totalBuyers = Number((productAnalytics as { totalBuyers?: number }).totalBuyers ?? products.reduce((s, p) => s + p.buyers, 0));
   const grossTotalRevenue = Number((productAnalytics as { grossTotalRevenue?: number }).grossTotalRevenue ?? products.reduce((s, p) => s + p.grossRevenue, 0));
   const estimatedTotalRevenue = Number((productAnalytics as { estimatedTotalRevenue?: number }).estimatedTotalRevenue ?? Math.round(grossTotalRevenue * CREATOR_REVENUE_RATE));
-  const uniqueActivePlayers = Number((productAnalytics as { uniqueActiveUsers?: number }).uniqueActiveUsers ?? 0);
-  const payerConversionRate = uniqueActivePlayers > 0 ? totalBuyers / uniqueActivePlayers : null;
+  
+  // PCR calculation uses tracker metrics (from revenueStats)
+  // Formula: PCR = payingUsers / activeUsers * 100
+  // payingUsers = distinct player_id from purchase events
+  // activeUsers = distinct player_id from ACTIVE_USER_EVENT_TYPES
+  const payingUsers = trackerPayingUsers ?? totalBuyers;
+  const activeUsers = trackerActiveUsers ?? 0;
+  const payerConversionRate = activeUsers > 0 ? (payingUsers / activeUsers) * 100 : null;
 
   return {
     products,
@@ -483,7 +502,8 @@ export function getProductPurchaseMetrics(opts: {
     estimatedTotalRevenue,
     displayTotalRevenue: isGross ? grossTotalRevenue : estimatedTotalRevenue,
     payerConversionRate,
-    uniqueActivePlayers,
+    payingUsers,
+    activeUsers,
     aggregationSource: String((productAnalytics as { aggregationSource?: string }).aggregationSource ?? "unknown"),
   };
 }
