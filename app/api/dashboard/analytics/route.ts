@@ -2131,16 +2131,30 @@ let ccuHistory: {
       // For free users, null out purchase count
       // IMPORTANT: Use shared helper values when available for card/chart consistency
 trackerStats: hasTrackerEvents ? {
-  // Use shared helper values for consistency (cards must match charts)
+  // RESOLVED VALUES: Prefer helper, but if helper returns 0 and fallback has data, use fallback
+  // This ensures we never show 0 when we have valid data from either source
   totalEvents: performanceMetrics?.cards.trackedActions ?? totalEventsInRange,
-  uniquePlayers: performanceMetrics?.cards.uniquePlayers ?? uniquePlayers ?? 0,
-  totalSessions: performanceMetrics?.cards.totalSessions ?? totalSessions ?? 0,
+  uniquePlayers: (() => {
+    const helperVal = performanceMetrics?.cards.uniquePlayers ?? 0;
+    const fallbackVal = uniquePlayers ?? 0;
+    // If helper has data, use it; otherwise use fallback
+    return helperVal > 0 ? helperVal : fallbackVal;
+  })(),
+  totalSessions: (() => {
+    const helperVal = performanceMetrics?.cards.totalSessions ?? 0;
+    const fallbackVal = totalSessions ?? 0;
+    return helperVal > 0 ? helperVal : fallbackVal;
+  })(),
   avgSessionDuration: performanceMetrics?.cards.avgSessionSeconds ?? avgSessionDuration ?? null,
   avgSessionFormatted: (performanceMetrics?.cards.avgSessionSeconds ?? avgSessionDuration) 
     ? `${Math.floor((performanceMetrics?.cards.avgSessionSeconds ?? avgSessionDuration ?? 0) / 60)}m` 
     : null,
-  // New players from shared helper
-  newPlayers: performanceMetrics?.cards.newPlayers ?? newPlayers ?? 0,
+  // New players: prefer non-zero value
+  newPlayers: (() => {
+    const helperVal = performanceMetrics?.cards.newPlayers ?? 0;
+    const fallbackVal = newPlayers ?? 0;
+    return helperVal > 0 ? helperVal : fallbackVal;
+  })(),
   // Legacy alias for backwards compatibility
   firstSeenPlayers: firstSeenPlayers || 0,
   // Returning = players with >= 2 distinct sessions (hours of activity) - LIFETIME count
@@ -2151,7 +2165,11 @@ trackerStats: hasTrackerEvents ? {
   rangeStart: startDate.toISOString(),
   rangeEnd: now.toISOString(),
   // For free users, null out purchases
-  totalPurchases: monetizationLocked ? null : (performanceMetrics?.cards.purchases ?? totalPurchases ?? 0),
+  totalPurchases: monetizationLocked ? null : (() => {
+    const helperVal = performanceMetrics?.cards.purchases ?? 0;
+    const fallbackVal = totalPurchases ?? 0;
+    return helperVal > 0 ? helperVal : fallbackVal;
+  })(),
   // Use purchaseEvents or sessionEvents for last event time (since allEvents is empty now)
   lastEventTime: latestEventAt || (purchaseEvents.length > 0 ? purchaseEvents[purchaseEvents.length - 1].created_at : (sessionEvents.length > 0 ? sessionEvents[sessionEvents.length - 1].created_at : null)),
   // Debug info for wiring verification
@@ -2166,10 +2184,38 @@ trackerStats: hasTrackerEvents ? {
     fallbackNewPlayers: newPlayers ?? null,
     fallbackTotalSessions: totalSessions ?? null,
     fallbackTotalPurchases: totalPurchases ?? null,
-    // Which value was actually used
-    usedUniquePlayers: performanceMetrics?.cards.uniquePlayers ?? uniquePlayers ?? 0,
-    usedNewPlayers: performanceMetrics?.cards.newPlayers ?? newPlayers ?? 0,
-    usedTotalSessions: performanceMetrics?.cards.totalSessions ?? totalSessions ?? 0,
+    // RESOLVED values (what was actually used after fallback logic)
+    resolvedUniquePlayers: (() => {
+      const helperVal = performanceMetrics?.cards.uniquePlayers ?? 0;
+      const fallbackVal = uniquePlayers ?? 0;
+      return helperVal > 0 ? helperVal : fallbackVal;
+    })(),
+    resolvedNewPlayers: (() => {
+      const helperVal = performanceMetrics?.cards.newPlayers ?? 0;
+      const fallbackVal = newPlayers ?? 0;
+      return helperVal > 0 ? helperVal : fallbackVal;
+    })(),
+    resolvedTotalSessions: (() => {
+      const helperVal = performanceMetrics?.cards.totalSessions ?? 0;
+      const fallbackVal = totalSessions ?? 0;
+      return helperVal > 0 ? helperVal : fallbackVal;
+    })(),
+    // Which value was actually used (deprecated, use resolved* above)
+    usedUniquePlayers: (() => {
+      const helperVal = performanceMetrics?.cards.uniquePlayers ?? 0;
+      const fallbackVal = uniquePlayers ?? 0;
+      return helperVal > 0 ? helperVal : fallbackVal;
+    })(),
+    usedNewPlayers: (() => {
+      const helperVal = performanceMetrics?.cards.newPlayers ?? 0;
+      const fallbackVal = newPlayers ?? 0;
+      return helperVal > 0 ? helperVal : fallbackVal;
+    })(),
+    usedTotalSessions: (() => {
+      const helperVal = performanceMetrics?.cards.totalSessions ?? 0;
+      const fallbackVal = totalSessions ?? 0;
+      return helperVal > 0 ? helperVal : fallbackVal;
+    })(),
     // Original debug fields
     distinctPlayersAllTime: playerDistinctHours.size,
     playersWithMultipleSessions: Array.from(playerDistinctHours.values()).filter(h => h.size >= 2).length,
