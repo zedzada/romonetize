@@ -727,6 +727,30 @@ const handleSyncAndRefresh = useCallback(async () => {
     totalPurchases: 0,
   };
 
+  // DEBUG: Log when trackerStats is null but we have tracker events
+  // This helps identify if the API is returning data but the UI is not displaying it
+  if (typeof window !== "undefined" && safeDataHealth.hasTrackerEvents && !trackerStats) {
+    console.warn("[v0] WIRING BUG: hasTrackerEvents=true but trackerStats is null/undefined", {
+      trackerStatsFromHook: trackerStats,
+      dataHealthFromHook: dataHealth,
+      hasTrackerData,
+      isLoading,
+      error,
+    });
+  }
+
+  // DEBUG: Log when backend has values but safeTrackerStats shows 0
+  if (typeof window !== "undefined" && trackerStats && (
+    (trackerStats.uniquePlayers > 0 && safeTrackerStats.uniquePlayers === 0) ||
+    (trackerStats.totalSessions > 0 && safeTrackerStats.totalSessions === 0) ||
+    (trackerStats.newPlayers > 0 && safeTrackerStats.newPlayers === 0)
+  )) {
+    console.error("[v0] WIRING BUG: Backend has values but UI shows 0", {
+      backendTrackerStats: trackerStats,
+      safeTrackerStats,
+    });
+  }
+
   // Loading state
   if (isLoading) {
     return (
@@ -963,7 +987,7 @@ const handleSyncAndRefresh = useCallback(async () => {
               </div>
               {safeDataHealth.hasTrackerEvents ? (
                 <div className="text-2xl font-bold text-foreground">
-                  {formatNumber(safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents)}
+                  {formatNumber(safeTrackerStats.totalEvents)}
                 </div>
               ) : (
                 <div className="text-xs text-muted-foreground">Requires tracking script</div>
@@ -1240,6 +1264,21 @@ const handleSyncAndRefresh = useCallback(async () => {
                   {performanceCharts?.debug?.mismatches?.length ? (
                     <div className="col-span-full">mismatches: <span className="text-red-400 text-[10px]">{JSON.stringify(performanceCharts.debug.mismatches)}</span></div>
                   ) : null}
+                  
+                  {/* RAW trackerStats from hook - KEY for debugging UI wiring */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">RAW trackerStats from hook (WIRING DEBUG):</span>
+                  </div>
+                  <div>trackerStats_is_null: <span className={trackerStats ? "text-green-400" : "text-red-400"}>{trackerStats ? "NO (has data)" : "YES (null)"}</span></div>
+                  <div>raw_totalEvents: <span className="text-foreground">{trackerStats?.totalEvents ?? "null"}</span></div>
+                  <div>raw_uniquePlayers: <span className={trackerStats?.uniquePlayers && trackerStats.uniquePlayers > 0 ? "text-green-400" : "text-yellow-400"}>{trackerStats?.uniquePlayers ?? "null"}</span></div>
+                  <div>raw_totalSessions: <span className={trackerStats?.totalSessions && trackerStats.totalSessions > 0 ? "text-green-400" : "text-yellow-400"}>{trackerStats?.totalSessions ?? "null"}</span></div>
+                  <div>raw_newPlayers: <span className={trackerStats?.newPlayers && trackerStats.newPlayers > 0 ? "text-green-400" : "text-yellow-400"}>{trackerStats?.newPlayers ?? "null"}</span></div>
+                  <div>raw_totalPurchases: <span className="text-foreground">{trackerStats?.totalPurchases ?? "null"}</span></div>
+                  <div>safe_uniquePlayers: <span className={safeTrackerStats.uniquePlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.uniquePlayers}</span></div>
+                  <div>safe_totalSessions: <span className={safeTrackerStats.totalSessions > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.totalSessions}</span></div>
+                  <div>safe_newPlayers: <span className={safeTrackerStats.newPlayers > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.newPlayers}</span></div>
+                  <div className="col-span-full">_debug: <span className="text-foreground text-[9px] break-all">{JSON.stringify(trackerStats?._debug ?? "null")}</span></div>
                   
                   {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
