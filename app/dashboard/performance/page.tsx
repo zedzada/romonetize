@@ -8,11 +8,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatChartTime, type CCUHistoryRange } from "@/hooks/use-analytics";
 import { ChartCard, RangeControls, CHART_COLORS, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
-import { 
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
 import {
   AreaChart,
   Area,
@@ -707,12 +702,12 @@ export default function PerformancePage() {
                           const firstPayload = Array.isArray(payload) ? payload[0] : null;
                           if (!firstPayload?.payload) return null;
                           const dataPoint = firstPayload.payload;
-                          const tooltipLabel = dataPoint?.label || new Intl.DateTimeFormat("en-US", {
+                          const tooltipLabel = dataPoint?.label || (dataPoint?.time ? new Intl.DateTimeFormat("en-US", {
                             month: "short",
                             day: "numeric",
                             hour: "2-digit",
                             minute: "2-digit",
-                          }).format(new Date(dataPoint.time));
+                          }).format(new Date(dataPoint.time)) : "—");
                           
                           return (
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
