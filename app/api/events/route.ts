@@ -503,103 +503,125 @@ export async function POST(request: NextRequest) {
     const placeId = (rawEvent.place_id || metadata.place_id) as string | undefined;
     const universeId = (rawEvent.universe_id || metadata.universe_id) as string | undefined;
     
-    // Extract CCU from multiple possible fields (per spec)
-    // Priority: root ccu > root current_players > metadata.ccu > metadata.current_players > metadata.players
+    // Extract CCU from all supported payload shapes (per spec)
     const rawCcu = 
       rawEvent.ccu ??
       rawEvent.current_players ??
+      rawEvent.player_count ??
       metadata.ccu ??
       metadata.current_players ??
+      metadata.player_count ??
       metadata.players;
     const serverCcu = typeof rawCcu === "number" ? rawCcu : (typeof rawCcu === "string" ? parseInt(rawCcu, 10) : undefined);
+    const ccuNumber = Number(serverCcu);
     
-    if (!serverId) {
-      console.warn(`[api/events] CCU heartbeat missing server_id for game_id=${game.id}`);
-      ccuHeartbeatResult = { success: false, error: "Missing server_id" };
+    // Only process if we have a valid CCU number
+    if (!Number.isFinite(ccuNumber)) {
+      console.warn(`[api/events] CCU heartbeat has invalid ccu value for game_id=${game.id}, raw=${rawCcu}`);
+      // Don't fail - just skip snapshot but continue with event insert
+      ccuHeartbeatResult = { success: false, error: `Invalid CCU value: ${rawCcu}` };
       continue;
     }
 
-    // Upsert to server_heartbeats table
-    const { error: heartbeatError } = await supabaseAdmin
-      .from("server_heartbeats")
-      .upsert({
-        game_id: game.id,
-        user_id: game.user_id,
-        server_id: serverId,
-        place_id: placeId?.toString() || null,
-        universe_id: universeId?.toString() || null,
-        ccu: serverCcu ?? 0,
-        last_seen_at: new Date().toISOString(),
-      }, {
-        onConflict: "game_id,server_id",
-      });
+    // Upsert to server_heartbeats table (if server_id is provided)
+    if (serverId) {
+      const { error: heartbeatError } = await supabaseAdmin
+        .from("server_heartbeats")
+        .upsert({
+          game_id: game.id,
+          user_id: game.user_id,
+          server_id: serverId,
+          place_id: placeId?.toString() || null,
+          universe_id: universeId?.toString() || null,
+          ccu: ccuNumber,
+          last_seen_at: new Date().toISOString(),
+        }, {
+          onConflict: "game_id,server_id",
+        });
 
-    if (heartbeatError) {
-      console.error(`[api/events] Failed to upsert server heartbeat: ${heartbeatError.message}`);
-      ccuHeartbeatResult = { success: false, error: `server_heartbeat upsert: ${heartbeatError.message}` };
-      continue;
+      if (heartbeatError) {
+        console.error(`[api/events] Failed to upsert server heartbeat: ${heartbeatError.message}`);
+        // Don't fail the whole request - continue to snapshot insert
+      }
     }
 
     // Calculate total CCU from all active servers (last seen within 2 minutes)
-    const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
-    const { data: activeServers, error: serversError } = await supabaseAdmin
-      .from("server_heartbeats")
-      .select("ccu")
-      .eq("game_id", game.id)
-      .gte("last_seen_at", twoMinutesAgo);
+    let totalCcu = ccuNumber; // Default to this heartbeat's CCU
+    
+    if (serverId) {
+      const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+      const { data: activeServers, error: serversError } = await supabaseAdmin
+        .from("server_heartbeats")
+        .select("ccu")
+        .eq("game_id", game.id)
+        .gte("last_seen_at", twoMinutesAgo);
 
-    if (serversError) {
-      console.error(`[api/events] Failed to fetch active servers: ${serversError.message}`);
-      ccuHeartbeatResult = { success: false, error: `active servers query: ${serversError.message}` };
-      continue;
+      if (!serversError && activeServers && activeServers.length > 0) {
+        totalCcu = activeServers.reduce((sum, s) => sum + (s.ccu || 0), 0);
+      }
     }
 
-    // Sum CCU across all active servers
-    const totalCcu = (activeServers || []).reduce((sum, s) => sum + (s.ccu || 0), 0);
-
-    // Insert CCU snapshot - ALWAYS insert, never skip
-    // Use minimal columns that exist in ccu_snapshots table: game_id, ccu, source, created_at
-    const { error: snapshotError } = await supabaseAdmin
-      .from("ccu_snapshots")
-      .insert({
+    // Insert CCU snapshot - ALWAYS insert on every heartbeat
+    // Use minimal columns: game_id, ccu, source, created_at (server_id is optional)
+    try {
+      const snapshotData: Record<string, unknown> = {
         game_id: game.id,
         ccu: totalCcu,
-        server_id: serverId, // Also store server_id if column exists
         source: "romonetize_tracker",
         created_at: new Date().toISOString(),
-      });
+      };
+      
+      // Only include server_id if provided (column exists but is optional)
+      if (serverId) {
+        snapshotData.server_id = serverId;
+      }
+      
+      const { error: snapshotError } = await supabaseAdmin
+        .from("ccu_snapshots")
+        .insert(snapshotData);
 
-    if (snapshotError) {
-      console.error(`[api/events] Failed to insert ccu_snapshot: ${snapshotError.message}`);
+      if (snapshotError) {
+        console.error(`[api/events] Failed to insert ccu_snapshot: game_id=${game.id}, error=${snapshotError.message}`);
+        ccuHeartbeatResult = { 
+          success: false, 
+          game_id: game.id,
+          server_id: serverId,
+          server_ccu: ccuNumber,
+          total_active_ccu: totalCcu,
+          snapshot_inserted: false,
+          error: `ccu_snapshot insert: ${snapshotError.message}` 
+        };
+        // Don't fail the whole request - event was already inserted
+        continue;
+      }
+
+      // Update current_players on the games table
+      await supabaseAdmin
+        .from("games")
+        .update({
+          current_players: totalCcu,
+          last_roblox_sync: new Date().toISOString(),
+        })
+        .eq("id", game.id);
+
+      ccuHeartbeatResult = {
+        success: true,
+        game_id: game.id,
+        server_id: serverId,
+        server_ccu: ccuNumber,
+        total_active_ccu: totalCcu,
+        snapshot_inserted: true,
+      };
+
+      console.log(`[api/events] CCU heartbeat OK: game_id=${game.id}, server_id=${serverId || "none"}, server_ccu=${ccuNumber}, total_ccu=${totalCcu}`);
+    } catch (snapshotErr) {
+      console.error(`[api/events] CCU snapshot exception: ${snapshotErr}`);
       ccuHeartbeatResult = { 
         success: false, 
         game_id: game.id,
-        server_id: serverId,
-        server_ccu: serverCcu,
-        error: `ccu_snapshot insert: ${snapshotError.message}` 
+        error: `snapshot exception: ${snapshotErr}` 
       };
-      continue;
     }
-
-    // Update current_players on the games table
-    await supabaseAdmin
-      .from("games")
-      .update({
-        current_players: totalCcu,
-        last_roblox_sync: new Date().toISOString(),
-      })
-      .eq("id", game.id);
-
-    ccuHeartbeatResult = {
-      success: true,
-      game_id: game.id,
-      server_id: serverId,
-      server_ccu: serverCcu,
-      total_active_ccu: totalCcu,
-      snapshot_inserted: true,
-    };
-
-    console.log(`[api/events] CCU heartbeat OK: game_id=${game.id}, server_id=${serverId}, server_ccu=${serverCcu}, total_ccu=${totalCcu}`);
   }
 
   // If this was a CCU heartbeat request, return explicit heartbeat response
