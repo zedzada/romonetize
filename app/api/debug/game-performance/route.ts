@@ -26,11 +26,22 @@ export async function GET(request: NextRequest) {
     // Get selected game
     const { selectedGame, error: gameError } = await getSelectedGameForUser(user.id);
     
+    // If no game selected, return helpful JSON instead of 400
     if (gameError || !selectedGame) {
+      // Try to get list of user's games for helpful response
+      const { data: userGames } = await supabase
+        .from("games")
+        .select("id, name")
+        .eq("user_id", user.id)
+        .limit(10);
+      
       return NextResponse.json({ 
+        success: false,
         error: "No game selected",
-        details: gameError 
-      }, { status: 400 });
+        details: gameError,
+        availableGames: userGames ?? [],
+        hint: "Select a game first or pass ?gameId=<game-id>"
+      }, { status: 200 }); // Return 200 with error info, not 400
     }
     
     // Use gameId param if provided, otherwise use selected game
