@@ -762,8 +762,8 @@ export default function PerformancePage() {
                     <AreaChart data={normalizedActivity}>
                       <defs>
                         <linearGradient id="activityGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={CHART_COLORS.primary} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={CHART_COLORS.primary} stopOpacity={0} />
+                    <stop offset="5%" stopColor={CHART_COLORS.violet} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={CHART_COLORS.violet} stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid {...gridProps} />
@@ -790,7 +790,7 @@ export default function PerformancePage() {
                       <Area 
                         type="monotone" 
                         dataKey="value" 
-                        stroke={CHART_COLORS.primary}
+                        stroke={CHART_COLORS.violet}
                         strokeWidth={2}
                         fill="url(#activityGradient)"
                       />
@@ -819,8 +819,8 @@ export default function PerformancePage() {
                     <AreaChart data={normalizedSessions}>
                       <defs>
                         <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={CHART_COLORS.secondary} stopOpacity={0.3} />
-                          <stop offset="95%" stopColor={CHART_COLORS.secondary} stopOpacity={0} />
+                    <stop offset="5%" stopColor={CHART_COLORS.cyan} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={CHART_COLORS.cyan} stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid {...gridProps} />
@@ -847,7 +847,7 @@ export default function PerformancePage() {
                       <Area 
                         type="monotone" 
                         dataKey="value" 
-                        stroke={CHART_COLORS.secondary}
+                        stroke={CHART_COLORS.cyan}
                         strokeWidth={2}
                         fill="url(#sessionsGradient)"
                       />
@@ -877,8 +877,8 @@ export default function PerformancePage() {
                       <AreaChart data={normalizedPurchases}>
                         <defs>
                           <linearGradient id="purchasesGradient" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="5%" stopColor={CHART_COLORS.accent} stopOpacity={0.3} />
-                            <stop offset="95%" stopColor={CHART_COLORS.accent} stopOpacity={0} />
+                    <stop offset="5%" stopColor={CHART_COLORS.green} stopOpacity={0.3} />
+                    <stop offset="95%" stopColor={CHART_COLORS.green} stopOpacity={0} />
                           </linearGradient>
                         </defs>
                         <CartesianGrid {...gridProps} />
@@ -905,7 +905,7 @@ export default function PerformancePage() {
                         <Area 
                           type="monotone" 
                           dataKey="value" 
-                          stroke={CHART_COLORS.accent}
+                          stroke={CHART_COLORS.green}
                           strokeWidth={2}
                           fill="url(#purchasesGradient)"
                         />
