@@ -113,9 +113,12 @@ export async function GET(request: NextRequest) {
     };
     let robloxStatsSource: "public_api" | "games_table" | "none" = "none";
     let robloxApiUrl: string | null = null;
+    let robloxStatsDebug: Record<string, unknown> = {};
 
     if (resolvedUniverseId) {
       robloxApiUrl = `https://games.roblox.com/v1/games?universeIds=${resolvedUniverseId}`;
+      
+      let liveGame: Record<string, unknown> | null = null;
       
       try {
         // Fetch from public Roblox API
@@ -129,39 +132,97 @@ export async function GET(request: NextRequest) {
 
         if (robloxResponse.ok) {
           const robloxData = await robloxResponse.json();
-          const game = robloxData?.data?.[0];
-          
-          if (game) {
-            robloxStats = {
-              ccu: game.playing ?? 0,
-              visits: game.visits ?? 0,
-              favorites: game.favoritedCount ?? 0,
-              likes: game.upVotes ?? 0,
-              dislikes: game.downVotes ?? 0,
-            };
-            robloxStatsSource = "public_api";
-          }
+          liveGame = robloxData?.data?.[0] ?? null;
         }
       } catch (apiError) {
         console.log("[performance-data] Roblox API fetch failed, falling back to DB:", apiError);
       }
 
-      // If API failed or returned no data, fall back to games table
-      if (robloxStatsSource === "none") {
-        const dbStats = {
-          ccu: selectedGame.current_players ?? 0,
-          visits: selectedGame.total_visits ?? 0,
-          favorites: selectedGame.favorites ?? 0,
-          likes: selectedGame.likes ?? 0,
-          dislikes: selectedGame.dislikes ?? 0,
+      // DB row as fallback source (syncRow)
+      const syncRow = {
+        current_players: selectedGame.current_players,
+        total_visits: selectedGame.total_visits,
+        favorites: selectedGame.favorites,
+        likes: selectedGame.likes,
+        dislikes: selectedGame.dislikes,
+        up_votes: (selectedGame as Record<string, unknown>).up_votes,
+        upVotes: (selectedGame as Record<string, unknown>).upVotes,
+        down_votes: (selectedGame as Record<string, unknown>).down_votes,
+        downVotes: (selectedGame as Record<string, unknown>).downVotes,
+        raw: (selectedGame as Record<string, unknown>).raw,
+        raw_data: (selectedGame as Record<string, unknown>).raw_data,
+      };
+
+      // Safe mapping for likes - check all possible field variants
+      const likes =
+        syncRow?.likes ??
+        syncRow?.up_votes ??
+        syncRow?.upVotes ??
+        (syncRow?.raw as Record<string, unknown>)?.upVotes ??
+        (syncRow?.raw_data as Record<string, unknown>)?.upVotes ??
+        liveGame?.upVotes ??
+        liveGame?.likes ??
+        (liveGame?.voteCounts as Record<string, unknown>)?.upVotes ??
+        (liveGame?.raw as Record<string, unknown>)?.upVotes ??
+        null;
+
+      // Safe mapping for dislikes - check all possible field variants
+      const dislikes =
+        syncRow?.dislikes ??
+        syncRow?.down_votes ??
+        syncRow?.downVotes ??
+        (syncRow?.raw as Record<string, unknown>)?.downVotes ??
+        (syncRow?.raw_data as Record<string, unknown>)?.downVotes ??
+        liveGame?.downVotes ??
+        liveGame?.dislikes ??
+        (liveGame?.voteCounts as Record<string, unknown>)?.downVotes ??
+        (liveGame?.raw as Record<string, unknown>)?.downVotes ??
+        null;
+
+      if (liveGame) {
+        robloxStats = {
+          ccu: Number(liveGame.playing) || 0,
+          visits: Number(liveGame.visits) || 0,
+          favorites: Number(liveGame.favoritedCount) || 0,
+          likes: Number(likes) || 0,
+          dislikes: Number(dislikes) || 0,
+        };
+        robloxStatsSource = "public_api";
+      } else {
+        // Fall back to games table
+        robloxStats = {
+          ccu: Number(syncRow.current_players) || 0,
+          visits: Number(syncRow.total_visits) || 0,
+          favorites: Number(syncRow.favorites) || 0,
+          likes: Number(likes) || 0,
+          dislikes: Number(dislikes) || 0,
         };
         
-        // Only use DB stats if they have some data
-        if (dbStats.visits > 0 || dbStats.favorites > 0 || dbStats.likes > 0) {
-          robloxStats = dbStats;
+        // Only mark as games_table if we have some data
+        if (robloxStats.visits > 0 || robloxStats.favorites > 0 || robloxStats.likes > 0) {
           robloxStatsSource = "games_table";
         }
       }
+
+      // Debug info for likes/dislikes mapping
+      robloxStatsDebug = {
+        source: robloxStatsSource,
+        universeId: resolvedUniverseId,
+        liveGameKeys: liveGame ? Object.keys(liveGame) : [],
+        syncRowKeys: Object.keys(syncRow).filter(k => syncRow[k as keyof typeof syncRow] !== undefined),
+        rawVoteFields: {
+          liveUpVotes: liveGame?.upVotes,
+          liveDownVotes: liveGame?.downVotes,
+          syncLikes: syncRow?.likes,
+          syncDislikes: syncRow?.dislikes,
+          syncUpVotes: syncRow?.upVotes ?? syncRow?.up_votes,
+          syncDownVotes: syncRow?.downVotes ?? syncRow?.down_votes,
+          rawUpVotes: (syncRow?.raw as Record<string, unknown>)?.upVotes ?? (syncRow?.raw_data as Record<string, unknown>)?.upVotes,
+          rawDownVotes: (syncRow?.raw as Record<string, unknown>)?.downVotes ?? (syncRow?.raw_data as Record<string, unknown>)?.downVotes,
+        },
+        resolvedLikes: likes,
+        resolvedDislikes: dislikes,
+      };
     }
 
     const hasRobloxData = (
@@ -312,12 +373,16 @@ export async function GET(request: NextRequest) {
     let avgSessionSeconds: number | null = null;
     const sessionEndEvents = allEvents.filter(e => e.event_type === "session_end");
     const validDurations: number[] = [];
-    let sampleSessionEndMetadata: Record<string, unknown> | null = null;
+    const sampleSessionEndEvents: Array<Record<string, unknown>> = [];
     
     if (sessionEndEvents.length > 0) {
-      // Capture first sample for debug
-      if (sessionEndEvents[0]?.metadata) {
-        sampleSessionEndMetadata = sessionEndEvents[0].metadata as Record<string, unknown>;
+      // Capture first 3 samples for debug
+      for (let i = 0; i < Math.min(3, sessionEndEvents.length); i++) {
+        sampleSessionEndEvents.push({
+          id: sessionEndEvents[i].id,
+          created_at: sessionEndEvents[i].created_at,
+          metadata: sessionEndEvents[i].metadata,
+        });
       }
       
       for (const e of sessionEndEvents) {
@@ -330,13 +395,19 @@ export async function GET(request: NextRequest) {
           eventRecord.duration ??
           eventRecord.session_duration ??
           eventRecord.duration_seconds ??
-          // Metadata variants
+          // Metadata variants (comprehensive list)
           meta?.duration ??
           meta?.session_duration ??
           meta?.duration_seconds ??
           meta?.session_duration_seconds ??
           meta?.sessionLength ??
-          meta?.session_length;
+          meta?.session_length ??
+          meta?.durationSeconds ??
+          meta?.playtime ??
+          meta?.play_time ??
+          meta?.sessionDuration ??
+          meta?.length ??
+          meta?.time;
         
         const seconds = Number(duration);
         if (Number.isFinite(seconds) && seconds > 0) {
@@ -414,6 +485,7 @@ export async function GET(request: NextRequest) {
       robloxStatsSource,
       robloxApiUrl,
       resolvedUniverseId,
+      robloxStatsDebug,
 
       // Tracker metrics
       metrics: {
@@ -451,13 +523,21 @@ export async function GET(request: NextRequest) {
         rawEventCount: allEvents.length,
         firstEventAt,
         latestEventAt,
-        // Session debug
+      },
+      
+      // Avg Session debug
+      avgSessionDebug: {
         sessionEndCount: sessionEndEvents.length,
         validSessionDurationCount: validDurations.length,
-        sampleSessionEndMetadata,
-        // New players debug
+        sampleSessionEndEvents,
+        avgSessionSeconds,
+      },
+      
+      // New Players debug
+      newPlayersDebug: {
         totalPlayersEver,
-        activePlayersInRange: validPlayerIds.size,
+        rangeStartIso,
+        rangeEndIso,
         newPlayers,
         sampleFirstSeenPlayers,
       },
