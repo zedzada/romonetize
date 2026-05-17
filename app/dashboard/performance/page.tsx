@@ -359,15 +359,18 @@ const handleSyncAndRefresh = useCallback(async () => {
   // 1H = group by minute (~60 points max)
   // 24H = group by hour (~24 points max)
   // 7D/28D/90D = group by day
+  // NOTE: Uses current time (Date.now()) for range calculations to ensure
+  // the chart updates when data refreshes, even if raw data is unchanged.
   const processedCcuHistory = useMemo(() => {
     const now = new Date();
     
     // Use shared range helper for consistent range/bucket config (UTC-based)
     const rangeConfig = getRangeWindow(ccuRange as RangeKey, now);
     const cutoffTime = new Date(rangeConfig.rangeStartUtc);
+    const rangeEndTime = new Date(rangeConfig.rangeEndUtc);
     const { bucketMs, bucketType } = rangeConfig;
     
-  // Empty data case
+    // Empty data case
     if (!rawCcuHistory?.rawSnapshots?.length) {
       return {
         data: [],
@@ -375,17 +378,24 @@ const handleSyncAndRefresh = useCallback(async () => {
         peakCcu: null,
         avgCcu: null,
         snapshotCount: 0,
+        totalSnapshots: 0,
         dominantSource: rawCcuHistory?.source ?? "none",
+        latestSnapshotTime: null as string | null,
+        latestSnapshotAgeMinutes: null as number | null,
+        rangeStartUtc: rangeConfig.rangeStartUtc,
+        rangeEndUtc: rangeConfig.rangeEndUtc,
+        sourceCounts: {} as Record<string, number>,
       };
     }
     
     // Normalize snapshot time: prefer captured_at, then time, then created_at
-    // Then filter by range using UTC comparison
+    // Then filter by range using UTC comparison (Date objects, not strings)
     const filteredSnapshots = rawCcuHistory.rawSnapshots
       .filter(s => s.time && typeof s.ccu === "number")
       .filter(s => {
         const snapTime = new Date(s.time).getTime();
-        return snapTime >= cutoffTime.getTime() && snapTime <= now.getTime();
+        // Use rangeEndTime (now) for upper bound to ensure we include latest snapshots
+        return snapTime >= cutoffTime.getTime() && snapTime <= rangeEndTime.getTime();
       });
     
     // Aggregate into buckets using UTC-based getBucketKey - keep latest snapshot per bucket
@@ -468,22 +478,43 @@ const handleSyncAndRefresh = useCallback(async () => {
     
     // Determine dominant source from filtered snapshots
     // Priority: romonetize_tracker > vercel_cron/roblox_api > roblox_game_syncs
-    const sourceCounts = new Map<string, number>();
+    const sourceCounts: Record<string, number> = {};
     filteredSnapshots.forEach(snap => {
       const src = snap.source || "unknown";
-      sourceCounts.set(src, (sourceCounts.get(src) || 0) + 1);
+      sourceCounts[src] = (sourceCounts[src] || 0) + 1;
     });
-    const hasTrackerSource = sourceCounts.has("romonetize_tracker");
+    const hasTrackerSource = "romonetize_tracker" in sourceCounts;
     const dominantSource: string = hasTrackerSource
       ? "romonetize_tracker"
       : rawCcuHistory?.source === "roblox_game_syncs"
         ? "roblox_game_syncs"
-        : sourceCounts.size > 0
-          ? Array.from(sourceCounts.entries()).sort((a, b) => b[1] - a[1])[0][0]
+        : Object.keys(sourceCounts).length > 0
+          ? Object.entries(sourceCounts).sort((a, b) => b[1] - a[1])[0][0]
           : "none";
     
-    return { data, currentCcu, peakCcu, avgCcu, snapshotCount: data.length, dominantSource };
-  }, [rawCcuHistory, ccuRange]);
+    // Find latest snapshot time for empty state message
+    const latestSnapshotTime = rawCcuHistory.rawSnapshots.length > 0
+      ? rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1].time
+      : null;
+    const latestSnapshotAgeMinutes = latestSnapshotTime
+      ? Math.round((now.getTime() - new Date(latestSnapshotTime).getTime()) / 60000)
+      : null;
+    
+    return {
+      data,
+      currentCcu,
+      peakCcu,
+      avgCcu,
+      snapshotCount: data.length,
+      totalSnapshots: rawCcuHistory.rawSnapshots.length,
+      dominantSource,
+      latestSnapshotTime,
+      latestSnapshotAgeMinutes,
+      rangeStartUtc: rangeConfig.rangeStartUtc,
+      rangeEndUtc: rangeConfig.rangeEndUtc,
+      sourceCounts,
+    };
+  }, [rawCcuHistory, ccuRange, lastPollTime]);
 
   // Auto-select useful range on first load
   // If current range (24h default) has 0 snapshots but total snapshots exist, try wider ranges
@@ -1138,20 +1169,12 @@ const handleSyncAndRefresh = useCallback(async () => {
                   </div>
                   <div>selectedGameId: <span className="text-foreground text-[10px]">{selectedGameId?.slice(0, 12) || "none"}</span></div>
                   <div>selectedGameName: <span className="text-foreground">{game?.name?.slice(0, 25) || "none"}</span></div>
-                  <div>robloxGameId: <span className="text-foreground">{game?.roblox_game_id || "none"}</span></div>
-                  <div>robloxStatsSyncFound: <span className={robloxStats ? "text-green-400" : "text-red-400"}>{robloxStats ? "YES" : "NO"}</span></div>
-                  <div>robloxStatsSource: <span className="text-foreground">{robloxStats?.source ?? "none"}</span></div>
-                  <div>robloxStatsUpdatedAt: <span className="text-foreground">{robloxStats?.updatedAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(robloxStats.updatedAt)) : "none"}</span></div>
-                  <div>currentCcuFromApi: <span className="text-foreground">{robloxStats?.ccu ?? "null"}</span></div>
-                  <div>ccuTotalSnapshots: <span className="text-foreground">{rawCcuHistory?.rawSnapshots?.length ?? 0}</span></div>
-                  <div>ccuSnapshotsInSelectedRange: <span className="text-foreground">{processedCcuHistory.snapshotCount}</span></div>
                   <div>selectedRange: <span className="text-foreground">{ccuRange}</span></div>
-                  <div>rangeStartUtc: <span className="text-foreground text-[10px]">{getRangeWindow(ccuRange as RangeKey).rangeStartUtc}</span></div>
-                  <div>rangeEndUtc: <span className="text-foreground text-[10px]">{new Date().toISOString()}</span></div>
-                  <div>bucketSize: <span className="text-foreground">{getRangeWindow(ccuRange as RangeKey).bucketSize}</span></div>
-                  <div>timestampColumnUsed: <span className="text-foreground">captured_at || created_at (normalized)</span></div>
-                  <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.data.length}</span></div>
-                  <div>autoRangeApplied: <span className={autoRangeApplied ? "text-green-400" : "text-yellow-400"}>{autoRangeApplied ? "YES" : "pending"}</span></div>
+                  <div>ccuTotalSnapshots: <span className="text-foreground">{processedCcuHistory.totalSnapshots}</span></div>
+                  <div>ccuSnapshotsInRange: <span className={processedCcuHistory.snapshotCount > 0 ? "text-green-400" : "text-red-400"}>{processedCcuHistory.snapshotCount}</span></div>
+                  <div>rangeStartUtc: <span className="text-foreground text-[10px]">{processedCcuHistory.rangeStartUtc?.slice(0, 19) || "null"}</span></div>
+                  <div>rangeEndUtc: <span className="text-foreground text-[10px]">{processedCcuHistory.rangeEndUtc?.slice(0, 19) || "null"}</span></div>
+                  <div>dbNow: <span className="text-foreground text-[10px]">{new Date().toISOString().slice(0, 19)}</span></div>
                   {rawCcuHistory?.rawSnapshots?.length ? (
                     <>
                       <div>oldestSnapshotAt: <span className="text-foreground">
@@ -1160,15 +1183,16 @@ const handleSyncAndRefresh = useCallback(async () => {
                       <div>latestSnapshotAt: <span className="text-foreground">
                         {new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1].time))}
                       </span></div>
-                      <div>snapshotSourceCounts: <span className="text-foreground text-[10px]">{JSON.stringify(
-                        rawCcuHistory.rawSnapshots.reduce((acc: Record<string, number>, s) => {
-                          const src = s.source || "unknown";
-                          acc[src] = (acc[src] || 0) + 1;
-                          return acc;
-                        }, {})
-                      )}</span></div>
+                      <div>latestSnapshotAgeMinutes: <span className={processedCcuHistory.latestSnapshotAgeMinutes !== null && processedCcuHistory.latestSnapshotAgeMinutes <= 60 ? "text-green-400" : "text-yellow-400"}>{processedCcuHistory.latestSnapshotAgeMinutes ?? "null"}</span></div>
                     </>
                   ) : null}
+                  <div>timestampColumnUsed: <span className="text-foreground">captured_at || created_at</span></div>
+                  <div>sourceCounts: <span className="text-foreground text-[10px]">{JSON.stringify(processedCcuHistory.sourceCounts)}</span></div>
+                  <div>dominantSource: <span className={processedCcuHistory.dominantSource === "romonetize_tracker" ? "text-purple-400" : "text-blue-400"}>{processedCcuHistory.dominantSource}</span></div>
+                  <div>chartDataLength: <span className="text-foreground">{processedCcuHistory.data.length}</span></div>
+                  <div>autoRangeApplied: <span className={autoRangeApplied ? "text-green-400" : "text-yellow-400"}>{autoRangeApplied ? "YES" : "pending"}</span></div>
+                  <div>lastPollTime: <span className="text-foreground">{lastPollTime ? new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit", second: "2-digit" }).format(lastPollTime) : "none"}</span></div>
+                  <div>pollCount: <span className="text-foreground">{pollCount}</span></div>
                   
                   {/* Tracker events - KEY DIAGNOSTIC for tracker detection regression */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
@@ -1379,18 +1403,30 @@ const handleSyncAndRefresh = useCallback(async () => {
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center text-center">
                     <Activity className="w-10 h-10 mb-3 text-muted-foreground" />
-                    {rawCcuHistory?.rawSnapshots?.length ? (
+                    {processedCcuHistory.totalSnapshots > 0 ? (
                       (() => {
-                        // Find the latest snapshot time
-                        const latestSnap = rawCcuHistory.rawSnapshots[rawCcuHistory.rawSnapshots.length - 1];
-                        const latestTime = new Date(latestSnap.time);
-                        const minsAgo = Math.round((Date.now() - latestTime.getTime()) / 60000);
+                        // Use pre-computed values from processedCcuHistory
+                        const minsAgo = processedCcuHistory.latestSnapshotAgeMinutes ?? 0;
                         const latestLabel = minsAgo < 60 
                           ? `${minsAgo} minute${minsAgo === 1 ? "" : "s"} ago`
                           : minsAgo < 1440
                             ? `${Math.round(minsAgo / 60)} hour${Math.round(minsAgo / 60) === 1 ? "" : "s"} ago`
                             : `${Math.round(minsAgo / 1440)} day${Math.round(minsAgo / 1440) === 1 ? "" : "s"} ago`;
                         const rangeLabel = ccuRange === "1h" ? "1 hour" : ccuRange === "24h" ? "24 hours" : ccuRange === "7d" ? "7 days" : ccuRange === "28d" ? "28 days" : "90 days";
+                        
+                        // If latest snapshot is within the selected range, something else is wrong
+                        // Show a helpful message based on whether snapshot is recent
+                        if (minsAgo <= 60 && ccuRange === "1h") {
+                          return (
+                            <>
+                              <h4 className="font-medium text-foreground mb-2">Loading CCU data...</h4>
+                              <p className="text-sm text-muted-foreground max-w-md">
+                                {processedCcuHistory.totalSnapshots} snapshots exist. Latest was {latestLabel}. Chart should update momentarily.
+                              </p>
+                            </>
+                          );
+                        }
+                        
                         return (
                           <>
                             <h4 className="font-medium text-foreground mb-2">No CCU snapshots in the last {rangeLabel}</h4>
