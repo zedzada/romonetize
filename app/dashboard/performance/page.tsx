@@ -1211,9 +1211,9 @@ const handleSyncAndRefresh = useCallback(async () => {
                     <span className="text-amber-400">Card vs Chart Alignment (from spec):</span>
                   </div>
                   <div>selectedRange: <span className="text-foreground">{chartRange}</span></div>
-                  <div>trackedActionsCard: <span className="text-foreground">{safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents || 0}</span></div>
+                  <div>trackedActionsCard: <span className="text-foreground">{safeTrackerStats.totalEvents || 0}</span></div>
                   <div>activityChartTotal: <span className={
-                    (performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0) === (safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents || 0)
+                    (performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0) === (safeTrackerStats.totalEvents || 0)
                       ? "text-green-400" : "text-yellow-400"
                   }>{performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0}</span></div>
                   <div>totalSessionsCard: <span className="text-foreground">{safeTrackerStats.totalSessions || 0}</span></div>

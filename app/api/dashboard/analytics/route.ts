@@ -518,6 +518,46 @@ export async function GET(request: NextRequest) {
     sectionErrors.sessionEvents = err instanceof Error ? err.message : "Failed to fetch session events";
   }
   
+  // === ACTIVITY EVENTS (for Activity Over Time chart) ===
+  // Fetch ALL events in range EXCEPT ccu_heartbeat and script_started
+  // This must match totalEventsInRange for card/chart consistency
+  let activityEvents: Array<{ created_at: string }> = [];
+  let activityEventsFetched = 0;
+  let activityExactCount = totalEventsInRange; // Already calculated above
+  
+  try {
+    // Paginate to get all activity events for the chart
+    const ACTIVITY_PAGE_SIZE = 1000;
+    let from = 0;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const { data: pageData, error: pageError } = await supabase
+        .from("events")
+        .select("created_at")
+        .eq("game_id", gameId)
+        .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`)
+        .gte("created_at", startDate.toISOString())
+        .lte("created_at", now.toISOString())
+        .order("created_at", { ascending: true })
+        .range(from, from + ACTIVITY_PAGE_SIZE - 1);
+      
+      if (pageError) {
+        sectionErrors.activityEvents = pageError.message;
+        hasMore = false;
+      } else if (pageData && pageData.length > 0) {
+        activityEvents.push(...pageData);
+        activityEventsFetched += pageData.length;
+        from += ACTIVITY_PAGE_SIZE;
+        hasMore = pageData.length === ACTIVITY_PAGE_SIZE;
+      } else {
+        hasMore = false;
+      }
+    }
+  } catch (err) {
+    sectionErrors.activityEvents = err instanceof Error ? err.message : "Failed to fetch activity events";
+  }
+  
   // === ACTIVE USERS QUERY (for PCR & ARPDAU) ===
   // Fetch distinct player_ids from ACTIVE_USER_EVENT_TYPES in range
   // Also fetch per-day breakdown for ARPDAU's averageDAU calculation
@@ -608,6 +648,7 @@ export async function GET(request: NextRequest) {
   const SERVER_ONLY_EVENT_TYPES = ["ccu_heartbeat", "script_started"];
   let totalEventsCount = 0;
   let totalEventsCountAllTypes = 0; // Including server events, for hasTrackerEvents check
+  let totalEventsInRange = 0; // Tracked Actions for selected range (excludes server-only)
   let latestEventAt: string | null = null;
   try {
     // Count all events (for hasTrackerEvents check)
@@ -617,13 +658,23 @@ export async function GET(request: NextRequest) {
       .eq("game_id", gameId);
     totalEventsCountAllTypes = allCount || 0;
 
-    // Count user actions only (excluding ccu_heartbeat, script_started)
+    // Count user actions only (excluding ccu_heartbeat, script_started) - ALL TIME
     const { count: actionCount } = await supabase
       .from("events")
       .select("*", { count: "exact", head: true })
       .eq("game_id", gameId)
       .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`);
     totalEventsCount = actionCount || 0;
+
+    // Count user actions in SELECTED RANGE (for Tracked Actions card to match chart)
+    const { count: rangeActionCount } = await supabase
+      .from("events")
+      .select("*", { count: "exact", head: true })
+      .eq("game_id", gameId)
+      .not("event_type", "in", `(${SERVER_ONLY_EVENT_TYPES.join(",")})`)
+      .gte("created_at", startDate.toISOString())
+      .lte("created_at", now.toISOString());
+    totalEventsInRange = rangeActionCount || 0;
 
     // Get latest event time if we have events (use allTypes count)
     if (totalEventsCountAllTypes > 0) {
@@ -787,8 +838,9 @@ export async function GET(request: NextRequest) {
     universeId: selectedGame.universe_id || selectedGame.roblox_game_id,
     gameName: selectedGame.name,
     apiKey: selectedGame.api_key, // For tracking setup page
-    hasTrackerEvents,
-    trackerEventsCount: totalEventsCount,
+  hasTrackerEvents,
+  trackerEventsCount: totalEventsCount, // All-time count for dataHealth
+  trackerEventsInRange: totalEventsInRange, // Range-filtered for Tracked Actions card
     // Use latestEventAt from events query, fall back to games.last_event_at
     lastTrackerEventAt: latestEventAt || selectedGame.last_event_at,
     hasRobloxApiData: hasRobloxApiData || robloxStats !== null,
@@ -1861,10 +1913,10 @@ let ccuHistory: {
     .sort((a, b) => a.time.localeCompare(b.time));
 
   // === EVENTS OVER TIME CHART ===
-  // Combine session and purchase events for the chart (we don't have allEvents anymore)
+  // Use activityEvents (ALL events except ccu_heartbeat, script_started)
+  // This must match totalEventsInRange for card/chart consistency
   const eventsBuckets = new Map<string, number>();
-  const allChartEvents = [...sessionEvents, ...purchaseEvents];
-  allChartEvents.forEach((e) => {
+  activityEvents.forEach((e) => {
     const eventDate = new Date(e.created_at);
     let bucketKey: string;
     if (range === "1h") {
@@ -1985,7 +2037,8 @@ let ccuHistory: {
       // Always return object with safe values when tracker is active
       // For free users, null out purchase count
 trackerStats: hasTrackerEvents ? {
-  totalEvents: totalEventsCount,
+  // Use range-filtered count for Tracked Actions card (matches chart data)
+  totalEvents: totalEventsInRange,
   uniquePlayers: uniquePlayers || 0,
   totalSessions: totalSessions || 0,
   avgSessionDuration: avgSessionDuration || null,
