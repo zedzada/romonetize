@@ -704,8 +704,10 @@ export default function PerformancePage() {
                       <Tooltip
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
-                          const dataPoint = payload[0].payload;
-                          const tooltipLabel = dataPoint.label || new Intl.DateTimeFormat("en-US", {
+                          const firstPayload = Array.isArray(payload) ? payload[0] : null;
+                          if (!firstPayload?.payload) return null;
+                          const dataPoint = firstPayload.payload;
+                          const tooltipLabel = dataPoint?.label || new Intl.DateTimeFormat("en-US", {
                             month: "short",
                             day: "numeric",
                             hour: "2-digit",
@@ -715,8 +717,8 @@ export default function PerformancePage() {
                           return (
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm font-medium text-foreground mb-1">{tooltipLabel}</p>
-                              <p className="text-sm text-foreground">CCU: {dataPoint.ccu?.toLocaleString() ?? "—"}</p>
-                              {dataPoint.source && (
+                              <p className="text-sm text-foreground">CCU: {dataPoint?.ccu?.toLocaleString() ?? "—"}</p>
+                              {dataPoint?.source && (
                                 <p className="text-xs text-muted-foreground">
                                   Source: {dataPoint.source === "romonetize_tracker" ? "RoMonetize Tracker" : dataPoint.source}
                                 </p>
@@ -776,13 +778,15 @@ export default function PerformancePage() {
                       <Tooltip
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
-                          const dataPoint = payload[0].payload;
+                          const firstPayload = Array.isArray(payload) ? payload[0] : null;
+                          if (!firstPayload?.payload) return null;
+                          const dataPoint = firstPayload.payload;
                           return (
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm font-medium text-foreground mb-1">
-                                {formatChartTime(dataPoint.time, toChartTimeRange(chartRange))}
+                                {formatChartTime(dataPoint?.time ?? "", toChartTimeRange(chartRange))}
                               </p>
-                              <p className="text-sm text-foreground">Events: {dataPoint.value?.toLocaleString() ?? "—"}</p>
+                              <p className="text-sm text-foreground">Events: {dataPoint?.value?.toLocaleString() ?? "—"}</p>
                             </div>
                           );
                         }}
@@ -833,13 +837,15 @@ export default function PerformancePage() {
                       <Tooltip
                         content={({ active, payload }) => {
                           if (!active || !payload?.length) return null;
-                          const dataPoint = payload[0].payload;
+                          const firstPayload = Array.isArray(payload) ? payload[0] : null;
+                          if (!firstPayload?.payload) return null;
+                          const dataPoint = firstPayload.payload;
                           return (
                             <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                               <p className="text-sm font-medium text-foreground mb-1">
-                                {formatChartTime(dataPoint.time, toChartTimeRange(chartRange))}
+                                {formatChartTime(dataPoint?.time ?? "", toChartTimeRange(chartRange))}
                               </p>
-                              <p className="text-sm text-foreground">Sessions: {dataPoint.value?.toLocaleString() ?? "—"}</p>
+                              <p className="text-sm text-foreground">Sessions: {dataPoint?.value?.toLocaleString() ?? "—"}</p>
                             </div>
                           );
                         }}
@@ -891,13 +897,15 @@ export default function PerformancePage() {
                         <Tooltip
                           content={({ active, payload }) => {
                             if (!active || !payload?.length) return null;
-                            const dataPoint = payload[0].payload;
+                            const firstPayload = Array.isArray(payload) ? payload[0] : null;
+                            if (!firstPayload?.payload) return null;
+                            const dataPoint = firstPayload.payload;
                             return (
                               <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
                                 <p className="text-sm font-medium text-foreground mb-1">
-                                  {formatChartTime(dataPoint.time, toChartTimeRange(chartRange))}
+                                  {formatChartTime(dataPoint?.time ?? "", toChartTimeRange(chartRange))}
                                 </p>
-                                <p className="text-sm text-foreground">Purchases: {dataPoint.value?.toLocaleString() ?? "—"}</p>
+                                <p className="text-sm text-foreground">Purchases: {dataPoint?.value?.toLocaleString() ?? "—"}</p>
                               </div>
                             );
                           }}
