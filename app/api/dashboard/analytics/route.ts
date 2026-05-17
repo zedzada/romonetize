@@ -15,6 +15,11 @@ import {
   type RobloxProductInfo,
   type AggregatedProduct,
 } from "@/lib/utils/product-aggregation";
+import {
+  getGamePerformanceMetrics,
+  type PerformanceRange,
+  SERVER_ONLY_EVENT_TYPES as SHARED_SERVER_ONLY_EVENT_TYPES,
+} from "@/lib/helpers/game-performance";
 
 // Date range options
 type DateRange = "1h" | "1d" | "7d" | "30d" | "90d";
@@ -308,12 +313,32 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const startDate = new Date(now.getTime() - rangeConfig.hours * 60 * 60 * 1000);
 
+  // ============================================================
+  // SHARED PERFORMANCE HELPER - Single source of truth for cards/charts
+  // ============================================================
+  let performanceMetrics: Awaited<ReturnType<typeof getGamePerformanceMetrics>> | null = null;
+  try {
+    // Convert range format: "1d" -> "1d", "7d" -> "7d", "30d" -> "28d", "90d" -> "90d"
+    const perfRange = (range === "30d" ? "28d" : range) as PerformanceRange;
+    performanceMetrics = await getGamePerformanceMetrics({
+      userId: user.id,
+      selectedGameId: gameId,
+      selectedGameName: selectedGame.name,
+      range: perfRange,
+    });
+  } catch (err) {
+    sectionErrors.performanceMetrics = err instanceof Error ? err.message : "Failed to get performance metrics";
+  }
+
   // Event type constants
   const purchaseTypes = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
   const sessionStartTypes = ["player_join", "session_start"];
   const sessionEndTypes = ["player_leave", "session_end"];
   const clickTypes = ["product_click", "gamepass_click", "devproduct_click", "gamepass_prompt", "devproduct_prompt"];
   const viewTypes = ["product_view"];
+  
+  // Server-only events (excluded from "Tracked Actions" count)
+  const SERVER_ONLY_EVENT_TYPES = ["ccu_heartbeat", "script_started"];
   
   // Active user event types (for PCR & ARPDAU)
   // Any player event that indicates a real human player was active.
@@ -645,7 +670,6 @@ export async function GET(request: NextRequest) {
 
   // Get total event count and latest event time for dataHealth (all-time, not just range)
   // For "Tracked Actions": exclude server-only events (ccu_heartbeat, script_started)
-  const SERVER_ONLY_EVENT_TYPES = ["ccu_heartbeat", "script_started"];
   let totalEventsCount = 0;
   let totalEventsCountAllTypes = 0; // Including server events, for hasTrackerEvents check
   let totalEventsInRange = 0; // Tracked Actions for selected range (excludes server-only)
@@ -2105,15 +2129,18 @@ let ccuHistory: {
       // Tracker stats (for Game Performance tab)
       // Always return object with safe values when tracker is active
       // For free users, null out purchase count
+      // IMPORTANT: Use shared helper values when available for card/chart consistency
 trackerStats: hasTrackerEvents ? {
-  // Use range-filtered count for Tracked Actions card (matches chart data)
-  totalEvents: totalEventsInRange,
-  uniquePlayers: uniquePlayers || 0,
-  totalSessions: totalSessions || 0,
-  avgSessionDuration: avgSessionDuration || null,
-  avgSessionFormatted: avgSessionDuration ? `${Math.floor(avgSessionDuration / 60)}m` : null,
-  // New players = players with only one session (one distinct hour of activity)
-  newPlayers: newPlayers || 0,
+  // Use shared helper values for consistency (cards must match charts)
+  totalEvents: performanceMetrics?.cards.trackedActions ?? totalEventsInRange,
+  uniquePlayers: performanceMetrics?.cards.uniquePlayers ?? uniquePlayers ?? 0,
+  totalSessions: performanceMetrics?.cards.totalSessions ?? totalSessions ?? 0,
+  avgSessionDuration: performanceMetrics?.cards.avgSessionSeconds ?? avgSessionDuration ?? null,
+  avgSessionFormatted: (performanceMetrics?.cards.avgSessionSeconds ?? avgSessionDuration) 
+    ? `${Math.floor((performanceMetrics?.cards.avgSessionSeconds ?? avgSessionDuration ?? 0) / 60)}m` 
+    : null,
+  // New players from shared helper
+  newPlayers: performanceMetrics?.cards.newPlayers ?? newPlayers ?? 0,
   // Legacy alias for backwards compatibility
   firstSeenPlayers: firstSeenPlayers || 0,
   // Returning = players with >= 2 distinct sessions (hours of activity) - LIFETIME count
@@ -2124,7 +2151,7 @@ trackerStats: hasTrackerEvents ? {
   rangeStart: startDate.toISOString(),
   rangeEnd: now.toISOString(),
   // For free users, null out purchases
-  totalPurchases: monetizationLocked ? null : (totalPurchases || 0),
+  totalPurchases: monetizationLocked ? null : (performanceMetrics?.cards.purchases ?? totalPurchases ?? 0),
   // Use purchaseEvents or sessionEvents for last event time (since allEvents is empty now)
   lastEventTime: latestEventAt || (purchaseEvents.length > 0 ? purchaseEvents[purchaseEvents.length - 1].created_at : (sessionEvents.length > 0 ? sessionEvents[sessionEvents.length - 1].created_at : null)),
   // Debug info for returning users calculation (included in response for debug panel)
@@ -2133,6 +2160,9 @@ trackerStats: hasTrackerEvents ? {
     playersWithMultipleSessions: Array.from(playerDistinctHours.values()).filter(h => h.size >= 2).length,
     activeInRange: activePlayerIdsInRange.size,
     sampleReturningPlayerIds,
+    // Add shared helper debug info
+    sharedHelperUsed: performanceMetrics !== null,
+    sharedHelperMismatches: performanceMetrics?.debug.mismatches ?? [],
   },
   } : null,
       // Revenue stats (for Monetization tab)
@@ -2252,15 +2282,16 @@ trackerStats: hasTrackerEvents ? {
         revenue: revenueChart,
         players: playersChart,
       } : null,
-  // Performance charts
+  // Performance charts - USE SHARED HELPER FOR CONSISTENCY
   performanceCharts: hasTrackerEvents ? {
-  eventsOverTime,
+  // Use shared helper chart data when available (ensures card/chart match)
+  eventsOverTime: performanceMetrics?.charts.activityOverTime.map(b => ({ date: b.date, events: b.value })) ?? eventsOverTime,
   playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
-  sessionsOverTime,
-  purchasesOverTime,
+  sessionsOverTime: performanceMetrics?.charts.playerJoinsOverTime.map(b => ({ date: b.date, sessions: b.value })) ?? sessionsOverTime,
+  purchasesOverTime: performanceMetrics?.charts.purchasesOverTime.map(b => ({ date: b.date, purchases: b.value })) ?? purchasesOverTime,
   ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
-  // Debug info for card/chart alignment verification
-  debug: performanceChartsDebug,
+  // Debug info for card/chart alignment verification - prefer shared helper debug
+  debug: performanceMetrics?.debug ?? performanceChartsDebug,
   } : null,
   // Monetization charts - locked for free users
   // Uses same shared product aggregation for consistency with Products page
