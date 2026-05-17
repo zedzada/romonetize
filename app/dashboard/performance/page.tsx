@@ -1237,9 +1237,33 @@ const handleSyncAndRefresh = useCallback(async () => {
                   
                   {/* BUILD VERIFICATION MARKER - Remove after confirming deployment freshness */}
                   <div className="col-span-full mb-2 p-2 bg-purple-900/50 border border-purple-500 rounded text-purple-200 font-mono text-[10px]">
-                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-1</span></div>
+                    <div>Performance Debug Build: <span className="text-purple-100 font-bold">v-gp-final-3</span></div>
                     <div>Rendered file: <span className="text-purple-100">/app/dashboard/performance/page.tsx</span></div>
                     <div>Backend helper: <span className="text-purple-100">/lib/helpers/game-performance.ts</span></div>
+                    <div>Hook fix: <span className="text-purple-100">trackerStats, performanceCharts, dataHealth from data (not safeData)</span></div>
+                  </div>
+                  
+                  {/* CHART WIRING DEBUG - shows if chart arrays have data */}
+                  <div className="col-span-full mb-2 p-2 bg-blue-900/50 border border-blue-500 rounded text-blue-200 font-mono text-[10px]">
+                    <div className="text-blue-300 font-bold mb-1">Chart Wiring Verification:</div>
+                    <div>cardTrackedActions: <span className="text-blue-100">{safeTrackerStats.totalEvents}</span></div>
+                    <div>cardTotalSessions: <span className="text-blue-100">{safeTrackerStats.totalSessions}</span></div>
+                    <div>cardPurchases: <span className="text-blue-100">{safeTrackerStats.totalPurchases ?? "null"}</span></div>
+                    <div>activityBucketsLength: <span className={performanceCharts?.eventsOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.eventsOverTime?.length ?? 0}</span></div>
+                    <div>sessionsBucketsLength: <span className={performanceCharts?.sessionsOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.sessionsOverTime?.length ?? 0}</span></div>
+                    <div>purchasesBucketsLength: <span className={performanceCharts?.purchasesOverTime?.length ? "text-green-400" : "text-red-400"}>{performanceCharts?.purchasesOverTime?.length ?? 0}</span></div>
+                    <div>activityChartTotal (badge): <span className={safeTrackerStats.totalEvents > 0 ? "text-green-400" : "text-red-400"}>{safeTrackerStats.totalEvents}</span></div>
+                    <div>sessionsChartTotal (badge): <span className={safeTrackerStats.totalSessions > 0 ? "text-green-400" : "text-red-400"}>{safeTrackerStats.totalSessions}</span></div>
+                    <div>purchasesChartTotal (badge): <span className={safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 ? "text-green-400" : "text-yellow-400"}>{safeTrackerStats.totalPurchases ?? "null"}</span></div>
+                    {safeTrackerStats.totalEvents > 0 && (!performanceCharts?.eventsOverTime?.length) && (
+                      <div className="text-red-400 font-bold mt-1">ERROR: Cards have data but Activity chart buckets are empty!</div>
+                    )}
+                    {safeTrackerStats.totalSessions > 0 && (!performanceCharts?.sessionsOverTime?.length) && (
+                      <div className="text-red-400 font-bold mt-1">ERROR: Cards have data but Sessions chart buckets are empty!</div>
+                    )}
+                    {safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 && (!performanceCharts?.purchasesOverTime?.length) && (
+                      <div className="text-red-400 font-bold mt-1">ERROR: Cards have data but Purchases chart buckets are empty!</div>
+                    )}
                   </div>
                   
                   <div>selectedRange: <span className="text-foreground">{performanceCharts?.debug?.selectedRange || chartRange}</span></div>
@@ -1602,8 +1626,8 @@ const handleSyncAndRefresh = useCallback(async () => {
               title="Activity Over Time"
               subtitle="All tracked actions from your game"
               source="tracker"
-              summary={performanceCharts?.eventsOverTime?.length ? `Total: ${performanceCharts.eventsOverTime.reduce((sum, d) => sum + (d.events ?? 0), 0).toLocaleString()}` : undefined}
-              isEmpty={!performanceCharts?.eventsOverTime?.length}
+              summary={safeTrackerStats.totalEvents > 0 ? `Total: ${safeTrackerStats.totalEvents.toLocaleString()}` : undefined}
+              isEmpty={!performanceCharts?.eventsOverTime?.length && safeTrackerStats.totalEvents === 0}
               emptyTitle="No tracking data yet"
               emptyMessage="Activity will appear after players interact with your game."
             >
@@ -1644,20 +1668,20 @@ const handleSyncAndRefresh = useCallback(async () => {
               </ResponsiveContainer>
             </ChartCard>
 
-            {/* Players Over Time */}
+            {/* Total Sessions Over Time - matches Total Sessions card */}
             <ChartCard
-              title="Player Joins Over Time"
-              subtitle="Unique players who joined sessions"
+              title="Total Sessions Over Time"
+              subtitle="Player join events (session starts)"
               source="tracker"
-              summary={performanceCharts?.playersOverTime?.length ? `Total: ${performanceCharts.playersOverTime.reduce((sum, d) => sum + (d.players ?? 0), 0).toLocaleString()}` : undefined}
-              isEmpty={!performanceCharts?.playersOverTime?.length}
-              emptyTitle="No player data yet"
-              emptyMessage="Player joins will appear after players start sessions in your game."
+              summary={safeTrackerStats.totalSessions > 0 ? `Total: ${safeTrackerStats.totalSessions.toLocaleString()}` : undefined}
+              isEmpty={!performanceCharts?.sessionsOverTime?.length && safeTrackerStats.totalSessions === 0}
+              emptyTitle="No session data yet"
+              emptyMessage="Sessions will appear after players start sessions in your game."
             >
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={performanceCharts?.playersOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                <BarChart data={performanceCharts?.sessionsOverTime ?? []} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                   <defs>
-                    <linearGradient id="playersGradient" x1="0" y1="0" x2="0" y2="1">
+                    <linearGradient id="sessionsGradient" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={CHART_COLORS.cyan} stopOpacity={1}/>
                       <stop offset="100%" stopColor={CHART_COLORS.cyan} stopOpacity={0.7}/>
                     </linearGradient>
@@ -1674,17 +1698,17 @@ const handleSyncAndRefresh = useCallback(async () => {
                   />
                   <Tooltip
                     {...tooltipStyle}
-                    formatter={(value: number) => [value.toLocaleString(), "Players"]}
+                    formatter={(value: number) => [value.toLocaleString(), "Sessions"]}
                     labelFormatter={(label) => formatChartTime(label, toChartTimeRange(chartRange))}
                   />
                   <Bar 
-                    dataKey="players" 
-                    fill="url(#playersGradient)"
+                    dataKey="sessions" 
+                    fill="url(#sessionsGradient)"
                     radius={[6, 6, 0, 0]}
                     maxBarSize={50}
                   >
-                    {(performanceCharts?.playersOverTime?.length ?? 0) <= 3 && (
-                      <LabelList dataKey="players" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
+                    {(performanceCharts?.sessionsOverTime?.length ?? 0) <= 3 && (
+                      <LabelList dataKey="sessions" position="top" fill={chartTheme.label} fontSize={12} fontWeight={600} />
                     )}
                   </Bar>
                 </BarChart>
@@ -1709,8 +1733,8 @@ const handleSyncAndRefresh = useCallback(async () => {
                 title="Purchases Over Time"
                 subtitle="Successful product purchases"
                 source="tracker"
-                summary={performanceCharts?.purchasesOverTime?.length ? `Total: ${performanceCharts.purchasesOverTime.reduce((sum, d) => sum + (d.purchases ?? 0), 0).toLocaleString()}` : undefined}
-                isEmpty={!performanceCharts?.purchasesOverTime?.length}
+                summary={safeTrackerStats.totalPurchases && safeTrackerStats.totalPurchases > 0 ? `Total: ${safeTrackerStats.totalPurchases.toLocaleString()}` : undefined}
+                isEmpty={!performanceCharts?.purchasesOverTime?.length && (!safeTrackerStats.totalPurchases || safeTrackerStats.totalPurchases === 0)}
                 emptyTitle="No purchases yet"
                 emptyMessage="Purchases will appear after players make purchases in your game."
               >
