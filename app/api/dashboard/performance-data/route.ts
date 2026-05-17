@@ -240,28 +240,41 @@ export async function GET(request: NextRequest) {
     // Average session duration (if we have session_end events with duration)
     let avgSessionSeconds: number | null = null;
     const sessionEndEvents = allEvents.filter(e => e.event_type === "session_end");
+    const validDurations: number[] = [];
+    let sampleSessionEndMetadata: Record<string, unknown> | null = null;
+    
     if (sessionEndEvents.length > 0) {
-      let totalDuration = 0;
-      let durationCount = 0;
+      // Capture first sample for debug
+      if (sessionEndEvents[0]?.metadata) {
+        sampleSessionEndMetadata = sessionEndEvents[0].metadata as Record<string, unknown>;
+      }
+      
       for (const e of sessionEndEvents) {
-        // Support multiple duration field variants
+        // Support multiple duration field variants - check root columns and metadata
         const meta = e.metadata as Record<string, unknown> | null;
+        const eventRecord = e as Record<string, unknown>;
+        
         const duration = 
-          meta?.session_duration_seconds ??
-          meta?.duration_seconds ??
+          // Root column variants
+          eventRecord.duration ??
+          eventRecord.session_duration ??
+          eventRecord.duration_seconds ??
+          // Metadata variants
           meta?.duration ??
           meta?.session_duration ??
-          (e as Record<string, unknown>).duration ??
-          (e as Record<string, unknown>).session_duration ??
-          (e as Record<string, unknown>).duration_seconds;
+          meta?.duration_seconds ??
+          meta?.session_duration_seconds ??
+          meta?.sessionLength ??
+          meta?.session_length;
         
-        if (typeof duration === "number" && duration > 0) {
-          totalDuration += duration;
-          durationCount++;
+        const seconds = Number(duration);
+        if (Number.isFinite(seconds) && seconds > 0) {
+          validDurations.push(seconds);
         }
       }
-      if (durationCount > 0) {
-        avgSessionSeconds = Math.round(totalDuration / durationCount);
+      
+      if (validDurations.length > 0) {
+        avgSessionSeconds = Math.round(validDurations.reduce((a, b) => a + b, 0) / validDurations.length);
       }
     }
 
@@ -364,6 +377,12 @@ export async function GET(request: NextRequest) {
         rawEventCount: allEvents.length,
         firstEventAt,
         latestEventAt,
+        // Session debug
+        sessionEndCount: sessionEndEvents.length,
+        validSessionDurationCount: validDurations.length,
+        sampleSessionEndMetadata,
+        // New players debug
+        firstSeenPlayersChecked: validPlayerIds.size,
       },
     }, { headers });
 
