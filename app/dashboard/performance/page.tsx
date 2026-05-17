@@ -972,6 +972,8 @@ export default function PerformancePage() {
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
                     resolvedUniverseId,
+                    robloxApiUrl: performanceData?.robloxApiUrl ?? null,
+                    robloxStatsSource: performanceData?.robloxStatsSource ?? "none",
                     hasRobloxConnection,
                     robloxUrl,
                   }, null, 2)}
@@ -980,10 +982,7 @@ export default function PerformancePage() {
               <div>
                 <strong>Roblox Stats:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify({
-                    ...robloxStats,
-                    source: performanceData?.robloxStatsSource ?? "games_table",
-                  }, null, 2)}
+                  {JSON.stringify(robloxStats, null, 2)}
                 </pre>
               </div>
             </div>
@@ -1003,9 +1002,10 @@ export default function PerformancePage() {
                 <strong>New Players Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    activePlayersInRange: cardStats.uniquePlayers,
-                    firstSeenPlayersChecked: performanceData?.debug?.firstSeenPlayersChecked ?? 0,
+                    totalPlayersEver: performanceData?.debug?.totalPlayersEver ?? 0,
+                    activePlayersInRange: performanceData?.debug?.activePlayersInRange ?? 0,
                     newPlayers: cardStats.newPlayers,
+                    sampleFirstSeenPlayers: performanceData?.debug?.sampleFirstSeenPlayers ?? [],
                   }, null, 2)}
                 </pre>
               </div>
