@@ -279,29 +279,64 @@ const handleSyncAndRefresh = useCallback(async () => {
   // 2. Background sync fires and forgets - doesn't block UI
   // 3. useAnalytics auto-refreshes every 60s to pick up new data
   // 4. Only poll when tab is visible
+  // 5. Stop polling after consecutive failures to prevent spam
   useEffect(() => {
     let isMounted = true;
+    let isSyncing = false; // Guard against concurrent calls
+    let consecutiveFailures = 0;
+    const MAX_CONSECUTIVE_FAILURES = 3; // Stop polling after 3 failures
     
     // Non-blocking background sync - fire and forget
     const doBackgroundSync = () => {
       if (!isMounted) return;
+      if (isSyncing) return; // Prevent concurrent calls
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+        // Stop spamming after too many failures
+        if (pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
+        return;
+      }
+      
+      isSyncing = true;
       
       // Fire sync without awaiting - don't block anything
       fetch("/api/roblox/sync-all-ccu", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-      }).then(() => {
+      }).then((res) => {
+        isSyncing = false;
         if (isMounted) {
-          setLastPollTime(new Date());
-          setPollCount((c) => c + 1);
+          if (res.ok) {
+            consecutiveFailures = 0; // Reset on success
+            setLastPollTime(new Date());
+            setPollCount((c) => c + 1);
+          } else {
+            consecutiveFailures++;
+            // Stop polling if too many failures
+            if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+          }
         }
       }).catch(() => {
-        // Silently ignore sync failures - useAnalytics will still refresh
+        isSyncing = false;
+        consecutiveFailures++;
+        // Stop polling if too many failures
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES && pollingIntervalRef.current) {
+          clearInterval(pollingIntervalRef.current);
+          pollingIntervalRef.current = null;
+        }
       });
     };
     
     // Start polling interval - only when visible
     const startPolling = () => {
+      // Don't restart if we've had too many failures
+      if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) return;
+      
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
@@ -317,8 +352,7 @@ const handleSyncAndRefresh = useCallback(async () => {
     // Handle visibility change
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
-        // Tab visible - trigger background sync and restart interval
-        doBackgroundSync();
+        // Tab visible - restart interval (but don't trigger immediate sync to avoid spam)
         startPolling();
       } else {
         // Tab hidden - stop polling
@@ -333,6 +367,7 @@ const handleSyncAndRefresh = useCallback(async () => {
     const handleGameChange = () => {
       setPollCount(0);
       setLastPollTime(null);
+      consecutiveFailures = 0; // Reset failures on game change
     };
     
     // Initial setup - DO NOT sync on mount, just start polling

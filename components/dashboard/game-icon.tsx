@@ -49,7 +49,7 @@ export function GameIcon({ name, thumbnailUrl, robloxGameId, size = "md", classN
   // Effective thumbnail: provided > fetched
   const effectiveThumbnail = thumbnailUrl || dynamicThumbnail;
   
-  // Fetch thumbnail from Roblox API if not provided and robloxGameId is available
+  // Fetch thumbnail via server-side proxy to avoid CORS errors
   useEffect(() => {
     // Skip if we already have a thumbnail or already attempted fetch
     if (thumbnailUrl || fetchAttempted || !robloxGameId) return;
@@ -62,22 +62,25 @@ export function GameIcon({ name, thumbnailUrl, robloxGameId, size = "md", classN
       return;
     }
     
-    // Fetch from Roblox API
+    // Fetch via server-side proxy (avoids CORS)
     const fetchThumbnail = async () => {
       try {
         const response = await fetch(
-          `https://thumbnails.roblox.com/v1/games/icons?universeIds=${robloxGameId}&size=150x150&format=Png&isCircular=false`
+          `/api/roblox/thumbnails?universeIds=${robloxGameId}`
         );
         
         if (response.ok) {
           const data = await response.json();
-          const thumbnail = data.data?.[0];
-          if (thumbnail?.state === "Completed" && thumbnail?.imageUrl) {
-            thumbnailCache.set(robloxGameId, thumbnail.imageUrl);
-            setDynamicThumbnail(thumbnail.imageUrl);
+          const thumbnailUrl = data.thumbnails?.[robloxGameId];
+          if (thumbnailUrl) {
+            thumbnailCache.set(robloxGameId, thumbnailUrl);
+            setDynamicThumbnail(thumbnailUrl);
           } else {
             thumbnailCache.set(robloxGameId, null);
           }
+        } else {
+          // Silent fail - use fallback
+          thumbnailCache.set(robloxGameId, null);
         }
       } catch {
         // Silent fail - use fallback
