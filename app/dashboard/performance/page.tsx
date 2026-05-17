@@ -972,7 +972,7 @@ export default function PerformancePage() {
                 </div>
               </div>
               <Button asChild variant="outline" className="border-amber-500/30 hover:bg-amber-500/10">
-                <Link href="/dashboard/setup">
+                <Link href="/dashboard/game/tracking-setup">
                   View Installation Guide
                   <ExternalLink className="w-3 h-3 ml-2" />
                 </Link>
