@@ -288,16 +288,19 @@ export async function getGamePerformanceMetrics(params: {
   // ============================================================
   
   // Helper: Extract player_id from event (check root AND metadata)
+  // Per spec: must check player_id, metadata.player_id, metadata.playerId, metadata.user_id, metadata.userId
   function extractPlayerId(event: { player_id: string | null; metadata: Record<string, unknown> | null }): string | null {
     const rawPlayerId = 
       event.player_id ??
       (event.metadata?.player_id as string | null | undefined) ??
       (event.metadata?.playerId as string | null | undefined) ??
+      (event.metadata?.user_id as string | null | undefined) ??
+      (event.metadata?.userId as string | null | undefined) ??
       null;
     
     // Normalize to string or null
     if (rawPlayerId === null || rawPlayerId === undefined) return null;
-    const normalized = String(rawPlayerId);
+    const normalized = String(rawPlayerId).trim();
     
     // Validate: reject invalid player IDs
     if (
@@ -318,13 +321,20 @@ export async function getGamePerformanceMetrics(params: {
     eventTypeCounts[e.event_type] = (eventTypeCounts[e.event_type] || 0) + 1;
   });
   
+  // Debug counters for player_id source
+  let rootPlayerIdCount = 0;
+  let metadataPlayerIdCount = 0;
+  
   // Sample player events for debug (shows where player_id comes from)
   const samplePlayerEvents: Array<{
     event_type: string;
     root_player_id: string | null;
     metadata_player_id: unknown;
     metadata_playerId: unknown;
+    metadata_user_id: unknown;
+    metadata_userId: unknown;
     resolvedPlayerId: string | null;
+    source: "root" | "metadata" | "none";
   }> = [];
   
   // Unique players from ACTIVE_PLAYER_EVENT_TYPES only
@@ -336,14 +346,27 @@ export async function getGamePerformanceMetrics(params: {
     .forEach(e => {
       const resolvedPlayerId = extractPlayerId(e);
       
-      // Collect sample events for debug (first 10)
-      if (samplePlayerEvents.length < 10) {
+      // Track source of player_id for debug
+      let source: "root" | "metadata" | "none" = "none";
+      if (e.player_id && e.player_id !== "server" && e.player_id !== "null" && e.player_id !== "undefined" && e.player_id.trim() !== "") {
+        rootPlayerIdCount++;
+        source = "root";
+      } else if (resolvedPlayerId) {
+        metadataPlayerIdCount++;
+        source = "metadata";
+      }
+      
+      // Collect sample events for debug (first 20 to get better coverage)
+      if (samplePlayerEvents.length < 20) {
         samplePlayerEvents.push({
           event_type: e.event_type,
           root_player_id: e.player_id,
           metadata_player_id: e.metadata?.player_id,
           metadata_playerId: e.metadata?.playerId,
+          metadata_user_id: e.metadata?.user_id,
+          metadata_userId: e.metadata?.userId,
           resolvedPlayerId,
+          source,
         });
       }
       
@@ -381,12 +404,12 @@ export async function getGamePerformanceMetrics(params: {
           .limit(1)
           .maybeSingle();
         
-        // Query 2: Check metadata->player_id (JSONB contains)
+        // Query 2: Check metadata fields (player_id, playerId, user_id, userId)
         const { data: metaFirstEvent } = await supabase
           .from("events")
           .select("created_at")
           .eq("game_id", selectedGameId)
-          .or(`metadata->player_id.eq.${playerId},metadata->player_id.eq."${playerId}",metadata->playerId.eq.${playerId},metadata->playerId.eq."${playerId}"`)
+          .or(`metadata->player_id.eq.${playerId},metadata->player_id.eq."${playerId}",metadata->playerId.eq.${playerId},metadata->playerId.eq."${playerId}",metadata->user_id.eq.${playerId},metadata->user_id.eq."${playerId}",metadata->userId.eq.${playerId},metadata->userId.eq."${playerId}"`)
           .in("event_type", ACTIVE_PLAYER_EVENT_TYPES)
           .order("created_at", { ascending: true })
           .limit(1)
@@ -549,7 +572,9 @@ export async function getGamePerformanceMetrics(params: {
       eventTypeCounts,
       // Player ID debug info (per spec)
       samplePlayerEvents,
-      validPlayerIdsFound: uniquePlayerIds.size,
+      rootPlayerIdCount,
+      metadataPlayerIdCount,
+      validResolvedPlayerIdsFound: uniquePlayerIds.size,
       trackedActionsCard,
       activityChartTotal,
       totalSessionsCard,
