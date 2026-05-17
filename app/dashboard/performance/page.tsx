@@ -1347,6 +1347,15 @@ const handleSyncAndRefresh = useCallback(async () => {
             {isDebugMode && (
               <div className="mx-6 mb-4 p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs font-mono">
                 
+                {/* PROOF OF CORRECT FILE - This MUST be visible */}
+                <div className="mb-4 p-4 bg-black border-4 border-green-500 rounded-lg text-lg">
+                  <div className="text-green-400 font-bold">Rendered Performance File: <span className="text-white">/app/dashboard/performance/page.tsx</span></div>
+                  <div className="text-green-400 font-bold">Debug API Loaded: <span className={rawDebugResponse ? "text-green-300" : "text-red-400"}>{rawDebugResponse ? "true" : "false"}</span></div>
+                  <div className="text-green-400 font-bold">Build: <span className="text-white">v-gp-step1-proof</span></div>
+                  {isLoadingRawDebug && <div className="text-yellow-400">Loading...</div>}
+                  {rawDebugError && <div className="text-red-400">Error: {rawDebugError}</div>}
+                </div>
+                
                 {/* RAW API DEBUG PANEL - SOURCE OF TRUTH */}
                 <div className="mb-4 p-3 bg-red-900/30 border border-red-500 rounded-lg">
                   <div className="font-bold text-red-400 mb-2">
