@@ -482,6 +482,12 @@ export async function POST(request: NextRequest) {
   const ccuHeartbeatEvents = events.filter(
     (e) => e.event_type === "ccu_heartbeat"
   );
+  
+  // DEBUG: Log CCU heartbeat event detection
+  console.log(`[v0] CCU heartbeat events found: ${ccuHeartbeatEvents.length} out of ${events.length} total events`);
+  if (ccuHeartbeatEvents.length > 0) {
+    console.log(`[v0] First CCU heartbeat event:`, JSON.stringify(ccuHeartbeatEvents[0]).slice(0, 500));
+  }
 
   // Track results for explicit response
   let ccuHeartbeatResult: { 
@@ -576,12 +582,15 @@ export async function POST(request: NextRequest) {
         snapshotData.server_id = serverId;
       }
       
+      // DEBUG: Log snapshot insert attempt
+      console.log(`[v0] Attempting ccu_snapshot insert:`, JSON.stringify(snapshotData));
+      
       const { error: snapshotError } = await supabaseAdmin
         .from("ccu_snapshots")
         .insert(snapshotData);
 
       if (snapshotError) {
-        console.error(`[api/events] Failed to insert ccu_snapshot: game_id=${game.id}, error=${snapshotError.message}`);
+        console.error(`[v0] ccu_snapshot INSERT FAILED: game_id=${game.id}, error=${snapshotError.message}, code=${snapshotError.code}`);
         ccuHeartbeatResult = { 
           success: false, 
           game_id: game.id,
@@ -594,6 +603,9 @@ export async function POST(request: NextRequest) {
         // Don't fail the whole request - event was already inserted
         continue;
       }
+      
+      // DEBUG: Log successful insert
+      console.log(`[v0] ccu_snapshot INSERT SUCCESS: game_id=${game.id}, ccu=${totalCcu}`);
 
       // Update current_players on the games table
       await supabaseAdmin
