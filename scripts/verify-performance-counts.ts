@@ -2,16 +2,23 @@
  * SQL Consistency Check Script
  * Verifies that dashboard counts match raw database counts
  * 
- * Usage: node --env-file-if-exists=/vercel/share/.env.project scripts/verify-performance-counts.ts
+ * Usage: source /vercel/share/.env.project && npx tsx scripts/verify-performance-counts.ts
  */
 
 import { createClient } from "@supabase/supabase-js";
 
-const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+// Environment variables - NEXT_PUBLIC_SUPABASE_URL is the standard name
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
-  console.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY");
+if (!SUPABASE_URL) {
+  console.error("Missing NEXT_PUBLIC_SUPABASE_URL environment variable");
+  process.exit(1);
+}
+
+if (!SUPABASE_SERVICE_KEY) {
+  console.error("Missing SUPABASE_SERVICE_ROLE_KEY environment variable");
+  console.error("This script requires admin access. Run with service role key.");
   process.exit(1);
 }
 
