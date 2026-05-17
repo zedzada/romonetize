@@ -287,17 +287,15 @@ export async function getGamePerformanceMetrics(params: {
   // STEP 3: COMPUTE CARD METRICS FROM FETCHED EVENTS
   // ============================================================
   
-  // Helper: Extract player_id from event (check root AND metadata)
-  function extractPlayerId(event: { player_id: string | null; metadata: Record<string, unknown> | null }): string | null {
-    const rawPlayerId = 
-      event.player_id ??
-      (event.metadata?.player_id as string | null | undefined) ??
-      (event.metadata?.playerId as string | null | undefined) ??
-      null;
+  // Helper: Extract player_id from event
+  // IMPORTANT: Player ID is stored in root events.player_id column ONLY (confirmed by SQL check)
+  // Do NOT check metadata fields - they are not used for player identification
+  function extractPlayerId(event: { player_id: string | null }): string | null {
+    const rawPlayerId = event.player_id;
     
     // Normalize to string or null
     if (rawPlayerId === null || rawPlayerId === undefined) return null;
-    const normalized = String(rawPlayerId);
+    const normalized = String(rawPlayerId).trim();
     
     // Validate: reject invalid player IDs
     if (
@@ -318,12 +316,13 @@ export async function getGamePerformanceMetrics(params: {
     eventTypeCounts[e.event_type] = (eventTypeCounts[e.event_type] || 0) + 1;
   });
   
-  // Sample player events for debug (shows where player_id comes from)
+  // Debug counter for valid player_id
+  let validPlayerIdCount = 0;
+  
+  // Sample player events for debug
   const samplePlayerEvents: Array<{
     event_type: string;
-    root_player_id: string | null;
-    metadata_player_id: unknown;
-    metadata_playerId: unknown;
+    player_id: string | null;
     resolvedPlayerId: string | null;
   }> = [];
   
@@ -336,13 +335,15 @@ export async function getGamePerformanceMetrics(params: {
     .forEach(e => {
       const resolvedPlayerId = extractPlayerId(e);
       
-      // Collect sample events for debug (first 10)
-      if (samplePlayerEvents.length < 10) {
+      if (resolvedPlayerId) {
+        validPlayerIdCount++;
+      }
+      
+      // Collect sample events for debug (first 20 to get better coverage)
+      if (samplePlayerEvents.length < 20) {
         samplePlayerEvents.push({
           event_type: e.event_type,
-          root_player_id: e.player_id,
-          metadata_player_id: e.metadata?.player_id,
-          metadata_playerId: e.metadata?.playerId,
+          player_id: e.player_id,
           resolvedPlayerId,
         });
       }
@@ -370,8 +371,8 @@ export async function getGamePerformanceMetrics(params: {
       const batch = playerIds.slice(i, i + batchSize);
       
       for (const playerId of batch) {
-        // Query 1: Check root player_id
-        const { data: rootFirstEvent } = await supabase
+        // Query root player_id column ONLY (confirmed by SQL check)
+        const { data: firstEvent } = await supabase
           .from("events")
           .select("created_at")
           .eq("game_id", selectedGameId)
@@ -381,32 +382,11 @@ export async function getGamePerformanceMetrics(params: {
           .limit(1)
           .maybeSingle();
         
-        // Query 2: Check metadata->player_id (JSONB contains)
-        const { data: metaFirstEvent } = await supabase
-          .from("events")
-          .select("created_at")
-          .eq("game_id", selectedGameId)
-          .or(`metadata->player_id.eq.${playerId},metadata->player_id.eq."${playerId}",metadata->playerId.eq.${playerId},metadata->playerId.eq."${playerId}"`)
-          .in("event_type", ACTIVE_PLAYER_EVENT_TYPES)
-          .order("created_at", { ascending: true })
-          .limit(1)
-          .maybeSingle();
-        
-        // Find the earliest event between root and metadata
-        let firstEventTime: Date | null = null;
-        
-        if (rootFirstEvent) {
-          firstEventTime = new Date(rootFirstEvent.created_at);
-        }
-        if (metaFirstEvent) {
-          const metaTime = new Date(metaFirstEvent.created_at);
-          if (!firstEventTime || metaTime < firstEventTime) {
-            firstEventTime = metaTime;
+        if (firstEvent) {
+          const firstEventTime = new Date(firstEvent.created_at);
+          if (firstEventTime >= rangeStartUtc && firstEventTime <= rangeEndUtc) {
+            newPlayersCount++;
           }
-        }
-        
-        if (firstEventTime && firstEventTime >= rangeStartUtc && firstEventTime <= rangeEndUtc) {
-          newPlayersCount++;
         }
       }
     }
@@ -547,9 +527,9 @@ export async function getGamePerformanceMetrics(params: {
       bucketType,
       bucketCount: allBucketKeys.length,
       eventTypeCounts,
-      // Player ID debug info (per spec)
+      // Player ID debug info - uses root player_id only
       samplePlayerEvents,
-      validPlayerIdsFound: uniquePlayerIds.size,
+      validPlayerIdCount,
       trackedActionsCard,
       activityChartTotal,
       totalSessionsCard,

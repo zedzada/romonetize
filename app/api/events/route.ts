@@ -502,7 +502,16 @@ export async function POST(request: NextRequest) {
     const serverId = (rawEvent.server_id || metadata.server_id) as string | undefined;
     const placeId = (rawEvent.place_id || metadata.place_id) as string | undefined;
     const universeId = (rawEvent.universe_id || metadata.universe_id) as string | undefined;
-    const serverCcu = (rawEvent.ccu ?? metadata.ccu) as number | undefined;
+    
+    // Extract CCU from multiple possible fields (per spec)
+    // Priority: root ccu > root current_players > metadata.ccu > metadata.current_players > metadata.players
+    const rawCcu = 
+      rawEvent.ccu ??
+      rawEvent.current_players ??
+      metadata.ccu ??
+      metadata.current_players ??
+      metadata.players;
+    const serverCcu = typeof rawCcu === "number" ? rawCcu : (typeof rawCcu === "string" ? parseInt(rawCcu, 10) : undefined);
     
     if (!serverId) {
       console.warn(`[api/events] CCU heartbeat missing server_id for game_id=${game.id}`);
