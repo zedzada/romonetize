@@ -982,7 +982,10 @@ export default function PerformancePage() {
               <div>
                 <strong>Roblox Stats:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify(robloxStats, null, 2)}
+                  {JSON.stringify({
+                    ...robloxStats,
+                    debug: performanceData?.robloxStatsDebug ?? null,
+                  }, null, 2)}
                 </pre>
               </div>
             </div>
@@ -990,22 +993,23 @@ export default function PerformancePage() {
               <div>
                 <strong>Avg Session Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify({
-                    sessionEndCount: performanceData?.debug?.sessionEndCount ?? 0,
-                    validSessionDurationCount: performanceData?.debug?.validSessionDurationCount ?? 0,
-                    avgSessionSeconds: cardStats.avgSessionDuration,
-                    sampleSessionEndMetadata: performanceData?.debug?.sampleSessionEndMetadata ?? null,
+                  {JSON.stringify(performanceData?.avgSessionDebug ?? {
+                    sessionEndCount: 0,
+                    validSessionDurationCount: 0,
+                    sampleSessionEndEvents: [],
+                    avgSessionSeconds: null,
                   }, null, 2)}
                 </pre>
               </div>
               <div>
                 <strong>New Players Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify({
-                    totalPlayersEver: performanceData?.debug?.totalPlayersEver ?? 0,
-                    activePlayersInRange: performanceData?.debug?.activePlayersInRange ?? 0,
-                    newPlayers: cardStats.newPlayers,
-                    sampleFirstSeenPlayers: performanceData?.debug?.sampleFirstSeenPlayers ?? [],
+                  {JSON.stringify(performanceData?.newPlayersDebug ?? {
+                    totalPlayersEver: 0,
+                    rangeStartIso: null,
+                    rangeEndIso: null,
+                    newPlayers: 0,
+                    sampleFirstSeenPlayers: [],
                   }, null, 2)}
                 </pre>
               </div>
