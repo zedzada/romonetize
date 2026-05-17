@@ -649,7 +649,7 @@ export default function PerformancePage() {
                   </div>
                   {/* Range Controls */}
                   <div className="flex items-center gap-1">
-                    {(["24h", "7d", "30d"] as const).map((range) => (
+                    {(["1h", "24h", "7d", "28d", "90d"] as const).map((range) => (
                       <Button
                         key={range}
                         variant={ccuRange === range ? "default" : "ghost"}
@@ -657,7 +657,7 @@ export default function PerformancePage() {
                         onClick={() => handleCcuRangeChange(range)}
                         className="h-7 px-2 text-xs"
                       >
-                        {range}
+                        {range.toUpperCase()}
                       </Button>
                     ))}
                   </div>
@@ -684,10 +684,10 @@ export default function PerformancePage() {
                         </linearGradient>
                       </defs>
                       <CartesianGrid {...gridProps} />
-                      <XAxis 
-                        dataKey="time" 
+                      <XAxis
+                        dataKey="time"
                         {...axisProps}
-                        tickFormatter={(value) => formatChartTime(value, ccuRange === "24h" ? "1d" : ccuRange === "7d" ? "7d" : "30d")}
+                        tickFormatter={(value) => formatChartTime(value, ccuRange === "1h" || ccuRange === "24h" ? "1d" : ccuRange === "7d" ? "7d" : "30d")}
                       />
                       <YAxis {...axisProps} />
                       <Tooltip
