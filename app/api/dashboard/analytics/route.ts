@@ -2154,14 +2154,27 @@ trackerStats: hasTrackerEvents ? {
   totalPurchases: monetizationLocked ? null : (performanceMetrics?.cards.purchases ?? totalPurchases ?? 0),
   // Use purchaseEvents or sessionEvents for last event time (since allEvents is empty now)
   lastEventTime: latestEventAt || (purchaseEvents.length > 0 ? purchaseEvents[purchaseEvents.length - 1].created_at : (sessionEvents.length > 0 ? sessionEvents[sessionEvents.length - 1].created_at : null)),
-  // Debug info for returning users calculation (included in response for debug panel)
+  // Debug info for wiring verification
   _debug: {
+    // Value sources for diagnosing zeros
+    sharedHelperUsed: performanceMetrics !== null,
+    helperUniquePlayers: performanceMetrics?.cards.uniquePlayers ?? null,
+    helperNewPlayers: performanceMetrics?.cards.newPlayers ?? null,
+    helperTotalSessions: performanceMetrics?.cards.totalSessions ?? null,
+    helperPurchases: performanceMetrics?.cards.purchases ?? null,
+    fallbackUniquePlayers: uniquePlayers ?? null,
+    fallbackNewPlayers: newPlayers ?? null,
+    fallbackTotalSessions: totalSessions ?? null,
+    fallbackTotalPurchases: totalPurchases ?? null,
+    // Which value was actually used
+    usedUniquePlayers: performanceMetrics?.cards.uniquePlayers ?? uniquePlayers ?? 0,
+    usedNewPlayers: performanceMetrics?.cards.newPlayers ?? newPlayers ?? 0,
+    usedTotalSessions: performanceMetrics?.cards.totalSessions ?? totalSessions ?? 0,
+    // Original debug fields
     distinctPlayersAllTime: playerDistinctHours.size,
     playersWithMultipleSessions: Array.from(playerDistinctHours.values()).filter(h => h.size >= 2).length,
     activeInRange: activePlayerIdsInRange.size,
     sampleReturningPlayerIds,
-    // Add shared helper debug info
-    sharedHelperUsed: performanceMetrics !== null,
     sharedHelperMismatches: performanceMetrics?.debug.mismatches ?? [],
   },
   } : null,
