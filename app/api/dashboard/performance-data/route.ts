@@ -94,19 +94,81 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Roblox stats come directly from the games table (synced via Roblox API)
-    const robloxStats = {
-      ccu: selectedGame.current_players ?? 0,
-      visits: selectedGame.total_visits ?? 0,
-      favorites: selectedGame.favorites ?? 0,
-      likes: selectedGame.likes ?? 0,
-      dislikes: selectedGame.dislikes ?? 0,
+    // Resolve universe ID - games.roblox_game_id is actually the universe ID in our schema
+    const resolvedUniverseId = 
+      (selectedGame as Record<string, unknown>).universe_id ||
+      selectedGame.roblox_game_id ||
+      (selectedGame as Record<string, unknown>).robloxGameId ||
+      null;
+
+    // Try to get Roblox stats from multiple sources:
+    // 1. First try public Roblox API (most up-to-date)
+    // 2. Fall back to games table (from previous sync)
+    let robloxStats = {
+      ccu: 0,
+      visits: 0,
+      favorites: 0,
+      likes: 0,
+      dislikes: 0,
     };
+    let robloxStatsSource: "public_api" | "games_table" | "none" = "none";
+    let robloxApiUrl: string | null = null;
+
+    if (resolvedUniverseId) {
+      robloxApiUrl = `https://games.roblox.com/v1/games?universeIds=${resolvedUniverseId}`;
+      
+      try {
+        // Fetch from public Roblox API
+        const robloxResponse = await fetch(robloxApiUrl, {
+          headers: {
+            "Accept": "application/json",
+          },
+          // Short timeout to not block the whole request
+          signal: AbortSignal.timeout(5000),
+        });
+
+        if (robloxResponse.ok) {
+          const robloxData = await robloxResponse.json();
+          const game = robloxData?.data?.[0];
+          
+          if (game) {
+            robloxStats = {
+              ccu: game.playing ?? 0,
+              visits: game.visits ?? 0,
+              favorites: game.favoritedCount ?? 0,
+              likes: game.upVotes ?? 0,
+              dislikes: game.downVotes ?? 0,
+            };
+            robloxStatsSource = "public_api";
+          }
+        }
+      } catch (apiError) {
+        console.log("[performance-data] Roblox API fetch failed, falling back to DB:", apiError);
+      }
+
+      // If API failed or returned no data, fall back to games table
+      if (robloxStatsSource === "none") {
+        const dbStats = {
+          ccu: selectedGame.current_players ?? 0,
+          visits: selectedGame.total_visits ?? 0,
+          favorites: selectedGame.favorites ?? 0,
+          likes: selectedGame.likes ?? 0,
+          dislikes: selectedGame.dislikes ?? 0,
+        };
+        
+        // Only use DB stats if they have some data
+        if (dbStats.visits > 0 || dbStats.favorites > 0 || dbStats.likes > 0) {
+          robloxStats = dbStats;
+          robloxStatsSource = "games_table";
+        }
+      }
+    }
 
     const hasRobloxData = (
       robloxStats.visits > 0 || 
       robloxStats.favorites > 0 || 
-      robloxStats.likes > 0
+      robloxStats.likes > 0 ||
+      robloxStats.ccu > 0
     );
 
     // Parse range
@@ -205,33 +267,42 @@ export async function GET(request: NextRequest) {
     // We need to check if player's first event ever is in this range
     // For efficiency, we'll query for first event per player
     let newPlayers = 0;
+    let totalPlayersEver = 0;
+    const sampleFirstSeenPlayers: Array<{ player_id: string; first_seen: string }> = [];
+    
     if (validPlayerIds.size > 0) {
       const playerIdArray = Array.from(validPlayerIds);
       
-      // For each unique player in range, check if their first event is in this range
-      // This is expensive but accurate for new player definition
-      const { data: firstEventsData } = await supabase
+      // Get ALL players ever for this game to find their first event
+      const { data: allPlayersFirstEvent } = await supabase
         .from("events")
         .select("player_id, created_at")
         .eq("game_id", selectedGame.id)
-        .in("player_id", playerIdArray)
+        .not("player_id", "is", null)
+        .neq("player_id", "server")
         .in("event_type", PLAYER_EVENT_TYPES)
         .order("created_at", { ascending: true });
 
-      if (firstEventsData) {
+      if (allPlayersFirstEvent) {
         // Group by player_id and get first event
         const playerFirstEvent = new Map<string, string>();
-        for (const e of firstEventsData) {
+        for (const e of allPlayersFirstEvent) {
           if (e.player_id && !playerFirstEvent.has(e.player_id)) {
             playerFirstEvent.set(e.player_id, e.created_at);
           }
         }
+        
+        totalPlayersEver = playerFirstEvent.size;
 
         // Count players whose first event is within range
-        for (const [, firstEventAt] of playerFirstEvent) {
+        for (const [playerId, firstEventAt] of playerFirstEvent) {
           const firstMs = new Date(firstEventAt).getTime();
           if (firstMs >= rangeStart.getTime() && firstMs <= rangeEnd.getTime()) {
             newPlayers++;
+            // Collect sample for debug
+            if (sampleFirstSeenPlayers.length < 5) {
+              sampleFirstSeenPlayers.push({ player_id: playerId, first_seen: firstEventAt });
+            }
           }
         }
       }
@@ -340,6 +411,9 @@ export async function GET(request: NextRequest) {
       // Roblox API stats
       robloxStats,
       hasRobloxData,
+      robloxStatsSource,
+      robloxApiUrl,
+      resolvedUniverseId,
 
       // Tracker metrics
       metrics: {
@@ -382,7 +456,10 @@ export async function GET(request: NextRequest) {
         validSessionDurationCount: validDurations.length,
         sampleSessionEndMetadata,
         // New players debug
-        firstSeenPlayersChecked: validPlayerIds.size,
+        totalPlayersEver,
+        activePlayersInRange: validPlayerIds.size,
+        newPlayers,
+        sampleFirstSeenPlayers,
       },
     }, { headers });
 
