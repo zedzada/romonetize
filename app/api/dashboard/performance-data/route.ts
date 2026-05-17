@@ -78,7 +78,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Get selected game using shared utility
-    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase);
+    const { game: selectedGame, error: gameError } = await getSelectedGameForUser(user.id, supabase as Parameters<typeof getSelectedGameForUser>[1]);
 
     if (gameError) {
       return NextResponse.json(
@@ -123,7 +123,7 @@ export async function GET(request: NextRequest) {
 
     while (hasMore) {
       const { data: pageEvents, error: queryError } = await supabase
-        .from("game_events")
+        .from("events")
         .select("id, event_type, player_id, created_at, metadata")
         .eq("game_id", selectedGame.id)
         .gte("created_at", rangeStartIso)
@@ -196,7 +196,7 @@ export async function GET(request: NextRequest) {
       // For each unique player in range, check if their first event is in this range
       // This is expensive but accurate for new player definition
       const { data: firstEventsData } = await supabase
-        .from("game_events")
+        .from("events")
         .select("player_id, created_at")
         .eq("game_id", selectedGame.id)
         .in("player_id", playerIdArray)
