@@ -304,11 +304,15 @@ function MonetizationContent() {
   };
 
   // Map chart range to API range
-  function toAnalyticsRange(range: ChartRange): "7d" | "30d" | "90d" {
+  // For monetization metrics (PCR, ARPPU, ARPDAU), we pass a broader range
+  // to ensure we have enough data for charts, but also pass monetizationRange
+  // for the exact metric calculations.
+  function toAnalyticsRange(range: ChartRange): "1d" | "7d" | "30d" | "90d" {
     switch (range) {
       case "1h":
       case "6h":
       case "24h":
+        return "1d";
       case "72h":
       case "7d":
         return "7d";
@@ -318,6 +322,20 @@ function MonetizationContent() {
         return "90d";
       default:
         return "7d";
+    }
+  }
+
+  // Map chart range to hours for monetization metric calculations
+  function getChartRangeHours(range: ChartRange): number {
+    switch (range) {
+      case "1h": return 1;
+      case "6h": return 6;
+      case "24h": return 24;
+      case "72h": return 72;
+      case "7d": return 168;
+      case "28d": return 672;
+      case "90d": return 2160;
+      default: return 168;
     }
   }
 
@@ -333,7 +351,13 @@ function MonetizationContent() {
     needsTrackingScript,
     selectedGameName,
     refresh,
-  } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
+  } = useAnalytics({ 
+    enabled: true, 
+    range: toAnalyticsRange(chartRange),
+    // Pass the actual chart range hours so the API calculates tracker metrics
+    // (PCR, ARPPU, ARPDAU) for the exact selected range
+    monetizationRangeHours: getChartRangeHours(chartRange),
+  });
 
   // Fetch debug data when debug mode is enabled
   useEffect(() => {
@@ -487,9 +511,15 @@ function MonetizationContent() {
   // This ensures cards and chart ALWAYS show the same numbers for the selected range.
   // payingUsers and activeUsers come from API's tracker-based calculation.
   const summaryStats = useMemo(() => {
-    const grossRevenue = chartTotals.total;
+    // chartTotals.total already has revenue mode (gross or estimated) applied
     const displayRevenue = chartTotals.total;
     const totalPurchases = chartTotals.purchases;
+    
+    // Calculate gross revenue for ARPDAU calculation
+    // If display mode is estimated, we need to reverse the multiplier to get gross
+    const grossRevenue = revenueDisplayMode === "gross" 
+      ? displayRevenue 
+      : Math.round(displayRevenue / CREATOR_REVENUE_RATE);
     
     // Use tracker-based active users from API (ACTIVE_USER_EVENT_TYPES)
     // These are the canonical values for PCR and ARPDAU
@@ -503,17 +533,36 @@ function MonetizationContent() {
       payingUsers,
       activeUsers,
     };
-  }, [chartTotals, sharedMetrics, revenueStats]);
+  }, [chartTotals, sharedMetrics, revenueStats, revenueDisplayMode]);
 
   // PCR = payingUsers / activeUsers * 100 (from tracker ACTIVE_USER_EVENT_TYPES)
   const pcr = summaryStats.activeUsers > 0
     ? (summaryStats.payingUsers / summaryStats.activeUsers) * 100
     : null;
+  
+  // ARPPU = revenue / payingUsers (uses chart range revenue)
   const displayArppu = summaryStats.payingUsers > 0 
     ? summaryStats.displayRevenue / summaryStats.payingUsers 
     : null;
-  // ARPDAU from API (already calculated with correct formula: short range = revenue/activeUsers, long range = revenue/averageDAU)
-  const grossArpdau = revenueStats?.trackerGrossArpdau ?? null;
+  
+  // ARPDAU calculation using chart range revenue and tracker metrics
+  // For short ranges (1H, 6H, 24H): ARPDAU = revenue / activeUsersInRange
+  // For long ranges (7D+): ARPDAU = revenue / averageDAU
+  const chartRangeHours = getChartRangeHours(chartRange);
+  const trackerAverageDau = revenueStats?.trackerAverageDau ?? 0;
+  const trackerActiveUsers = summaryStats.activeUsers;
+  
+  const grossArpdau = (() => {
+    // Use grossRevenue (chartTotals.total) for ARPDAU calculation
+    const grossRevenue = summaryStats.grossRevenue;
+    if (chartRangeHours <= 24) {
+      // Short range: use activeUsersInRange as DAU proxy
+      return trackerActiveUsers > 0 ? grossRevenue / trackerActiveUsers : null;
+    }
+    // Long range: use average DAU
+    return trackerAverageDau > 0 ? grossRevenue / trackerAverageDau : null;
+  })();
+  
   const displayArpdau = grossArpdau != null && grossArpdau > 0
     ? (revenueDisplayMode === "gross" ? grossArpdau : Math.round(grossArpdau * CREATOR_REVENUE_RATE))
     : null;
@@ -911,7 +960,7 @@ function MonetizationContent() {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
               {displayArpdau != null
-                ? `R$${formatRobux(summaryStats.displayRevenue)} / ${revenueStats?.trackerAverageDau ? `${Math.round(revenueStats.trackerAverageDau)} avg DAU` : `${summaryStats.activeUsers} active`}`
+                ? `Revenue / ${chartRangeHours <= 24 ? `${summaryStats.activeUsers} active` : `${Math.round(trackerAverageDau)} avg DAU`}`
                 : summaryStats.activeUsers > 0
                   ? "No revenue in range"
                   : "Requires active player events"}
@@ -1666,9 +1715,14 @@ function MonetizationContent() {
   activeUsers: summaryStats.activeUsers,
   activeUserEventCounts: revenueStats?.trackerActiveUserEventCounts ?? {},
   pcr,
+  arppu: displayArppu,
   revenue: displayRevenue,
-  averageDAU: revenueStats?.trackerAverageDau ?? 0,
+  grossRevenue: summaryStats.grossRevenue,
+  chartRangeHours,
+  dailyActiveUsers: chartRangeHours > 24 ? (revenueStats?.trackerDaysWithData ?? 0) > 0 : null,
+  averageDAU: trackerAverageDau,
   arpdau: displayArpdau,
+  grossArpdau,
   trackerDaysWithData: revenueStats?.trackerDaysWithData ?? 0,
   sampleActiveUserEvents: revenueStats?.sampleActiveUserEvents ?? [],
 }, null, 2)}

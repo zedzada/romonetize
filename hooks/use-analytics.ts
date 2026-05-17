@@ -327,6 +327,7 @@ interface UseAnalyticsOptions {
   gameId?: string;
   selectedGameId?: string; // Pass current selected game ID to validate responses
   range?: DateRange;
+  monetizationRangeHours?: number; // Optional: hours for monetization metric calculations (PCR, ARPPU, ARPDAU)
   enabled?: boolean;
 }
 
@@ -366,7 +367,7 @@ const fetcher = async (url: string) => {
  * IMPORTANT: Cache key includes selectedGameId to ensure data isolation between games.
  * When selectedGameId changes, cache is invalidated and fresh data is fetched.
  */
-export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = true }: UseAnalyticsOptions = {}) {
+export function useAnalytics({ gameId, selectedGameId, range = "7d", monetizationRangeHours, enabled = true }: UseAnalyticsOptions = {}) {
   const [manualRefreshing, setManualRefreshing] = useState(false);
   // Track the current selected game ID - starts null, gets populated from API response or game change event
   const [currentSelectedGameId, setCurrentSelectedGameId] = useState<string | null>(selectedGameId || null);
@@ -383,12 +384,12 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", enabled = t
   // This ensures we fetch data on initial load even before knowing the selected game
   const effectiveGameKey = currentSelectedGameId || "auto";
   const swrKey = enabled
-    ? ["analytics", effectiveGameKey, range, gameId || "default"]
+    ? ["analytics", effectiveGameKey, range, monetizationRangeHours || "default", gameId || "default"]
     : null;
   
   // Build API URL - only include selectedGameId if explicitly set (for game switching)
   // On initial load, the API uses the server-side is_selected game
-  const apiUrl = `/api/dashboard/analytics?range=${range}${gameId ? `&gameId=${gameId}` : ""}${currentSelectedGameId ? `&selectedGameId=${currentSelectedGameId}` : ""}`;
+  const apiUrl = `/api/dashboard/analytics?range=${range}${monetizationRangeHours ? `&monetizationRangeHours=${monetizationRangeHours}` : ""}${gameId ? `&gameId=${gameId}` : ""}${currentSelectedGameId ? `&selectedGameId=${currentSelectedGameId}` : ""}`;
 
   // Custom fetcher that uses the URL and tracks fetch time
   const swrFetcher = useCallback(async () => {

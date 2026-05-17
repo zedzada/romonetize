@@ -121,6 +121,10 @@ export async function GET(request: NextRequest) {
     const range = (searchParams.get("range") || "7d") as DateRange;
     queryGameId = searchParams.get("gameId");
     const debug = searchParams.get("debug") === "true";
+    // Optional: monetization range in hours (for PCR, ARPPU, ARPDAU calculations)
+    // When specified, tracker metrics are calculated for this range instead of the full range
+    const monetizationRangeHoursParam = searchParams.get("monetizationRangeHours");
+    const monetizationRangeHours = monetizationRangeHoursParam ? parseInt(monetizationRangeHoursParam, 10) : null;
 
     step = "auth";
     const supabase = await createClient();
@@ -479,6 +483,15 @@ export async function GET(request: NextRequest) {
   // === ACTIVE USERS QUERY (for PCR & ARPDAU) ===
   // Fetch distinct player_ids from ACTIVE_USER_EVENT_TYPES in range
   // Also fetch per-day breakdown for ARPDAU's averageDAU calculation
+  // 
+  // IMPORTANT: When monetizationRangeHours is specified, use that for the query range
+  // This allows the Monetization page to request metrics for a specific chart range
+  // (e.g., 6h) while the main data range remains broader (e.g., 7d)
+  const monetizationStartDate = monetizationRangeHours 
+    ? new Date(now.getTime() - monetizationRangeHours * 60 * 60 * 1000)
+    : startDate;
+  const effectiveMonetizationRangeHours = monetizationRangeHours || rangeConfig.hours;
+  
   let trackerActiveUsers = 0;
   let trackerPayingUsers = 0;
   let trackerAverageDau = 0;
@@ -487,13 +500,13 @@ export async function GET(request: NextRequest) {
   let sampleActiveUserEvents: string[] = [];
   
   try {
-    // Query 1: Distinct active users in range
+    // Query 1: Distinct active users in monetization range
     const { data: activeUserData, error: activeUserError } = await supabase
       .from("events")
       .select("player_id, event_type, created_at")
       .eq("game_id", gameId)
       .in("event_type", ACTIVE_USER_EVENT_TYPES)
-      .gte("created_at", startDate.toISOString())
+      .gte("created_at", monetizationStartDate.toISOString())
       .lte("created_at", now.toISOString())
       .not("player_id", "is", null)
       .neq("player_id", "server")
@@ -2007,17 +2020,22 @@ trackerStats: hasTrackerEvents ? {
         // Pre-calculated PCR: payingUsers / activeUsers * 100
         trackerPcr: trackerActiveUsers > 0 ? (trackerPayingUsers / trackerActiveUsers) * 100 : null,
         // Pre-calculated ARPDAU
-        // For ranges < 24h: ARPDAU = revenue / activeUsersInRange
-        // For ranges >= 24h: ARPDAU = revenue / averageDailyActiveUsers
+        // For ranges <= 24h: ARPDAU = revenue / activeUsersInRange
+        // For ranges > 24h: ARPDAU = revenue / averageDailyActiveUsers
+        // Uses effectiveMonetizationRangeHours when monetizationRangeHours is specified
         trackerGrossArpdau: (() => {
-          const rangeHours = rangeConfig.hours;
-          if (rangeHours <= 24) {
+          // Use monetization range hours if specified, otherwise use main range
+          const rangeHoursForArpdau = effectiveMonetizationRangeHours;
+          if (rangeHoursForArpdau <= 24) {
             // Short range: use activeUsersInRange as DAU proxy
             return trackerActiveUsers > 0 ? totalRevenue / trackerActiveUsers : null;
           }
           // Long range: use average DAU
           return trackerAverageDau > 0 ? totalRevenue / trackerAverageDau : null;
         })(),
+        // Additional debug info for monetization range
+        monetizationRangeHours: monetizationRangeHours || null,
+        effectiveMonetizationRangeHours,
       } : null),
       // Product stats (for Products tab)
       // For free users, return locked state
