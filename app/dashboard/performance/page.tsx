@@ -1206,6 +1206,36 @@ const handleSyncAndRefresh = useCallback(async () => {
                   <div>uniquePlayers: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
                   <div>latestEventAt: <span className="text-foreground">{analyticsDebugInfo?.lastTrackerEventAt ? new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(analyticsDebugInfo.lastTrackerEventAt)) : "none"}</span></div>
                   
+                  {/* Card vs Chart Alignment - KEY for verifying stats consistency */}
+                  <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
+                    <span className="text-amber-400">Card vs Chart Alignment (from spec):</span>
+                  </div>
+                  <div>selectedRange: <span className="text-foreground">{chartRange}</span></div>
+                  <div>trackedActionsCard: <span className="text-foreground">{safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents || 0}</span></div>
+                  <div>activityChartTotal: <span className={
+                    (performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0) === (safeDataHealth.trackerEventsCount || safeTrackerStats.totalEvents || 0)
+                      ? "text-green-400" : "text-yellow-400"
+                  }>{performanceCharts?.eventsOverTime?.reduce((sum, d) => sum + (d.events ?? 0), 0) || 0}</span></div>
+                  <div>totalSessionsCard: <span className="text-foreground">{safeTrackerStats.totalSessions || 0}</span></div>
+                  <div>sessionsChartTotal: <span className={
+                    (performanceCharts?.sessionsOverTime?.reduce((sum, d) => sum + (d.sessions ?? 0), 0) || 0) === (safeTrackerStats.totalSessions || 0)
+                      ? "text-green-400" : "text-yellow-400"
+                  }>{performanceCharts?.sessionsOverTime?.reduce((sum, d) => sum + (d.sessions ?? 0), 0) || 0}</span></div>
+                  <div>purchasesCard: <span className="text-foreground">{safeTrackerStats.totalPurchases || 0}</span></div>
+                  <div>purchasesChartTotal: <span className={
+                    (performanceCharts?.purchasesOverTime?.reduce((sum, d) => sum + (d.purchases ?? 0), 0) || 0) === (safeTrackerStats.totalPurchases || 0)
+                      ? "text-green-400" : "text-yellow-400"
+                  }>{performanceCharts?.purchasesOverTime?.reduce((sum, d) => sum + (d.purchases ?? 0), 0) || 0}</span></div>
+                  <div>uniquePlayersCard: <span className="text-foreground">{safeTrackerStats.uniquePlayers || 0}</span></div>
+                  <div>newPlayersCard: <span className={
+                    (safeTrackerStats.newPlayers || 0) <= (safeTrackerStats.uniquePlayers || 0)
+                      ? "text-green-400" : "text-red-400"
+                  }>{safeTrackerStats.newPlayers || 0}</span></div>
+                  <div>newPlayers_lte_unique: <span className={
+                    (safeTrackerStats.newPlayers || 0) <= (safeTrackerStats.uniquePlayers || 0)
+                      ? "text-green-400" : "text-red-400"
+                  }>{(safeTrackerStats.newPlayers || 0) <= (safeTrackerStats.uniquePlayers || 0) ? "PASS" : "FAIL"}</span></div>
+                  
                   {/* Snapshot Diagnostics - KEY for debugging gaps */}
                   <div className="col-span-full mt-2 pt-2 border-t border-amber-500/20">
                     <span className="text-amber-400">Snapshot Diagnostics (15 min window):</span>
