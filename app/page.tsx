@@ -10,6 +10,7 @@ import { CTA } from "@/components/landing/cta";
 import { Footer } from "@/components/landing/footer";
 import { BetaModal } from "@/components/landing/beta-modal";
 import { AuthModal } from "@/components/landing/auth-modal";
+import { CursorEffect } from "@/components/landing/cursor-effect";
 
 export default function Home() {
   const [isBetaModalOpen, setIsBetaModalOpen] = useState(false);
@@ -23,6 +24,7 @@ export default function Home() {
 
   return (
     <main className="min-h-screen">
+      <CursorEffect />
       <Header onOpenBetaModal={openBetaModal} />
       <Hero onOpenAuthModal={openAuthModal} />
       <Features />

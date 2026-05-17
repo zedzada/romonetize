@@ -8,7 +8,6 @@ interface TiltCardProps {
   className?: string;
   tiltAmount?: number;
   scale?: number;
-  glare?: boolean;
 }
 
 export function TiltCard({ 
@@ -16,11 +15,9 @@ export function TiltCard({
   className,
   tiltAmount = 10,
   scale = 1.02,
-  glare = true
 }: TiltCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const [transform, setTransform] = useState("");
-  const [glarePosition, setGlarePosition] = useState({ x: 50, y: 50 });
   const [isHovering, setIsHovering] = useState(false);
 
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -36,10 +33,6 @@ export function TiltCard({
     const rotateY = ((x - centerX) / centerX) * tiltAmount;
 
     setTransform(`perspective(1000px) rotateX(${rotateX}deg) rotateY(${rotateY}deg) scale(${scale})`);
-    setGlarePosition({
-      x: (x / rect.width) * 100,
-      y: (y / rect.height) * 100,
-    });
   };
 
   const handleMouseEnter = () => {
@@ -54,23 +47,17 @@ export function TiltCard({
   return (
     <div
       ref={cardRef}
-      className={cn("relative transition-transform duration-200 ease-out", className)}
+      className={cn(
+        "relative transition-transform duration-200 ease-out",
+        isHovering && "z-10",
+        className
+      )}
       style={{ transform: transform || undefined, transformStyle: "preserve-3d" }}
       onMouseMove={handleMouseMove}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
     >
       {children}
-      {/* Glare effect */}
-      {glare && isHovering && (
-        <div
-          className="pointer-events-none absolute inset-0 rounded-[inherit] opacity-0 transition-opacity duration-300"
-          style={{
-            opacity: isHovering ? 0.15 : 0,
-            background: `radial-gradient(circle at ${glarePosition.x}% ${glarePosition.y}%, rgba(255, 255, 255, 0.4) 0%, transparent 60%)`,
-          }}
-        />
-      )}
     </div>
   );
 }
