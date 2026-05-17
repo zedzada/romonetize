@@ -1,3 +1,5 @@
+"use client";
+
 import { 
   BarChart3, 
   Zap, 
@@ -6,6 +8,7 @@ import {
   Sparkles,
   Target
 } from "lucide-react";
+import { TiltCard } from "./tilt-card";
 
 const features = [
   {
@@ -70,23 +73,24 @@ export function Features() {
 
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {features.map((feature) => (
-            <div 
-              key={feature.title}
-              className="group p-6 rounded-2xl bg-card border border-border hover:border-primary/30 transition-all duration-300"
-            >
-              <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-5 group-hover:bg-primary/15 transition-colors">
-                <feature.icon className="w-6 h-6 text-primary" />
+            <TiltCard key={feature.title} tiltAmount={6} scale={1.02}>
+              <div 
+                className="group p-6 rounded-2xl bg-card border border-border hover:border-primary/30 transition-all duration-300 h-full"
+              >
+                <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center mb-5 group-hover:bg-primary/15 transition-colors">
+                  <feature.icon className="w-6 h-6 text-primary" />
+                </div>
+                <h3 className="text-lg font-semibold text-foreground mb-2">
+                  {feature.title}
+                </h3>
+                <p className="text-muted-foreground text-sm leading-relaxed mb-4">
+                  {feature.description}
+                </p>
+                <div className="text-xs font-medium text-primary/80 uppercase tracking-wide">
+                  {feature.metric}
+                </div>
               </div>
-              <h3 className="text-lg font-semibold text-foreground mb-2">
-                {feature.title}
-              </h3>
-              <p className="text-muted-foreground text-sm leading-relaxed mb-4">
-                {feature.description}
-              </p>
-              <div className="text-xs font-medium text-primary/80 uppercase tracking-wide">
-                {feature.metric}
-              </div>
-            </div>
+            </TiltCard>
           ))}
         </div>
       </div>

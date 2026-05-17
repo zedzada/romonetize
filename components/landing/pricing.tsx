@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Check, Star, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TiltCard } from "./tilt-card";
 
 const plans = [
   {
@@ -119,13 +120,17 @@ export function Pricing() {
 
         <div className="grid lg:grid-cols-3 gap-6 items-stretch">
           {plans.map((plan) => (
-            <div 
-              key={plan.name}
-              className={cn(
-                "group relative rounded-2xl transition-all duration-300",
-                plan.variant === "pro" && "lg:-mt-4 lg:mb-4 lg:scale-[1.02]"
-              )}
+            <TiltCard 
+              key={plan.name} 
+              tiltAmount={plan.variant === "pro" ? 8 : 6} 
+              scale={plan.variant === "pro" ? 1.03 : 1.02}
             >
+              <div 
+                className={cn(
+                  "group relative rounded-2xl transition-all duration-300 h-full",
+                  plan.variant === "pro" && "lg:-mt-4 lg:mb-4"
+                )}
+              >
               {/* Border effect - clean premium borders */}
               <div className={cn(
                 "absolute -inset-px rounded-2xl transition-all duration-300",
@@ -234,6 +239,7 @@ export function Pricing() {
                 </Button>
               </div>
             </div>
+            </TiltCard>
           ))}
         </div>
 

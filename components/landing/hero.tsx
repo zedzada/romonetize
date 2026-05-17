@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, TrendingUp, Zap, Shield } from "lucide-react";
 import { createClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { InteractiveDotGrid } from "./interactive-dot-grid";
+import { TiltCard } from "./tilt-card";
 
 interface HeroProps {
   onOpenAuthModal: () => void;
@@ -40,8 +42,8 @@ export function Hero({ onOpenAuthModal }: HeroProps) {
       {/* Premium gradient overlay */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-primary/[0.02] to-primary/5" />
       
-      {/* Primary dotted grid - clearly visible */}
-      <div className="absolute inset-0 bg-dot-grid-masked" />
+      {/* Primary dotted grid - interactive with mouse */}
+      <InteractiveDotGrid />
       
       {/* Hero glow effect behind text */}
       <div className="absolute inset-0 bg-hero-glow" />
@@ -101,35 +103,41 @@ export function Hero({ onOpenAuthModal }: HeroProps) {
           </Button>
         </div>
 
-        {/* Feature labels */}
+        {/* Feature labels with 3D tilt effect */}
         <div className="flex flex-wrap justify-center gap-4">
-          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm">
-            <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
-              <TrendingUp className="w-5 h-5 text-primary" />
+          <TiltCard tiltAmount={8} scale={1.03}>
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm hover:border-primary/30 transition-colors">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                <TrendingUp className="w-5 h-5 text-primary" />
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-semibold text-foreground">Live Tracking</div>
+                <div className="text-xs text-muted-foreground">Monitor activity in real-time</div>
+              </div>
             </div>
-            <div className="text-left">
-              <div className="text-sm font-semibold text-foreground">Live Tracking</div>
-              <div className="text-xs text-muted-foreground">Monitor activity in real-time</div>
+          </TiltCard>
+          <TiltCard tiltAmount={8} scale={1.03}>
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm hover:border-amber-500/30 transition-colors">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
+                <Zap className="w-5 h-5 text-amber-500" />
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-semibold text-foreground">Real-Time Data</div>
+                <div className="text-xs text-muted-foreground">Instant streaming</div>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm">
-            <div className="w-10 h-10 rounded-lg bg-amber-500/10 flex items-center justify-center">
-              <Zap className="w-5 h-5 text-amber-500" />
+          </TiltCard>
+          <TiltCard tiltAmount={8} scale={1.03}>
+            <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm hover:border-emerald-500/30 transition-colors">
+              <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
+                <Shield className="w-5 h-5 text-emerald-500" />
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-semibold text-foreground">Revenue Insights</div>
+                <div className="text-xs text-muted-foreground">AI-powered analysis</div>
+              </div>
             </div>
-            <div className="text-left">
-              <div className="text-sm font-semibold text-foreground">Real-Time Data</div>
-              <div className="text-xs text-muted-foreground">Instant streaming</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 px-5 py-3 rounded-xl bg-card border border-border/50 shadow-sm">
-            <div className="w-10 h-10 rounded-lg bg-emerald-500/10 flex items-center justify-center">
-              <Shield className="w-5 h-5 text-emerald-500" />
-            </div>
-            <div className="text-left">
-              <div className="text-sm font-semibold text-foreground">Revenue Insights</div>
-              <div className="text-xs text-muted-foreground">AI-powered analysis</div>
-            </div>
-          </div>
+          </TiltCard>
         </div>
       </div>
     </section>
