@@ -238,13 +238,23 @@ export async function GET(request: NextRequest) {
     }
 
     // Average session duration (if we have session_end events with duration)
-    let avgSessionSeconds = 0;
+    let avgSessionSeconds: number | null = null;
     const sessionEndEvents = allEvents.filter(e => e.event_type === "session_end");
     if (sessionEndEvents.length > 0) {
       let totalDuration = 0;
       let durationCount = 0;
       for (const e of sessionEndEvents) {
-        const duration = (e.metadata as { session_duration_seconds?: number })?.session_duration_seconds;
+        // Support multiple duration field variants
+        const meta = e.metadata as Record<string, unknown> | null;
+        const duration = 
+          meta?.session_duration_seconds ??
+          meta?.duration_seconds ??
+          meta?.duration ??
+          meta?.session_duration ??
+          (e as Record<string, unknown>).duration ??
+          (e as Record<string, unknown>).session_duration ??
+          (e as Record<string, unknown>).duration_seconds;
+        
         if (typeof duration === "number" && duration > 0) {
           totalDuration += duration;
           durationCount++;
@@ -310,6 +320,7 @@ export async function GET(request: NextRequest) {
         name: selectedGame.name,
         roblox_game_id: selectedGame.roblox_game_id,
         roblox_universe_id: selectedGame.universe_id,
+        root_place_id: (selectedGame as Record<string, unknown>).root_place_id ?? null,
         icon_url: selectedGame.thumbnail_url,
       },
 
