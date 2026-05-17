@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/collect-ccu",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/notifications",
+      "schedule": "*/10 * * * *"
     }
   ]
 }

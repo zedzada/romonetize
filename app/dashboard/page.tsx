@@ -76,6 +76,8 @@ function DashboardPageInner() {
   const sharedMetrics = getProductPurchaseMetrics({
     productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
     revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
+    trackerPayingUsers: revenueStats?.trackerPayingUsers,
+    trackerActiveUsers: revenueStats?.trackerActiveUsers,
   });
 
   // Fetch dashboard stats and alerts (fresh from Supabase)
