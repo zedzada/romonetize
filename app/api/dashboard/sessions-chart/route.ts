@@ -109,7 +109,7 @@ export async function GET(request: Request) {
     
     while (hasMore) {
       const { data: page, error: pageError } = await supabase
-        .from("game_events")
+        .from("events")
         .select("created_at")
         .eq("game_id", gameId)
         .in("event_type", ["player_join", "session_start"])
