@@ -422,8 +422,16 @@ export function useAnalytics({ gameId, selectedGameId, range = "7d", monetizatio
   }, [data?.selectedGameId, currentSelectedGameId]);
 
   // Validate response matches current selected game - ignore stale responses from in-flight requests
-  // Only validate if we have an explicit currentSelectedGameId (not "auto" initial load)
-  const isResponseStale = data && currentSelectedGameId && data.selectedGameId !== currentSelectedGameId;
+  // IMPORTANT: Only consider response stale if:
+  // 1. We have data from API
+  // 2. We have an explicit currentSelectedGameId set (not initial load)
+  // 3. The response's selectedGameId differs from currentSelectedGameId
+  // 4. BOTH IDs are truthy strings (not null/undefined/empty)
+  const isResponseStale = Boolean(
+    data?.selectedGameId && 
+    currentSelectedGameId && 
+    data.selectedGameId !== currentSelectedGameId
+  );
 
   // Get game IDs for realtime subscription
   const gameIds = data?.game?.id ? [data.game.id] : [];
