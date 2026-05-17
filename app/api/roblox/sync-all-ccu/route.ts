@@ -110,15 +110,13 @@ export async function POST() {
 
         result.ccu = stats.currentPlayers;
 
-        // Insert CCU snapshot (append-only) - robloxGameId is guaranteed non-null here
+        // Insert CCU snapshot (append-only)
+        // Schema columns: id, game_id, ccu, source, server_id, created_at
         const { error: insertError } = await supabaseAdmin
           .from("ccu_snapshots")
           .insert({
-            user_id: user.id,
             game_id: game.id,
-            roblox_game_id: robloxGameId, // Use resolved ID, never null
             ccu: stats.currentPlayers,
-            captured_at: capturedAt,
             source: "roblox_api_poll_all",
             created_at: capturedAt,
           });
