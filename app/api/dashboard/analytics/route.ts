@@ -2343,11 +2343,25 @@ trackerStats: hasTrackerEvents ? {
       } : null,
   // Performance charts - USE SHARED HELPER FOR CONSISTENCY
   performanceCharts: hasTrackerEvents ? {
-  // Use shared helper chart data when available (ensures card/chart match)
-  eventsOverTime: performanceMetrics?.charts.activityOverTime.map(b => ({ date: b.date, events: b.value })) ?? eventsOverTime,
+  // Use shared helper chart data when available AND has non-zero values
+  // FIX: If helper charts are empty or all zeros, prefer fallback
+  eventsOverTime: (() => {
+    const helperChart = performanceMetrics?.charts.activityOverTime?.map(b => ({ date: b.date, events: b.value }));
+    const helperTotal = helperChart?.reduce((s, p) => s + p.events, 0) ?? 0;
+    // Use helper if it has data, otherwise fallback
+    return (helperChart && helperTotal > 0) ? helperChart : eventsOverTime;
+  })(),
   playersOverTime: playersChart.map(p => ({ date: p.time, players: p.players })),
-  sessionsOverTime: performanceMetrics?.charts.playerJoinsOverTime.map(b => ({ date: b.date, sessions: b.value })) ?? sessionsOverTime,
-  purchasesOverTime: performanceMetrics?.charts.purchasesOverTime.map(b => ({ date: b.date, purchases: b.value })) ?? purchasesOverTime,
+  sessionsOverTime: (() => {
+    const helperChart = performanceMetrics?.charts.playerJoinsOverTime?.map(b => ({ date: b.date, sessions: b.value }));
+    const helperTotal = helperChart?.reduce((s, p) => s + p.sessions, 0) ?? 0;
+    return (helperChart && helperTotal > 0) ? helperChart : sessionsOverTime;
+  })(),
+  purchasesOverTime: (() => {
+    const helperChart = performanceMetrics?.charts.purchasesOverTime?.map(b => ({ date: b.date, purchases: b.value }));
+    const helperTotal = helperChart?.reduce((s, p) => s + p.purchases, 0) ?? 0;
+    return (helperChart && helperTotal > 0) ? helperChart : purchasesOverTime;
+  })(),
   ccuOverTime: ccuStats?.snapshots?.map(s => ({ time: s.time, ccu: s.ccu })) || [],
   // Debug info for card/chart alignment verification - prefer shared helper debug
   debug: performanceMetrics?.debug ?? performanceChartsDebug,
