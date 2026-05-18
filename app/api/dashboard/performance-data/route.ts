@@ -437,23 +437,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Average session duration (if we have session_end events with duration)
-    // Deep/flexible helper to find duration from any field
-    function findDurationSeconds(event: Record<string, unknown>): number | null {
+    // Helper to find duration from metadata only (events table has no root duration columns)
+    function findDurationSeconds(event: { metadata: Record<string, unknown> | null }): number | null {
       const metadata = (event?.metadata ?? {}) as Record<string, unknown>;
       const session = (metadata?.session ?? {}) as Record<string, unknown>;
 
       const candidates = [
-        // Root event fields
-        event?.duration,
-        event?.session_duration,
-        event?.duration_seconds,
-        event?.durationSeconds,
-
         // Metadata fields (comprehensive list)
         metadata?.duration,
         metadata?.session_duration,
         metadata?.duration_seconds,
         metadata?.durationSeconds,
+        metadata?.duration_ms,
+        metadata?.durationMs,
         metadata?.sessionLength,
         metadata?.session_length,
         metadata?.sessionTime,
@@ -465,15 +461,14 @@ export async function GET(request: NextRequest) {
         metadata?.elapsed,
         metadata?.elapsed_seconds,
         metadata?.elapsedSeconds,
-        metadata?.duration_ms,
-        metadata?.durationMs,
 
         // Nested session object
-        session?.duration,
-        session?.duration_seconds,
-        session?.durationSeconds,
-        session?.length,
-        session?.time,
+        metadata?.session?.duration,
+        (session as Record<string, unknown>)?.duration,
+        (session as Record<string, unknown>)?.duration_seconds,
+        (session as Record<string, unknown>)?.durationSeconds,
+        (session as Record<string, unknown>)?.length,
+        (session as Record<string, unknown>)?.time,
       ];
 
       for (const raw of candidates) {
@@ -496,26 +491,20 @@ export async function GET(request: NextRequest) {
     const validDurations: number[] = [];
     const sampleSessionEndEvents: Array<Record<string, unknown>> = [];
     
-    // Capture first 10 samples for debug (per spec)
+    // Capture first 10 samples for debug
     for (let i = 0; i < Math.min(10, sessionEndEvents.length); i++) {
       const evt = sessionEndEvents[i];
-      const evtRecord = evt as Record<string, unknown>;
       sampleSessionEndEvents.push({
         created_at: evt.created_at,
         player_id: evt.player_id,
-        rootFields: {
-          duration: evtRecord.duration,
-          session_duration: evtRecord.session_duration,
-          duration_seconds: evtRecord.duration_seconds,
-        },
         metadataKeys: Object.keys(evt.metadata ?? {}),
         metadata: evt.metadata,
       });
     }
 
-    // Try to extract duration from session_end events
+    // Try to extract duration from session_end events metadata
     for (const e of sessionEndEvents) {
-      const duration = findDurationSeconds(e as Record<string, unknown>);
+      const duration = findDurationSeconds(e);
       if (duration !== null) {
         validDurations.push(duration);
       }
