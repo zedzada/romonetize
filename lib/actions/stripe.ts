@@ -87,7 +87,13 @@ export async function createCheckoutSession(planId: string, billingPeriod: "mont
         plan_id: planId,
         billing_period: billingPeriod,
       },
-      success_url: `${origin}/dashboard/billing?success=true`,
+      subscription_data: {
+        metadata: {
+          user_id: user.id,
+          plan_id: planId,
+        },
+      },
+      success_url: `${origin}/dashboard/billing?success=true&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/dashboard/billing?canceled=true`,
     });
 

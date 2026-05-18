@@ -65,11 +65,22 @@ function BillingContent() {
   const { purchaseCredits } = useCreditPackages();
   
   const searchParams = useSearchParams();
-  const success = searchParams.get("success");
-  const canceled = searchParams.get("canceled");
-  const creditsSuccess = searchParams.get("credits_success");
+  const success = searchParams.get("success") === "true";
+  const canceled = searchParams.get("canceled") === "true";
+  const sessionId = searchParams.get("session_id");
+  const creditsSuccess = searchParams.get("credits_success") === "true";
   const creditsPurchased = searchParams.get("credits");
-  const creditsCanceled = searchParams.get("credits_canceled");
+  const creditsCanceled = searchParams.get("credits_canceled") === "true";
+  const debugMode = searchParams.get("debug") === "true";
+  
+  // Debug state
+  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
+  const [creditSyncState, setCreditSyncState] = useState<{
+    syncing: boolean;
+    synced: boolean;
+    error: string | null;
+    creditsGranted: number | null;
+  }>({ syncing: false, synced: false, error: null, creditsGranted: null });
 
   // Refresh credits on successful purchase
   useEffect(() => {
@@ -77,6 +88,96 @@ function BillingContent() {
       refreshCredits();
     }
   }, [creditsSuccess, refreshCredits]);
+
+  // Auto-sync on success/session_id return from Stripe (for subscriptions)
+  useEffect(() => {
+    if (success || sessionId) {
+      syncBillingFromStripe();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [success, sessionId]);
+
+  // Auto-sync AI credits purchase when returning from checkout
+  useEffect(() => {
+    if (creditsSuccess && sessionId) {
+      syncAiCredits(sessionId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [creditsSuccess, sessionId]);
+
+  const syncAiCredits = async (checkoutSessionId: string) => {
+    setCreditSyncState({ syncing: true, synced: false, error: null, creditsGranted: null });
+    try {
+      const res = await fetch(`/api/billing/sync?session_id=${checkoutSessionId}`, { method: "POST" });
+      const data = await res.json();
+      
+      if (debugMode) {
+        setDebugInfo(prev => ({ ...prev, creditSync: data }));
+      }
+
+      if (data.type === "ai_credits" && data.synced) {
+        // Credits synced successfully - refresh and dispatch event
+        await refreshCredits();
+        window.dispatchEvent(new CustomEvent("credits-updated"));
+        
+        const granted = data.creditSync?.granted || data.credits;
+        setCreditSyncState({ 
+          syncing: false, 
+          synced: true, 
+          error: null, 
+          creditsGranted: granted 
+        });
+      } else if (data.creditSync?.alreadyProcessed) {
+        // Already processed - just refresh
+        await refreshCredits();
+        window.dispatchEvent(new CustomEvent("credits-updated"));
+        setCreditSyncState({ 
+          syncing: false, 
+          synced: true, 
+          error: null, 
+          creditsGranted: null 
+        });
+      } else if (data.error) {
+        setCreditSyncState({ 
+          syncing: false, 
+          synced: false, 
+          error: data.error, 
+          creditsGranted: null 
+        });
+      }
+    } catch (err) {
+      setCreditSyncState({ 
+        syncing: false, 
+        synced: false, 
+        error: "Failed to sync credits", 
+        creditsGranted: null 
+      });
+    }
+  };
+
+  const syncBillingFromStripe = async () => {
+    setSyncing(true);
+    setLastSyncMessage("Syncing your plan...");
+    try {
+      const res = await fetch("/api/billing/sync", { method: "POST" });
+      const data = await res.json();
+      if (debugMode) {
+        setDebugInfo(data);
+      }
+      if (data.plan) {
+        await loadSubscription();
+        // Refresh credits and dispatch event so sidebar updates
+        await refreshCredits();
+        window.dispatchEvent(new CustomEvent("credits-updated"));
+        setLastSyncMessage(`Plan synced: ${data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
+      } else if (data.error) {
+        setLastSyncMessage(`Sync error: ${data.error}`);
+      }
+    } catch (err) {
+      setLastSyncMessage("Failed to sync with Stripe");
+    }
+    setSyncing(false);
+  };
 
   const loadSubscription = async () => {
     const result = await getSubscriptionStatus();
@@ -93,6 +194,7 @@ function BillingContent() {
   const handleSync = async () => {
     setSyncing(true);
     setLastSyncMessage(null);
+    await syncBillingFromStripe();
     await loadSubscription();
     await refreshCredits();
     setLastSyncMessage(`Last synced at ${new Date().toLocaleTimeString()}`);
@@ -226,20 +328,53 @@ function BillingContent() {
       )}
 
       {/* Success/Cancel alerts */}
-      {success && (
+      {(success || sessionId) && (
         <Alert className="bg-green-500/10 border-green-500/50">
           <Check className="w-4 h-4 text-green-500" />
           <AlertDescription className="text-green-500">
-            Your subscription has been activated! Thank you for subscribing.
+            {syncing ? "Payment successful! Syncing your plan..." : "Your subscription has been activated! Thank you for subscribing."}
           </AlertDescription>
         </Alert>
       )}
       {creditsSuccess && (
-        <Alert className="bg-green-500/10 border-green-500/50">
-          <Sparkles className="w-4 h-4 text-green-500" />
-          <AlertDescription className="text-green-500">
-            Successfully purchased {creditsPurchased} AI credits! Your balance has been updated.
-          </AlertDescription>
+        <Alert className={creditSyncState.error ? "bg-amber-500/10 border-amber-500/50" : "bg-green-500/10 border-green-500/50"}>
+          {creditSyncState.syncing ? (
+            <>
+              <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+              <AlertDescription className="text-blue-500">
+                Payment successful. Syncing credits...
+              </AlertDescription>
+            </>
+          ) : creditSyncState.synced && creditSyncState.creditsGranted ? (
+            <>
+              <Sparkles className="w-4 h-4 text-green-500" />
+              <AlertDescription className="text-green-500">
+                Successfully purchased {creditSyncState.creditsGranted} AI credits! Your balance has been updated.
+              </AlertDescription>
+            </>
+          ) : creditSyncState.synced ? (
+            <>
+              <Check className="w-4 h-4 text-green-500" />
+              <AlertDescription className="text-green-500">
+                Credits synced. Your balance is up to date.
+              </AlertDescription>
+            </>
+          ) : creditSyncState.error ? (
+            <>
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <AlertDescription className="text-amber-500">
+                Payment received, credits are syncing. Click Sync if they do not appear in a few seconds.
+                {debugMode && <span className="block text-xs mt-1">Error: {creditSyncState.error}</span>}
+              </AlertDescription>
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4 text-blue-500" />
+              <AlertDescription className="text-blue-500">
+                Payment received. Verifying credits...
+              </AlertDescription>
+            </>
+          )}
         </Alert>
       )}
       {canceled && (
@@ -528,6 +663,44 @@ function BillingContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Debug Panel */}
+      {debugMode && (
+        <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-amber-400">Billing Debug</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
+{JSON.stringify({
+  dbBilling: {
+    plan: currentPlan.id,
+    planName: currentPlan.name,
+    subscriptionStatus: subscription?.status,
+    currentPeriodEnd: subscription?.currentPeriodEnd,
+  },
+  credits: {
+    monthlyCredits,
+    extraCredits,
+    totalCredits,
+    creditsLoading,
+  },
+  urlParams: {
+    success,
+    canceled,
+    sessionId,
+    creditsSuccess,
+    creditsPurchased,
+    creditsCanceled,
+  },
+  creditSyncState,
+  subscriptionSyncResult: debugInfo,
+  lastSyncMessage,
+}, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
       customer: customerId,
       mode: "payment",
       payment_method_types: ["card"],
-      success_url: `${origin}/dashboard/billing?credits_success=true&credits=${creditPackage.credits}`,
+      success_url: `${origin}/dashboard/billing?credits_success=true&credits=${creditPackage.credits}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/dashboard/billing?credits_canceled=true`,
       metadata: {
         purchaseType: "ai_credits",
