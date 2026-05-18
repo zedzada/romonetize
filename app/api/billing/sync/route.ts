@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { getPlanById, PRICING_PLANS, getAiCreditsForPlan } from "@/lib/products";
 import { createClient as createAdminClient } from "@supabase/supabase-js";
+import type Stripe from "stripe";
 
 export const dynamic = "force-dynamic";
 
@@ -133,11 +134,20 @@ export async function POST(request: NextRequest) {
     }
     
     debug.envPriceIds = {
-      STRIPE_PRO_PRICE_ID: !!process.env.STRIPE_PRO_PRICE_ID,
-      STRIPE_PRO_YEARLY_PRICE_ID: !!process.env.STRIPE_PRO_YEARLY_PRICE_ID,
-      STRIPE_STUDIO_PRICE_ID: !!process.env.STRIPE_STUDIO_PRICE_ID,
-      STRIPE_STUDIO_YEARLY_PRICE_ID: !!process.env.STRIPE_STUDIO_YEARLY_PRICE_ID,
+      STRIPE_PRO_PRICE_ID: process.env.STRIPE_PRO_PRICE_ID ? true : false,
+      STRIPE_PRO_YEARLY_PRICE_ID: process.env.STRIPE_PRO_YEARLY_PRICE_ID ? true : false,
+      STRIPE_STUDIO_PRICE_ID: process.env.STRIPE_STUDIO_PRICE_ID ? true : false,
+      STRIPE_STUDIO_YEARLY_PRICE_ID: process.env.STRIPE_STUDIO_YEARLY_PRICE_ID ? true : false,
     };
+    
+    // Warn if no price IDs configured (but don't fail - we'll default to pro)
+    const hasPriceIds = process.env.STRIPE_PRO_PRICE_ID || 
+                        process.env.STRIPE_PRO_YEARLY_PRICE_ID || 
+                        process.env.STRIPE_STUDIO_PRICE_ID || 
+                        process.env.STRIPE_STUDIO_YEARLY_PRICE_ID;
+    if (!hasPriceIds) {
+      debug.priceIdWarning = "No STRIPE_*_PRICE_ID env vars set. Will default any active subscription to 'pro'.";
+    }
 
     // Step 2: Get authenticated user
     step = "get_user";
@@ -213,30 +223,34 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Step 6: Resolve Stripe customer ID
-    step = "resolve_stripe_customer";
+    // Step 6: If session_id provided, retrieve checkout session and subscription directly
+    step = "resolve_session_id";
+    let subscription: Stripe.Subscription | null = null;
     let stripeCustomerId: string | null = profile?.stripe_customer_id || null;
     
-    // If session_id provided, try to get customer from checkout session
-    if (sessionId && !stripeCustomerId) {
+    if (sessionId) {
+      step = "retrieve_checkout_session";
       try {
-        const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId);
-        if (checkoutSession.customer) {
-          stripeCustomerId = typeof checkoutSession.customer === "string" 
+        const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId, {
+          expand: ["subscription", "customer"],
+        });
+        
+        debug.checkoutSession = {
+          id: checkoutSession.id,
+          mode: checkoutSession.mode,
+          status: checkoutSession.status,
+          paymentStatus: checkoutSession.payment_status,
+          customerId: typeof checkoutSession.customer === "string" 
             ? checkoutSession.customer 
-            : checkoutSession.customer.id;
-          debug.customerFromSession = stripeCustomerId;
-          
-          // Update profile with customer ID
-          await supabaseAdmin
-            .from("profiles")
-            .update({ stripe_customer_id: stripeCustomerId, updated_at: new Date().toISOString() })
-            .eq("id", user.id);
-        }
+            : checkoutSession.customer?.id,
+          subscriptionId: typeof checkoutSession.subscription === "string"
+            ? checkoutSession.subscription
+            : checkoutSession.subscription?.id,
+          metadata: checkoutSession.metadata,
+        };
         
         // Check if this is a credit purchase (not subscription)
         if (checkoutSession.metadata?.purchaseType === "ai_credits") {
-          // Handle credit purchase separately - don't continue with subscription sync
           return NextResponse.json({
             success: true,
             type: "ai_credits_session",
@@ -245,82 +259,129 @@ export async function POST(request: NextRequest) {
             debug: debugMode ? debug : undefined,
           });
         }
+        
+        // Get customer ID from session
+        if (checkoutSession.customer) {
+          stripeCustomerId = typeof checkoutSession.customer === "string" 
+            ? checkoutSession.customer 
+            : checkoutSession.customer.id;
+        }
+        
+        // Get subscription from session
+        if (checkoutSession.mode === "subscription" && checkoutSession.subscription) {
+          subscription = typeof checkoutSession.subscription === "string"
+            ? await stripe.subscriptions.retrieve(checkoutSession.subscription)
+            : checkoutSession.subscription;
+        }
+        
+        // Update profile with customer ID if we got one
+        if (stripeCustomerId && stripeCustomerId !== profile?.stripe_customer_id) {
+          await supabaseAdmin
+            .from("profiles")
+            .update({ stripe_customer_id: stripeCustomerId, updated_at: new Date().toISOString() })
+            .eq("id", user.id);
+          debug.customerIdUpdatedFromSession = true;
+        }
+        
       } catch (e) {
         debug.sessionRetrieveError = e instanceof Error ? e.message : "Unknown error";
+        // Don't fail - continue with normal customer lookup
       }
     }
     
     debug.stripeCustomerId = stripeCustomerId;
 
-    if (!stripeCustomerId) {
+    // Step 7: List subscriptions from Stripe (if we don't have one from session)
+    step = "list_subscriptions";
+    
+    if (!subscription && !stripeCustomerId) {
       return NextResponse.json({
         success: false,
         error: "No Stripe customer ID found",
-        step,
+        step: "resolve_customer",
         plan: profile?.plan || "free",
         subscriptionStatus: profile?.subscription_status || "inactive",
         debug: debugMode ? debug : undefined,
       });
     }
-
-    // Step 7: List subscriptions from Stripe
-    step = "list_subscriptions";
     
-    let allSubscriptions;
-    let activeSubscriptions;
-    
-    try {
-      allSubscriptions = await stripe.subscriptions.list({
-        customer: stripeCustomerId,
-        limit: 10,
-      });
+    // If we still don't have a subscription, try listing from Stripe
+    if (!subscription && stripeCustomerId) {
+      let allSubscriptions;
+      let activeSubscriptions;
       
-      activeSubscriptions = await stripe.subscriptions.list({
-        customer: stripeCustomerId,
-        status: "active",
-        limit: 5,
-      });
-    } catch (e) {
-      return NextResponse.json({
-        success: false,
-        error: `Stripe subscription list failed: ${e instanceof Error ? e.message : "Unknown error"}`,
-        step,
-        stripeCustomerId,
-        debug: debugMode ? debug : undefined,
-      }, { status: 500 });
+      try {
+        allSubscriptions = await stripe.subscriptions.list({
+          customer: stripeCustomerId,
+          limit: 10,
+        });
+        
+        activeSubscriptions = await stripe.subscriptions.list({
+          customer: stripeCustomerId,
+          status: "active",
+          limit: 5,
+        });
+      } catch (e) {
+        return NextResponse.json({
+          success: false,
+          error: `Stripe subscription list failed: ${e instanceof Error ? e.message : "Unknown error"}`,
+          step,
+          stripeCustomerId,
+          debug: debugMode ? debug : undefined,
+        }, { status: 500 });
+      }
+      
+      debug.stripeLookup = {
+        customerIdUsed: stripeCustomerId,
+        totalSubscriptionsFound: allSubscriptions.data.length,
+        activeSubscriptionsFound: activeSubscriptions.data.length,
+        subscriptions: allSubscriptions.data.map(sub => ({
+          id: sub.id,
+          status: sub.status,
+          priceId: sub.items.data[0]?.price.id,
+          currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+          metadata: sub.metadata,
+        })),
+      };
+
+      subscription = activeSubscriptions.data[0] || null;
+      
+      if (!subscription) {
+        const latestSub = allSubscriptions.data[0];
+        return NextResponse.json({
+          success: false,
+          error: latestSub 
+            ? `Subscription status is '${latestSub.status}', not 'active'`
+            : "No subscriptions found for this customer",
+          step,
+          plan: profile?.plan || "free",
+          subscriptionStatus: latestSub?.status || "no_subscription",
+          stripeCustomerId,
+          stripeSubscriptionId: latestSub?.id || null,
+          stripePriceId: latestSub?.items.data[0]?.price.id || null,
+          debug: debugMode ? debug : undefined,
+        });
+      }
     }
-    
-    debug.stripeLookup = {
-      customerIdUsed: stripeCustomerId,
-      totalSubscriptionsFound: allSubscriptions.data.length,
-      activeSubscriptionsFound: activeSubscriptions.data.length,
-      subscriptions: allSubscriptions.data.map(sub => ({
-        id: sub.id,
-        status: sub.status,
-        priceId: sub.items.data[0]?.price.id,
-        currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
-        metadata: sub.metadata,
-      })),
-    };
 
-    const subscription = activeSubscriptions.data[0];
-
+    // At this point we must have a subscription
     if (!subscription) {
-      const latestSub = allSubscriptions.data[0];
       return NextResponse.json({
         success: false,
-        error: latestSub 
-          ? `Subscription status is '${latestSub.status}', not 'active'`
-          : "No subscriptions found for this customer",
+        error: "No active subscription found",
         step,
-        plan: profile?.plan || "free",
-        subscriptionStatus: latestSub?.status || "no_subscription",
-        stripeCustomerId,
-        stripeSubscriptionId: latestSub?.id || null,
-        stripePriceId: latestSub?.items.data[0]?.price.id || null,
         debug: debugMode ? debug : undefined,
       });
     }
+
+    // Add subscription to debug
+    debug.stripeSubscription = {
+      id: subscription.id,
+      status: subscription.status,
+      priceId: subscription.items.data[0]?.price.id,
+      currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+      metadata: subscription.metadata,
+    };
 
     // Step 8: Resolve plan from price ID
     step = "resolve_plan";
