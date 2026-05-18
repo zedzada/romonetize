@@ -93,6 +93,69 @@ async function grantExtraCredits(userId: string, credits: number, stripeSessionI
   };
 }
 
+// Grant monthly credits for subscription (sync version with idempotency)
+async function grantMonthlyCredits(userId: string, credits: number) {
+  const supabaseAdmin = getSupabaseAdmin();
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  // Get current balance to preserve extra_credits and check if already granted
+  const { data: currentBalance } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .select("extra_credits, monthly_credits, monthly_credits_reset_at")
+    .eq("user_id", userId)
+    .single();
+
+  // Check if credits were already granted this period
+  if (currentBalance?.monthly_credits_reset_at) {
+    const resetAt = new Date(currentBalance.monthly_credits_reset_at);
+    if (resetAt > now && currentBalance.monthly_credits >= credits) {
+      return { 
+        alreadyGranted: true, 
+        currentCredits: currentBalance.monthly_credits,
+        extraCredits: currentBalance.extra_credits || 0,
+      };
+    }
+  }
+
+  const { error } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .upsert({
+      user_id: userId,
+      monthly_credits: credits,
+      extra_credits: currentBalance?.extra_credits || 0,
+      monthly_credits_reset_at: nextMonth.toISOString(),
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: "user_id",
+    });
+
+  if (error) {
+    console.error("Error granting monthly credits:", error);
+    return { error: error.message };
+  }
+
+  const totalCredits = credits + (currentBalance?.extra_credits || 0);
+
+  // Record transaction
+  await supabaseAdmin
+    .from("ai_credit_transactions")
+    .insert({
+      user_id: userId,
+      type: "monthly_grant",
+      amount: credits,
+      balance_after: totalCredits,
+      metadata: { source: "billing_sync" },
+      created_at: new Date().toISOString(),
+    });
+
+  return { 
+    granted: credits, 
+    totalCredits,
+    extraCredits: currentBalance?.extra_credits || 0,
+  };
+}
+
 // Sync a specific checkout session (for repairing AI credit purchases)
 async function syncCheckoutSession(userId: string, sessionId: string, stripe: ReturnType<typeof getStripe>) {
   try {
@@ -227,8 +290,6 @@ export async function POST(request: NextRequest) {
         stripeCustomerId: null,
       });
     }
-
-    const stripe = getStripe();
 
     // Fetch active subscriptions from Stripe
     const subscriptions = await stripe.subscriptions.list({

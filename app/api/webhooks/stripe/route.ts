@@ -217,6 +217,7 @@ async function handleCreditPurchase(session: Stripe.Checkout.Session) {
 
 // Grant monthly credits for subscription
 async function grantMonthlyCredits(userId: string, credits: number) {
+  const supabaseAdmin = getSupabaseAdmin();
   const now = new Date();
   const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
@@ -396,6 +397,7 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
+  const supabaseAdmin = getSupabaseAdmin();
   const customerId = subscription.customer as string;
 
   const { data: profile } = await supabaseAdmin
@@ -441,6 +443,7 @@ async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
 }
 
 async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
+  const supabaseAdmin = getSupabaseAdmin();
   // Reset usage for new billing period
   const customerId = invoice.customer as string;
 
@@ -475,6 +478,7 @@ async function handlePaymentSucceeded(invoice: Stripe.Invoice) {
 }
 
 async function handlePaymentFailed(invoice: Stripe.Invoice) {
+  const supabaseAdmin = getSupabaseAdmin();
   const customerId = invoice.customer as string;
 
   const { data: profile } = await supabaseAdmin
