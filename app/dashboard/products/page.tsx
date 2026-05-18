@@ -1,17 +1,16 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, useEffect, useCallback, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useAnalytics, type DateRange } from "@/hooks/use-analytics";
 import { RangeControls, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { PlanLock, usePlanAccess } from "@/components/dashboard/plan-lock";
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 import { useRevenueDisplayMode } from "@/hooks/use-revenue-display-mode";
-import { getProductPurchaseMetrics, CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
+import { CREATOR_REVENUE_RATE } from "@/lib/utils/product-aggregation";
 import {
   RefreshCw,
   AlertCircle,
@@ -48,19 +47,41 @@ function formatPercent(value: unknown): string {
   return "—";
 }
 
-// CREATOR_REVENUE_RATE imported from @/lib/utils/product-aggregation
-
 // Products page range type - supports 7d to 90d
 type ProductsRange = "7d" | "28d" | "90d";
 
-// Map products range to analytics API range
-function toAnalyticsRange(range: ProductsRange): DateRange {
-  switch (range) {
-    case "7d": return "7d";
-    case "28d": return "30d";
-    case "90d": return "90d";
-    default: return "7d";
-  }
+// Product from API
+interface ProductData {
+  productId: string;
+  productName: string;
+  productType: "gamepass" | "devproduct" | "unknown";
+  purchases: number;
+  buyers: number;
+  grossRevenue: number;
+  estimatedRevenue: number;
+  revPerBuyer: number;
+}
+
+// API response data shape
+interface ProductsApiData {
+  hasGame: boolean;
+  selectedGameId?: string;
+  selectedGameName?: string;
+  range?: string;
+  products: ProductData[];
+  summary: {
+    totalProducts: number;
+    grossRevenue: number;
+    estimatedRevenue: number;
+    totalPurchases: number;
+    totalBuyers: number;
+    payerConversionRate: number | null;
+    activeUsers?: number;
+    arppu?: number | null;
+  };
+  hasTrackerEvents: boolean;
+  debug?: Record<string, unknown>;
+  lastUpdated?: string;
 }
 
 function ProductsPageContent() {
@@ -74,74 +95,69 @@ function ProductsPageContent() {
   // Use shared revenue display mode (consistent across all pages)
   const { mode: revenueDisplayMode } = useRevenueDisplayMode();
   
-  const {
-    isLoading,
-    isRefreshing,
-    error,
-    dataHealth,
-    productStats,
-    syncedProducts,
-    productAnalytics,
-    revenueStats,
-    selectedGameName,
-    refresh,
-  } = useAnalytics({ enabled: true, range: toAnalyticsRange(chartRange) });
+  // Local state for data fetching
+  const [data, setData] = useState<ProductsApiData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Safe defaults per spec
-  // Use getProductPurchaseMetrics as the SINGLE SOURCE OF TRUTH
-  const safeProductStats = productStats ?? {};
-  const safeSyncedProducts = Array.isArray(syncedProducts?.products)
-    ? syncedProducts.products
-    : [];
-
-  const hasTrackerEvents = dataHealth?.hasTrackerEvents ?? false;
-  const hasSyncedProducts = safeSyncedProducts.length > 0;
-
-  // Shared helper: single source of truth for product metrics and PCR
-  // PCR uses tracker metrics (trackerPayingUsers, trackerActiveUsers) from the API
-  const sharedMetrics = getProductPurchaseMetrics({
-    productAnalytics: productAnalytics as Record<string, unknown> | null | undefined,
-    revenueMode: revenueDisplayMode === "gross" ? "gross" : "estimated",
-    trackerPayingUsers: revenueStats?.trackerPayingUsers,
-    trackerActiveUsers: revenueStats?.trackerActiveUsers,
-  });
-
-  // Products from shared aggregation
-  const trackerProducts = sharedMetrics.products;
-  
-  // Summary stats from shared helper
-  const summaryStats = {
-    grossTotalRevenue: sharedMetrics.grossTotalRevenue,
-    estimatedTotalRevenue: sharedMetrics.estimatedTotalRevenue,
-    totalPurchases: sharedMetrics.totalPurchases,
-    totalBuyers: sharedMetrics.totalBuyers,
-    payingUsers: sharedMetrics.payingUsers,
-    activeUsers: sharedMetrics.activeUsers,
-  };
-  
-  // Payer Conversion Rate from shared helper (same formula as Monetization page)
-  const payerConversionRate = sharedMetrics.payerConversionRate;
-
-  const hasTrackerProducts = trackerProducts.length > 0;
-  
-  // Total products count = unique products from tracker OR synced Roblox products
-  const totalProductsCount = hasTrackerProducts 
-    ? trackerProducts.length 
-    : safeSyncedProducts.length;
-
-  // Handle sync Roblox data
-  const handleSyncRoblox = async () => {
-    try {
-      const response = await fetch("/api/roblox/sync-selected-game", {
-        method: "POST",
-      });
-      if (response.ok) {
-        refresh();
-      }
-    } catch (err) {
-      console.error("Failed to sync Roblox data:", err);
+  // Fetch products data from fast endpoint
+  const fetchData = useCallback(async (showRefreshing = false) => {
+    if (showRefreshing) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
     }
+    setError(null);
+    
+    try {
+      const debugParam = debugMode ? "&debug=true" : "";
+      const response = await fetch(`/api/dashboard/products-data?range=${chartRange}${debugParam}`, {
+        cache: "no-store",
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!result.success) {
+        throw new Error(result.error || "Failed to fetch products data");
+      }
+      
+      setData(result.data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch products data");
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [chartRange, debugMode]);
+  
+  // Fetch on mount and when range changes
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+  
+  // Refresh handler
+  const handleRefresh = useCallback(() => {
+    fetchData(true);
+  }, [fetchData]);
+
+  // Safe defaults
+  const hasTrackerEvents = data?.hasTrackerEvents ?? false;
+  const products = data?.products ?? [];
+  const summary = data?.summary ?? {
+    totalProducts: 0,
+    grossRevenue: 0,
+    estimatedRevenue: 0,
+    totalPurchases: 0,
+    totalBuyers: 0,
+    payerConversionRate: null,
   };
+  const selectedGameName = data?.selectedGameName ?? null;
+  const hasTrackerProducts = products.length > 0;
 
   // Plan gating - show upgrade screen for free users
   if (!planLoading && !canAccessProducts) {
@@ -175,8 +191,8 @@ function ProductsPageContent() {
     );
   }
 
-  // Error state
-  if (error) {
+  // Error state - show error but don't block the page entirely
+  if (error && !data) {
     return (
       <div className="space-y-6">
         <div>
@@ -192,7 +208,7 @@ function ProductsPageContent() {
                 <p className="text-sm text-muted-foreground">{error}</p>
               </div>
             </div>
-            <Button onClick={refresh} variant="outline" size="sm" className="mt-4">
+            <Button onClick={handleRefresh} variant="outline" size="sm" className="mt-4">
               <RefreshCw className="w-4 h-4 mr-2" />
               Retry
             </Button>
@@ -222,7 +238,7 @@ function ProductsPageContent() {
             ranges={["7d", "28d", "90d"]}
           />
           <Button
-            onClick={refresh}
+            onClick={handleRefresh}
             variant="outline"
             size="sm"
             disabled={isRefreshing}
@@ -233,16 +249,7 @@ function ProductsPageContent() {
         </div>
       </div>
 
-      {/* Data Status Banners */}
-      {hasSyncedProducts && (
-        <div className="flex items-center gap-2 p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span className="text-sm text-emerald-700">
-            Roblox products synced ({safeSyncedProducts.length} products)
-          </span>
-        </div>
-      )}
-
+      {/* No tracker events banner */}
       {!hasTrackerEvents ? (
         <div className="flex items-center justify-between p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg">
           <div className="flex items-center gap-2">
@@ -258,7 +265,7 @@ function ProductsPageContent() {
             </Link>
           </Button>
         </div>
-      ) : sharedMetrics.totalPurchases === 0 && (
+      ) : summary.totalPurchases === 0 && (
         <div className="flex items-center gap-2 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg">
           <AlertCircle className="w-4 h-4 text-blue-600" />
           <span className="text-sm text-blue-700">
@@ -276,7 +283,7 @@ function ProductsPageContent() {
               <span className="text-xs text-muted-foreground">Total Products</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {formatNumber(totalProductsCount)}
+              {formatNumber(summary.totalProducts)}
             </div>
           </CardContent>
         </Card>
@@ -290,9 +297,8 @@ function ProductsPageContent() {
               </span>
             </div>
             {(() => {
-              // Use summaryStats from shared aggregation (SINGLE SOURCE OF TRUTH)
-              const grossRevenue = summaryStats.grossTotalRevenue;
-              const estimatedRevenue = summaryStats.estimatedTotalRevenue;
+              const grossRevenue = summary.grossRevenue;
+              const estimatedRevenue = summary.estimatedRevenue;
               const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
               const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
               const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
@@ -322,7 +328,7 @@ function ProductsPageContent() {
               <span className="text-xs text-muted-foreground">{chartRange.toUpperCase()} Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents ? formatNumber(summaryStats.totalPurchases) : (
+              {hasTrackerEvents ? formatNumber(summary.totalPurchases) : (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               )}
             </div>
@@ -337,7 +343,7 @@ function ProductsPageContent() {
               <span className="text-xs text-muted-foreground">Unique Buyers</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents ? formatNumber(summaryStats.totalBuyers) : (
+              {hasTrackerEvents ? formatNumber(summary.totalBuyers) : (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               )}
             </div>
@@ -351,12 +357,12 @@ function ProductsPageContent() {
               <span className="text-xs text-muted-foreground">Payer Conversion Rate</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents && payerConversionRate !== null
-                ? formatPercent(payerConversionRate)
+              {hasTrackerEvents && summary.payerConversionRate !== null
+                ? formatPercent(summary.payerConversionRate)
                 : <span className="text-lg text-muted-foreground font-normal">—</span>
               }
             </div>
-            {hasTrackerEvents && payerConversionRate !== null && (
+            {hasTrackerEvents && summary.payerConversionRate !== null && (
               <p className="text-[10px] text-muted-foreground mt-1">
                 Paying Users / Active Users
               </p>
@@ -398,7 +404,7 @@ function ProductsPageContent() {
                   </tr>
                 </thead>
                 <tbody>
-                  {trackerProducts.map((product) => {
+                  {products.map((product) => {
                     const productId = product.productId;
                     const productName = product.productName !== "Unknown Product" && !product.productName.startsWith("Unknown Product #")
                       ? product.productName
@@ -413,7 +419,9 @@ function ProductsPageContent() {
                     const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
                     const purchases = product.purchases;
                     const buyers = product.buyers;
-                    const displayRevPerBuyer = product.revenuePerBuyer;
+                    const displayRevPerBuyer = revenueDisplayMode === "gross" 
+                      ? (buyers > 0 ? Math.round(grossRevenue / buyers) : 0)
+                      : product.revPerBuyer;
                     
                     return (
                       <tr key={productId} className="border-b border-border hover:bg-muted/50 transition-colors">
@@ -455,135 +463,32 @@ function ProductsPageContent() {
       )}
 
       {/* Empty state when tracker is active but no products yet */}
-      {hasTrackerEvents && !hasTrackerProducts && !hasSyncedProducts && (
+      {hasTrackerEvents && !hasTrackerProducts && (
         <Card className="border-border/50">
           <CardContent className="pt-6">
             <div className="text-center py-8">
               <Package className="w-12 h-12 mx-auto text-muted-foreground/50 mb-4" />
               <p className="text-foreground font-medium mb-2">No products tracked yet</p>
               <p className="text-sm text-muted-foreground mb-4">
-                Sync Roblox products or make a tracked purchase to populate this table.
+                Product data will appear when players make purchases in your game.
               </p>
-              <Button onClick={handleSyncRoblox} variant="outline">
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Sync Roblox Data
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Synced Roblox Products List - only show if synced products exist AND no tracker products */}
-      {hasSyncedProducts && !hasTrackerProducts && (
-        <Card className="border-border bg-card shadow-sm">
-          <CardHeader className="flex flex-row items-center justify-between pb-4">
-            <div>
-              <CardTitle className="text-lg font-semibold text-foreground">Synced Roblox Products</CardTitle>
-              <p className="text-sm text-muted-foreground mt-1">Products fetched from the Roblox API</p>
-            </div>
-            <Badge variant="secondary" className="bg-sky-500/20 text-sky-400 border-sky-500/40 text-[10px]">
-              Roblox API
-            </Badge>
-          </CardHeader>
-          <CardContent className="pt-0">
-            <div className="overflow-x-auto -mx-6">
-              <table className="w-full text-sm min-w-[800px]">
-                <thead>
-                  <tr className="border-b border-border bg-muted/50">
-                    <th className="text-left py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Product</th>
-                    <th className="text-left py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Type</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Price</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Revenue</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Purchases</th>
-                    <th className="text-right py-3.5 px-3 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Buyers</th>
-                    <th className="text-right py-3.5 px-6 font-semibold text-muted-foreground text-xs uppercase tracking-wide">Est. Rev/Buyer</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {safeSyncedProducts.map((product, index) => {
-                    // Safe field access using SyncedProduct type
-                    const name = product?.name ?? "Unnamed product";
-                    const type = product?.productType ?? "Product";
-                    const price = product?.priceRobux ?? null;
-                    const id = product?.robloxProductId ?? product?.id ?? String(index);
-
-                    // Tracker-based metrics (from sharedMetrics.products if available)
-                    const trackerProduct = sharedMetrics.products.find((p) => p.productId === String(id));
-                    
-                    // Calculate estimated values for tracker product
-                    const grossRevenue = trackerProduct?.grossRevenue ?? 0;
-                    const estimatedRevenue = trackerProduct?.estimatedRevenue ?? Math.round(grossRevenue * CREATOR_REVENUE_RATE);
-                    const buyers = trackerProduct?.buyers ?? 0;
-                    const estimatedRevPerBuyer = trackerProduct?.revenuePerBuyer ?? (buyers > 0 ? Math.round((grossRevenue * CREATOR_REVENUE_RATE) / buyers) : 0);
-
-                    return (
-                      <tr key={id} className="border-b border-border/30 hover:bg-muted/40 transition-colors">
-                        <td className="py-4 px-6">
-                          <div className="font-medium text-foreground">{name}</div>
-                          <div className="text-xs text-muted-foreground mt-0.5 font-mono">ID: {id}</div>
-                        </td>
-                        <td className="py-4 px-3">
-                          <Badge 
-                            variant="secondary" 
-                            className={type === "gamepass" 
-                              ? "bg-blue-500/15 text-blue-500 border-blue-500/30" 
-                              : "bg-purple-500/15 text-purple-500 border-purple-500/30"
-                            }
-                          >
-                            {type === "gamepass" ? "Game Pass" : type === "devproduct" ? "Dev Product" : type}
-                          </Badge>
-                        </td>
-                        <td className="py-4 px-3 text-right font-mono font-medium">
-                          {formatRobux(price)}
-                        </td>
-                        <td className="py-4 px-3 text-right" title={grossRevenue > 0 ? `Gross: R$${grossRevenue.toLocaleString()}` : undefined}>
-                          {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-mono font-semibold text-emerald-500">{formatRobux(estimatedRevenue)}</span>
-                          }
-                        </td>
-                        <td className="py-4 px-3 text-right">
-                          {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-medium">{formatNumber(trackerProduct?.purchases ?? 0)}</span>
-                          }
-                        </td>
-                        <td className="py-4 px-3 text-right">
-                          {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-medium">{formatNumber(buyers)}</span>
-                          }
-                        </td>
-                        <td className="py-4 px-6 text-right">
-                          {!hasTrackerEvents 
-                            ? <span className="text-xs text-muted-foreground">Needs tracking</span>
-                            : <span className="font-mono">{formatRobux(estimatedRevPerBuyer)}</span>
-                          }
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
             </div>
           </CardContent>
         </Card>
       )}
 
       {/* Debug Panel - visible when ?debug=true */}
-      {debugMode && (
+      {debugMode && data?.debug && (
         <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm text-amber-400">PCR Debug (Products Page)</CardTitle>
+            <CardTitle className="text-sm text-amber-400">Products Debug</CardTitle>
           </CardHeader>
           <CardContent>
             <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
 {JSON.stringify({
   selectedRange: chartRange,
-  payingUsers: sharedMetrics.payingUsers,
-  activeUsers: sharedMetrics.activeUsers,
-  pcr: payerConversionRate,
-  source: "shared_payer_conversion_helper",
+  revenueMode: revenueDisplayMode,
+  ...data.debug,
 }, null, 2)}
             </pre>
           </CardContent>
