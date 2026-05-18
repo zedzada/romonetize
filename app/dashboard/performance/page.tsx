@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatChartTime } from "@/hooks/use-analytics";
 import { CHART_COLORS } from "@/components/dashboard/chart-card";
-import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
+import { useChartTheme, getChartAxisProps, getChartGridProps } from "@/hooks/use-chart-theme";
 import {
   AreaChart,
   Area,
@@ -61,6 +61,38 @@ function formatDuration(seconds: number | null | undefined): string {
 // Performance page range type - supports 1d to 90d
 type PerformanceRange = "1d" | "7d" | "28d" | "90d";
 
+// Format chart tooltip label based on range
+function formatChartTooltipLabel(rawDate: string, range: PerformanceRange): string {
+  const d = new Date(rawDate);
+
+  if (range === "1d") {
+    return new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+  }
+
+  if (range === "7d") {
+    return new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/Paris",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(d);
+  }
+
+  // 28d or 90d
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Paris",
+    day: "2-digit",
+    month: "short",
+  }).format(d);
+}
+
 // Map to API range format
 function toApiRange(range: PerformanceRange): string {
   switch (range) {
@@ -90,7 +122,6 @@ export default function PerformancePage() {
   const chartTheme = useChartTheme();
   const axisProps = getChartAxisProps(chartTheme);
   const gridProps = getChartGridProps(chartTheme);
-  const tooltipStyle = getChartTooltipStyle(chartTheme);
   
   // ==========================================================================
   // CLEAN DATA SOURCES - Only two endpoints
@@ -658,7 +689,18 @@ export default function PerformancePage() {
                           tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                         />
                         <YAxis {...axisProps} />
-                              <Tooltip {...tooltipStyle} />
+                              <Tooltip 
+                          contentStyle={{
+                            backgroundColor: "#05080d",
+                            border: "1px solid #1f2937",
+                            borderRadius: "8px",
+                            color: "#ffffff",
+                          }}
+                          labelStyle={{ color: "#ffffff" }}
+                          itemStyle={{ color: "#ffffff" }}
+                          labelFormatter={(label) => formatChartTooltipLabel(label, chartRange)}
+                          formatter={(value: number) => [value, "Activity"]}
+                        />
                         <Area 
                           type="monotone" 
                           dataKey="value" 
@@ -702,7 +744,18 @@ export default function PerformancePage() {
                           tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                         />
                         <YAxis {...axisProps} />
-                              <Tooltip {...tooltipStyle} />
+                              <Tooltip 
+                          contentStyle={{
+                            backgroundColor: "#05080d",
+                            border: "1px solid #1f2937",
+                            borderRadius: "8px",
+                            color: "#ffffff",
+                          }}
+                          labelStyle={{ color: "#ffffff" }}
+                          itemStyle={{ color: "#ffffff" }}
+                          labelFormatter={(label) => formatChartTooltipLabel(label, chartRange)}
+                          formatter={(value: number) => [value, "Sessions"]}
+                        />
                         <Area 
                           type="monotone" 
                           dataKey="value" 
@@ -746,8 +799,19 @@ export default function PerformancePage() {
                             {...axisProps}
                             tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                           />
-                              <YAxis {...axisProps} />
-                              <Tooltip {...tooltipStyle} />
+                        <YAxis {...axisProps} />
+                              <Tooltip 
+                          contentStyle={{
+                            backgroundColor: "#05080d",
+                            border: "1px solid #1f2937",
+                            borderRadius: "8px",
+                            color: "#ffffff",
+                          }}
+                          labelStyle={{ color: "#ffffff" }}
+                          itemStyle={{ color: "#ffffff" }}
+                          labelFormatter={(label) => formatChartTooltipLabel(label, chartRange)}
+                          formatter={(value: number) => [value, "Purchases"]}
+                        />
                           <Area 
                             type="monotone" 
                             dataKey="value" 
