@@ -81,6 +81,14 @@ function BillingContent() {
     error: string | null;
     creditsGranted: number | null;
   }>({ syncing: false, synced: false, error: null, creditsGranted: null });
+  
+  // Subscription sync state - tracks whether plan was actually updated
+  const [subscriptionSyncState, setSubscriptionSyncState] = useState<{
+    syncing: boolean;
+    synced: boolean;
+    error: string | null;
+    syncedPlan: string | null;
+  }>({ syncing: false, synced: false, error: null, syncedPlan: null });
 
   // Refresh credits on successful purchase
   useEffect(() => {
@@ -157,23 +165,56 @@ function BillingContent() {
 
   const syncBillingFromStripe = async () => {
     setSyncing(true);
+    setSubscriptionSyncState({ syncing: true, synced: false, error: null, syncedPlan: null });
     setLastSyncMessage("Syncing your plan...");
     try {
-      const res = await fetch("/api/billing/sync", { method: "POST" });
+      // Pass debug=true if in debug mode to get extended info
+      const syncUrl = debugMode ? "/api/billing/sync?debug=true" : "/api/billing/sync";
+      const res = await fetch(syncUrl, { method: "POST" });
       const data = await res.json();
+      
+      // Always set debug info in debug mode
       if (debugMode) {
         setDebugInfo(data);
       }
-      if (data.plan) {
+      if (data.synced && data.plan && data.plan !== "free") {
+        // Plan was successfully synced to pro/studio
         await loadSubscription();
-        // Refresh credits and dispatch event so sidebar updates
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
-        setLastSyncMessage(`Plan synced: ${data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
+        setSubscriptionSyncState({ 
+          syncing: false, 
+          synced: true, 
+          error: null, 
+          syncedPlan: data.plan 
+        });
+        setLastSyncMessage(`Plan synced: ${data.planName || data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
       } else if (data.error) {
+        setSubscriptionSyncState({ 
+          syncing: false, 
+          synced: false, 
+          error: data.error, 
+          syncedPlan: null 
+        });
         setLastSyncMessage(`Sync error: ${data.error}`);
+      } else {
+        // Sync completed but plan is still free or no active subscription
+        await loadSubscription();
+        setSubscriptionSyncState({ 
+          syncing: false, 
+          synced: false, 
+          error: data.message || "No active subscription found", 
+          syncedPlan: null 
+        });
+        setLastSyncMessage(data.message || "No active subscription found in Stripe");
       }
     } catch (err) {
+      setSubscriptionSyncState({ 
+        syncing: false, 
+        synced: false, 
+        error: "Failed to sync with Stripe", 
+        syncedPlan: null 
+      });
       setLastSyncMessage("Failed to sync with Stripe");
     }
     setSyncing(false);
@@ -328,12 +369,38 @@ function BillingContent() {
       )}
 
       {/* Success/Cancel alerts */}
-      {(success || sessionId) && (
-        <Alert className="bg-green-500/10 border-green-500/50">
-          <Check className="w-4 h-4 text-green-500" />
-          <AlertDescription className="text-green-500">
-            {syncing ? "Payment successful! Syncing your plan..." : "Your subscription has been activated! Thank you for subscribing."}
-          </AlertDescription>
+      {(success || sessionId) && !creditsSuccess && (
+        <Alert className={subscriptionSyncState.error && !subscriptionSyncState.syncing ? "bg-amber-500/10 border-amber-500/50" : "bg-green-500/10 border-green-500/50"}>
+          {subscriptionSyncState.syncing ? (
+            <>
+              <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+              <AlertDescription className="text-blue-500">
+                Payment received. Syncing your subscription...
+              </AlertDescription>
+            </>
+          ) : subscriptionSyncState.synced && subscriptionSyncState.syncedPlan ? (
+            <>
+              <Check className="w-4 h-4 text-green-500" />
+              <AlertDescription className="text-green-500">
+                Your subscription has been activated! You are now on the {subscriptionSyncState.syncedPlan === "pro" ? "Pro" : subscriptionSyncState.syncedPlan === "studio" ? "Studio" : subscriptionSyncState.syncedPlan} plan.
+              </AlertDescription>
+            </>
+          ) : subscriptionSyncState.error ? (
+            <>
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <AlertDescription className="text-amber-500">
+                Payment received, but subscription sync failed. Click Sync to retry.
+                {debugMode && <span className="block text-xs mt-1">Error: {subscriptionSyncState.error}</span>}
+              </AlertDescription>
+            </>
+          ) : (
+            <>
+              <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+              <AlertDescription className="text-blue-500">
+                Payment received. Verifying subscription...
+              </AlertDescription>
+            </>
+          )}
         </Alert>
       )}
       {creditsSuccess && (
@@ -669,35 +736,100 @@ function BillingContent() {
         <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-amber-400">Billing Debug</CardTitle>
+            <CardDescription className="text-xs text-amber-400/70">
+              Add ?debug=true to URL to see this panel. Sync API also returns extended debug info.
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
+          <CardContent className="space-y-4">
+            {/* Failure Reason - prominent if present */}
+            {debugInfo?.failureReason && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md">
+                <div className="text-xs font-semibold text-red-400 mb-1">Failure Reason:</div>
+                <div className="text-sm text-red-300 font-mono">{String(debugInfo.failureReason)}</div>
+              </div>
+            )}
+
+            {/* Current UI State */}
+            <div>
+              <div className="text-xs font-semibold text-amber-400 mb-1">Current UI State</div>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
 {JSON.stringify({
-  dbBilling: {
-    plan: currentPlan.id,
-    planName: currentPlan.name,
-    subscriptionStatus: subscription?.status,
-    currentPeriodEnd: subscription?.currentPeriodEnd,
-  },
-  credits: {
-    monthlyCredits,
-    extraCredits,
-    totalCredits,
-    creditsLoading,
-  },
-  urlParams: {
-    success,
-    canceled,
-    sessionId,
-    creditsSuccess,
-    creditsPurchased,
-    creditsCanceled,
-  },
+  currentPlan: currentPlan.id,
+  subscriptionStatus: subscription?.status,
+  subscriptionSyncState,
   creditSyncState,
-  subscriptionSyncResult: debugInfo,
-  lastSyncMessage,
+  urlParams: { success, canceled, sessionId, creditsSuccess, creditsPurchased },
 }, null, 2)}
-            </pre>
+              </pre>
+            </div>
+
+            {/* Credits */}
+            <div>
+              <div className="text-xs font-semibold text-amber-400 mb-1">Credits</div>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify({ monthlyCredits, extraCredits, totalCredits, creditsLoading }, null, 2)}
+              </pre>
+            </div>
+
+            {/* Sync API Response */}
+            {debugInfo && (
+              <>
+                {/* DB Before */}
+                {debugInfo.debug?.dbBefore && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">DB Before Sync</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.debug.dbBefore, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Stripe Lookup */}
+                {debugInfo.debug?.stripeLookup && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">Stripe Lookup</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded max-h-60 overflow-y-auto">
+{JSON.stringify(debugInfo.debug.stripeLookup, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Price Mapping */}
+                {debugInfo.debug?.priceMapping && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">Price Mapping</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.debug.priceMapping, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* DB After */}
+                {debugInfo.debug?.dbAfter && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">DB After Sync</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.debug.dbAfter, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Full Sync Response (collapsed) */}
+                <div>
+                  <div className="text-xs font-semibold text-amber-400 mb-1">Full Sync API Response</div>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded max-h-40 overflow-y-auto">
+{JSON.stringify(debugInfo, null, 2)}
+                  </pre>
+                </div>
+              </>
+            )}
+
+            {/* Last Sync Message */}
+            {lastSyncMessage && (
+              <div className="text-xs text-muted-foreground">
+                <span className="font-semibold">Last sync:</span> {lastSyncMessage}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
