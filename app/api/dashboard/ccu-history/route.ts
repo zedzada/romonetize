@@ -14,12 +14,35 @@ const RANGE_MS: Record<string, number> = {
   "90d": 90 * 24 * 60 * 60 * 1000,
 };
 
-function formatLabel(isoString: string, range: string): string {
+/**
+ * Format CCU chart axis label based on range
+ * Uses fixed locale to avoid French weekday labels like "dim."
+ */
+function formatCcuAxisLabel(isoString: string, range: string): string {
   const date = new Date(isoString);
+  
   if (range === "1h" || range === "24h") {
-    return date.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    // Show time only: HH:mm (no weekday)
+    return date.toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
   }
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  
+  if (range === "7d") {
+    // Show: "17 May" for 7d
+    return date.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+    });
+  }
+  
+  // 28d and 90d: show date only
+  return date.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+  });
 }
 
 export async function GET(request: Request) {
@@ -133,7 +156,7 @@ export async function GET(request: Request) {
     // Build chart data directly from used rows (no extra filtering)
     let chartData = usedRows.map(row => ({
       time: row.created_at,
-      label: formatLabel(row.created_at, normalizedRange),
+      label: formatCcuAxisLabel(row.created_at, normalizedRange),
       ccu: Number(row.ccu) || 0,
       source: row.source,
     }));
