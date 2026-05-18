@@ -89,10 +89,16 @@ export async function GET(request: NextRequest) {
           estimatedRevenue: metrics.estimatedRevenue,
           arppu: metrics.arppu,
           pcr: metrics.pcr,
-          arpdau: metrics.arpdau,
+          // ARPDAU fields
+          arpdauGross: metrics.arpdauGross,
+          arpdauEstimated: metrics.arpdauEstimated,
+          activeUsersInRange: metrics.activeUsersInRange,
+          sumDailyDau: metrics.sumDailyDau,
           averageDau: metrics.averageDau,
-          averageDailyRevenue: metrics.averageDailyRevenue,
+          averageDailyRevenueGross: metrics.averageDailyRevenueGross,
+          averageDailyRevenueEstimated: metrics.averageDailyRevenueEstimated,
           numberOfDays: metrics.numberOfDays,
+          isLongRange: metrics.isLongRange,
         },
         
         // Time series for chart
@@ -101,8 +107,11 @@ export async function GET(request: NextRequest) {
         // Products for breakdown pie chart
         products: metrics.products,
         
+        // Daily buckets for ARPDAU debug
+        dailyBuckets: metrics.dailyBuckets,
+        
         // Has tracker events
-        hasTrackerEvents: metrics.purchases > 0 || metrics.activeUsers > 0,
+        hasTrackerEvents: metrics.purchases > 0 || metrics.activeUsersFixed > 0,
         
         // Debug info
         debug: debug ? {

@@ -98,13 +98,25 @@ interface MonetizationApiData {
     estimatedRevenue: number;
     arppu: number | null;
     pcr: number | null;
-    arpdau: number | null;
+    // ARPDAU fields
+    arpdauGross: number | null;
+    arpdauEstimated: number | null;
+    activeUsersInRange: number;
+    sumDailyDau: number;
     averageDau: number | null;
-    averageDailyRevenue: number | null;
+    averageDailyRevenueGross: number | null;
+    averageDailyRevenueEstimated: number | null;
     numberOfDays: number;
+    isLongRange: boolean;
   };
   timeSeries: TimeSeriesPoint[];
   products: ProductData[];
+  dailyBuckets?: Array<{
+    date: string;
+    revenueGross: number;
+    revenueEstimated: number;
+    dau: number;
+  }>;
   hasTrackerEvents: boolean;
   debug?: Record<string, unknown>;
   lastUpdated?: string;
@@ -352,10 +364,15 @@ function MonetizationContent() {
     estimatedRevenue: 0,
     arppu: null,
     pcr: null,
-    arpdau: null,
+    arpdauGross: null,
+    arpdauEstimated: null,
+    activeUsersInRange: 0,
+    sumDailyDau: 0,
     averageDau: null,
-    averageDailyRevenue: null,
+    averageDailyRevenueGross: null,
+    averageDailyRevenueEstimated: null,
     numberOfDays: 1,
+    isLongRange: false,
   };
   const timeSeries = data?.timeSeries ?? [];
   const products = data?.products ?? [];
@@ -410,10 +427,14 @@ function MonetizationContent() {
     ? Math.round((revenueDisplayMode === "gross" ? summary.grossRevenue : summary.estimatedRevenue) / summary.payingUsers)
     : null;
   
-  // ARPDAU - calculated based on display mode
-  const displayArpdau = summary.averageDau && summary.averageDau > 0 && summary.numberOfDays > 0
-    ? Math.round((revenueDisplayMode === "gross" ? summary.grossRevenue : summary.estimatedRevenue) / summary.numberOfDays / summary.averageDau)
-    : null;
+  // ARPDAU - use the correct field based on revenue mode (calculated in API)
+  const displayArpdau = revenueDisplayMode === "gross" ? summary.arpdauGross : summary.arpdauEstimated;
+  
+  // Subtext for ARPDAU depends on range type
+  const isLongRange = summary.isLongRange;
+  const arpdauSubtext = isLongRange
+    ? `avg daily revenue / ${summary.averageDau ?? 0} avg DAU`
+    : `R$${displayRevenue.toLocaleString()} / ${summary.activeUsersInRange} active users`;
 
   // Y-axis max
   const yAxisMax = useMemo(() => {
@@ -768,16 +789,13 @@ function MonetizationContent() {
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : displayArpdau != null ? (
-                formatRobux(displayArpdau)
+                `R$${displayArpdau.toFixed(2)}`
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              {summary.averageDau && summary.averageDau > 0
-                ? `avg daily rev / ${summary.averageDau} avg DAU`
-                : "avg daily revenue / avg DAU"
-              }
+              {hasTrackerData ? arpdauSubtext : "revenue / active users"}
             </p>
           </CardContent>
         </Card>
@@ -1354,7 +1372,7 @@ function MonetizationContent() {
       )}
 
       {/* Debug Panel */}
-      {debugMode && data?.debug && (
+      {debugMode && data && (
         <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-amber-400">Monetization Debug</CardTitle>
@@ -1364,7 +1382,44 @@ function MonetizationContent() {
 {JSON.stringify({
   selectedRange: chartRange,
   revenueMode: revenueDisplayMode,
-  ...data.debug,
+  
+  // Revenue
+  revenueInRange: displayRevenue,
+  grossRevenue: summary.grossRevenue,
+  estimatedRevenue: summary.estimatedRevenue,
+  
+  // Active users
+  activeUsersInRange: summary.activeUsersInRange,
+  activeUsersRaw: summary.activeUsersRaw,
+  activeUsersFixed: summary.activeUsersFixed,
+  
+  // ARPDAU
+  arpdauFormulaUsed: summary.isLongRange ? "total_revenue / sum_daily_dau" : "range_revenue / range_active_users",
+  arpdauGross: summary.arpdauGross,
+  arpdauEstimated: summary.arpdauEstimated,
+  displayArpdau,
+  isLongRange: summary.isLongRange,
+  
+  // Daily buckets (for long range ARPDAU)
+  sumDailyDau: summary.sumDailyDau,
+  averageDau: summary.averageDau,
+  averageDailyRevenueGross: summary.averageDailyRevenueGross,
+  averageDailyRevenueEstimated: summary.averageDailyRevenueEstimated,
+  numberOfDays: summary.numberOfDays,
+  
+  // PCR (unchanged)
+  payingUsers: summary.payingUsers,
+  pcr: summary.pcr,
+  
+  // ARPPU (unchanged)
+  arppu: summary.arppu,
+  displayArppu,
+  
+  // Daily buckets detail
+  dailyBuckets: data.dailyBuckets,
+  
+  // API debug
+  apiDebug: data.debug,
 }, null, 2)}
             </pre>
           </CardContent>
