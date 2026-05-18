@@ -117,11 +117,14 @@ export async function GET(request: NextRequest) {
 
     if (resolvedUniverseId) {
       robloxApiUrl = `https://games.roblox.com/v1/games?universeIds=${resolvedUniverseId}`;
+      const robloxVotesApiUrl = `https://games.roblox.com/v1/games/votes?universeIds=${resolvedUniverseId}`;
       
       let liveGame: Record<string, unknown> | null = null;
+      let voteData: Record<string, unknown> | null = null;
+      let voteApiStatus: string = "not_called";
       
       try {
-        // Fetch from public Roblox API
+        // Fetch from public Roblox API for game stats (CCU, visits, favorites)
         const robloxResponse = await fetch(robloxApiUrl, {
           headers: {
             "Accept": "application/json",
@@ -135,7 +138,29 @@ export async function GET(request: NextRequest) {
           liveGame = robloxData?.data?.[0] ?? null;
         }
       } catch (apiError) {
-        console.log("[performance-data] Roblox API fetch failed, falling back to DB:", apiError);
+        console.log("[performance-data] Roblox games API fetch failed, falling back to DB:", apiError);
+      }
+
+      // Fetch votes from separate Roblox votes endpoint
+      try {
+        const votesResponse = await fetch(robloxVotesApiUrl, {
+          headers: {
+            "Accept": "application/json",
+          },
+          signal: AbortSignal.timeout(5000),
+        });
+
+        if (votesResponse.ok) {
+          const votesData = await votesResponse.json();
+          voteData = votesData?.data?.[0] ?? null;
+          voteApiStatus = voteData ? "ok" : "empty_response";
+        } else {
+          voteApiStatus = `http_${votesResponse.status}`;
+          console.log("[performance-data] Roblox votes API returned status:", votesResponse.status);
+        }
+      } catch (voteApiError) {
+        voteApiStatus = "fetch_error";
+        console.log("[performance-data] Roblox votes API fetch failed:", voteApiError);
       }
 
       // DB row as fallback source (syncRow)
@@ -153,8 +178,10 @@ export async function GET(request: NextRequest) {
         raw_data: (selectedGame as Record<string, unknown>).raw_data,
       };
 
-      // Safe mapping for likes - check liveGame FIRST (public API is most reliable)
+      // Safe mapping for likes - check vote API FIRST (dedicated endpoint), then liveGame, then DB
       const likes =
+        voteData?.upVotes ??
+        voteData?.up_votes ??
         liveGame?.upVotes ??
         liveGame?.likes ??
         (liveGame?.voteCounts as Record<string, unknown>)?.upVotes ??
@@ -165,8 +192,10 @@ export async function GET(request: NextRequest) {
         (syncRow?.raw_data as Record<string, unknown>)?.upVotes ??
         null;
 
-      // Safe mapping for dislikes - check liveGame FIRST (public API is most reliable)
+      // Safe mapping for dislikes - check vote API FIRST (dedicated endpoint), then liveGame, then DB
       const dislikes =
+        voteData?.downVotes ??
+        voteData?.down_votes ??
         liveGame?.downVotes ??
         liveGame?.dislikes ??
         (liveGame?.voteCounts as Record<string, unknown>)?.downVotes ??
@@ -202,13 +231,20 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Debug info for likes/dislikes mapping
+      // Debug info for likes/dislikes mapping (enhanced with vote API debug)
       robloxStatsDebug = {
         source: robloxStatsSource,
         universeId: resolvedUniverseId,
+        // Vote API debug
+        voteApiUrl: robloxVotesApiUrl,
+        voteApiStatus,
+        voteApiRawFirstItem: voteData,
+        // Game API debug
         liveGameKeys: liveGame ? Object.keys(liveGame) : [],
         syncRowKeys: Object.keys(syncRow).filter(k => syncRow[k as keyof typeof syncRow] !== undefined),
         rawVoteFields: {
+          voteApiUpVotes: voteData?.upVotes,
+          voteApiDownVotes: voteData?.downVotes,
           liveUpVotes: liveGame?.upVotes,
           liveDownVotes: liveGame?.downVotes,
           syncLikes: syncRow?.likes,
@@ -388,12 +424,12 @@ export async function GET(request: NextRequest) {
         const meta = e.metadata as Record<string, unknown> | null;
         const eventRecord = e as Record<string, unknown>;
         
-        const duration = 
+        const rawDuration = 
           // Root column variants
           eventRecord.duration ??
           eventRecord.session_duration ??
           eventRecord.duration_seconds ??
-          // Metadata variants (comprehensive list)
+          // Metadata variants (comprehensive list per spec)
           meta?.duration ??
           meta?.session_duration ??
           meta?.duration_seconds ??
@@ -404,10 +440,18 @@ export async function GET(request: NextRequest) {
           meta?.playtime ??
           meta?.play_time ??
           meta?.sessionDuration ??
+          meta?.sessionTime ??
+          meta?.session_time ??
           meta?.length ??
           meta?.time;
         
-        const seconds = Number(duration);
+        let seconds = Number(rawDuration);
+        
+        // If duration looks like milliseconds (> 10000), convert to seconds
+        if (seconds > 10000) {
+          seconds = seconds / 1000;
+        }
+        
         if (Number.isFinite(seconds) && seconds > 0) {
           validDurations.push(seconds);
         }

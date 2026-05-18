@@ -968,14 +968,15 @@ export default function PerformancePage() {
                 </pre>
               </div>
               <div>
-                <strong>Resolved Universe ID:</strong>
+                <strong>Roblox Votes Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    resolvedUniverseId,
-                    robloxApiUrl: performanceData?.robloxApiUrl ?? null,
-                    robloxStatsSource: performanceData?.robloxStatsSource ?? "none",
-                    hasRobloxConnection,
-                    robloxUrl,
+                    universeId: resolvedUniverseId,
+                    voteApiUrl: performanceData?.robloxStatsDebug?.voteApiUrl ?? null,
+                    voteApiStatus: performanceData?.robloxStatsDebug?.voteApiStatus ?? null,
+                    voteApiRawFirstItem: performanceData?.robloxStatsDebug?.voteApiRawFirstItem ?? null,
+                    likes: robloxStats.likes,
+                    dislikes: robloxStats.dislikes,
                   }, null, 2)}
                 </pre>
               </div>
@@ -984,6 +985,7 @@ export default function PerformancePage() {
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
                     ...robloxStats,
+                    source: performanceData?.robloxStatsSource ?? "none",
                     debug: performanceData?.robloxStatsDebug ?? null,
                   }, null, 2)}
                 </pre>
@@ -993,11 +995,11 @@ export default function PerformancePage() {
               <div>
                 <strong>Avg Session Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify(performanceData?.avgSessionDebug ?? {
-                    sessionEndCount: 0,
-                    validSessionDurationCount: 0,
-                    sampleSessionEndEvents: [],
-                    avgSessionSeconds: null,
+                  {JSON.stringify({
+                    sessionEndCount: performanceData?.avgSessionDebug?.sessionEndCount ?? 0,
+                    validSessionDurationCount: performanceData?.avgSessionDebug?.validSessionDurationCount ?? 0,
+                    sampleSessionEndMetadata: performanceData?.avgSessionDebug?.sampleSessionEndEvents?.map((e: { metadata?: unknown }) => e.metadata) ?? [],
+                    avgSessionSeconds: performanceData?.avgSessionDebug?.avgSessionSeconds ?? null,
                   }, null, 2)}
                 </pre>
               </div>
@@ -1014,16 +1016,17 @@ export default function PerformancePage() {
                 </pre>
               </div>
               <div>
-                <strong>CCU Data:</strong>
+                <strong>CCU Label Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
                     range: ccuRange,
+                    firstRawTime: ccuChartData.length > 0 ? ccuChartData[0].time : null,
+                    firstFormattedLabel: ccuChartData.length > 0 ? ccuChartData[0].label : null,
+                    lastRawTime: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].time : null,
+                    lastFormattedLabel: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].label : null,
                     usedSource: ccuHistoryData?.usedSource,
                     usedSnapshots: ccuHistoryData?.usedSnapshots,
                     chartDataLength: ccuChartData.length,
-                    currentCcu,
-                    peakCcu,
-                    avgCcu,
                   }, null, 2)}
                 </pre>
               </div>
@@ -1031,6 +1034,7 @@ export default function PerformancePage() {
           </CardContent>
         </Card>
       )}
+
 
       {/* Tracking Script Installation Guide */}
       {needsTrackingScript && (
