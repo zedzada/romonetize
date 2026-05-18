@@ -92,11 +92,16 @@ interface MonetizationApiData {
   summary: {
     purchases: number;
     payingUsers: number;
-    activeUsers: number;
+    activeUsersRaw: number;
+    activeUsersFixed: number;
     grossRevenue: number;
     estimatedRevenue: number;
     arppu: number | null;
-    payerConversionRate: number | null;
+    pcr: number | null;
+    arpdau: number | null;
+    averageDau: number | null;
+    averageDailyRevenue: number | null;
+    numberOfDays: number;
   };
   timeSeries: TimeSeriesPoint[];
   products: ProductData[];
@@ -341,11 +346,16 @@ function MonetizationContent() {
   const summary = data?.summary ?? {
     purchases: 0,
     payingUsers: 0,
-    activeUsers: 0,
+    activeUsersRaw: 0,
+    activeUsersFixed: 0,
     grossRevenue: 0,
     estimatedRevenue: 0,
     arppu: null,
-    payerConversionRate: null,
+    pcr: null,
+    arpdau: null,
+    averageDau: null,
+    averageDailyRevenue: null,
+    numberOfDays: 1,
   };
   const timeSeries = data?.timeSeries ?? [];
   const products = data?.products ?? [];
@@ -389,11 +399,20 @@ function MonetizationContent() {
     return { ...totals, activeBuckets };
   }, [processedChartData, chartMode]);
 
-  // Display values
+  // Display values - use values from API (already calculated consistently)
   const displayRevenue = revenueDisplayMode === "gross" ? summary.grossRevenue : summary.estimatedRevenue;
-  const pcr = summary.payerConversionRate;
+  
+  // PCR from API (already fixed to never exceed 100%)
+  const pcr = summary.pcr;
+  
+  // ARPPU - calculated based on display mode
   const displayArppu = summary.payingUsers > 0 
-    ? (revenueDisplayMode === "gross" ? summary.grossRevenue : summary.estimatedRevenue) / summary.payingUsers 
+    ? Math.round((revenueDisplayMode === "gross" ? summary.grossRevenue : summary.estimatedRevenue) / summary.payingUsers)
+    : null;
+  
+  // ARPDAU - calculated based on display mode
+  const displayArpdau = summary.averageDau && summary.averageDau > 0 && summary.numberOfDays > 0
+    ? Math.round((revenueDisplayMode === "gross" ? summary.grossRevenue : summary.estimatedRevenue) / summary.numberOfDays / summary.averageDau)
     : null;
 
   // Y-axis max
@@ -695,14 +714,14 @@ function MonetizationContent() {
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : pcr != null ? (
-                `${(pcr * 100).toFixed(2)}%`
+                `${pcr.toFixed(2)}%`
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              {summary.activeUsers > 0
-                ? `${summary.payingUsers} / ${summary.activeUsers} active users`
+              {summary.activeUsersFixed > 0
+                ? `${summary.payingUsers} / ${summary.activeUsersFixed} active users`
                 : "Requires active player tracking"
               }
             </p>
@@ -722,33 +741,43 @@ function MonetizationContent() {
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : displayArppu != null ? (
-                formatRobux(Math.round(displayArppu))
+                formatRobux(displayArppu)
               ) : (
                 <span className="text-muted-foreground">—</span>
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              Revenue / Paying users
+              {summary.payingUsers > 0
+                ? `${formatRobux(displayRevenue)} / ${summary.payingUsers} payers`
+                : "Revenue / Paying users"
+              }
             </p>
           </CardContent>
         </Card>
 
-        {/* Active Users */}
+        {/* ARPDAU */}
         <Card className="border-border bg-card shadow-sm">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
-              <Users className="w-4 h-4 text-cyan-400" />
-              <span className="text-xs text-muted-foreground">Active Users</span>
+              <DollarSign className="w-4 h-4 text-teal-400" />
+              <span className="text-xs text-muted-foreground">
+                {revenueDisplayMode === "gross" ? "Gross ARPDAU" : "Est. ARPDAU"}
+              </span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : displayArpdau != null ? (
+                formatRobux(displayArpdau)
               ) : (
-                formatNumber(summary.activeUsers)
+                <span className="text-muted-foreground">—</span>
               )}
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
-              {chartRange.toUpperCase()} range
+              {summary.averageDau && summary.averageDau > 0
+                ? `avg daily rev / ${summary.averageDau} avg DAU`
+                : "avg daily revenue / avg DAU"
+              }
             </p>
           </CardContent>
         </Card>
