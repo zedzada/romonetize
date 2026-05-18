@@ -102,16 +102,34 @@ export interface PurchaseMetricsResult {
   estimatedRevenue: number;
   arppu: number | null;
   pcr: number | null;
-  arpdau: number | null;
+  
+  // ARPDAU - different calculation based on range
+  arpdauGross: number | null;
+  arpdauEstimated: number | null;
+  
+  // For short ranges (1h, 6h, 24h, 72h): activeUsersInRange is the denominator
+  // For long ranges (7d, 28d, 90d): sumDailyDau is the denominator
+  activeUsersInRange: number;
+  sumDailyDau: number;
   averageDau: number | null;
-  averageDailyRevenue: number | null;
+  averageDailyRevenueGross: number | null;
+  averageDailyRevenueEstimated: number | null;
   numberOfDays: number;
+  isLongRange: boolean;
   
   // Products list
   products: ProductMetrics[];
   
   // Time series for charts
   timeSeries: TimeSeriesPoint[];
+  
+  // Daily buckets for ARPDAU debug
+  dailyBuckets: Array<{
+    date: string;
+    revenueGross: number;
+    revenueEstimated: number;
+    dau: number;
+  }>;
   
   // Debug info
   debug: {
@@ -133,9 +151,15 @@ export interface PurchaseMetricsResult {
     pcrWarning: string | null;
     
     // ARPDAU debug
+    isLongRange: boolean;
+    arpdauFormulaUsed: string;
+    activeUsersInRange: number;
+    sumDailyDau: number;
     averageDau: number | null;
-    averageDailyRevenue: number | null;
-    arpdau: number | null;
+    averageDailyRevenueGross: number | null;
+    averageDailyRevenueEstimated: number | null;
+    arpdauGross: number | null;
+    arpdauEstimated: number | null;
     numberOfDays: number;
     
     // Event type breakdown
@@ -599,23 +623,89 @@ export async function getPurchaseMetrics(opts: {
   // ARPPU = estimatedRevenue / payingUsers
   const arppu = payingUsers > 0 ? Math.round(estimatedRevenue / payingUsers) : null;
   
-  // Calculate ARPDAU
-  // numberOfDays = number of days in selected range
+  // Determine if this is a long range (7d, 28d, 90d) that needs daily bucket ARPDAU
+  const isLongRange = ["7d", "28d", "90d"].includes(range);
+  
+  // Calculate numberOfDays
   const msInDay = 24 * 60 * 60 * 1000;
   const numberOfDays = Math.max(1, Math.ceil((now.getTime() - rangeStart.getTime()) / msInDay));
   
-  // averageDailyRevenue = estimatedRevenue / numberOfDays
-  const averageDailyRevenue = estimatedRevenue / numberOfDays;
+  // activeUsersInRange = total distinct active users in the selected range
+  const activeUsersInRange = activeUsersFixed;
   
-  // averageDau = average of daily distinct active users
-  let averageDau: number | null = null;
-  if (dailyActiveUsers.size > 0) {
-    const totalDau = Array.from(dailyActiveUsers.values()).reduce((sum, set) => sum + set.size, 0);
-    averageDau = Math.round(totalDau / dailyActiveUsers.size);
+  // Calculate daily buckets for revenue and DAU
+  const dailyRevenueMap = new Map<string, { gross: number; estimated: number }>();
+  
+  // Sum revenue per day from purchase events
+  for (const event of purchaseEvents) {
+    const dayKey = getBucketKey(event.created_at, "day").slice(0, 10); // YYYY-MM-DD
+    const productInfo = extractProductInfo(event);
+    const existing = dailyRevenueMap.get(dayKey);
+    if (existing) {
+      existing.gross += productInfo.price;
+      existing.estimated += Math.round(productInfo.price * CREATOR_REVENUE_RATE);
+    } else {
+      dailyRevenueMap.set(dayKey, {
+        gross: productInfo.price,
+        estimated: Math.round(productInfo.price * CREATOR_REVENUE_RATE),
+      });
+    }
   }
   
-  // ARPDAU = averageDailyRevenue / averageDau
-  const arpdau = averageDau && averageDau > 0 ? Math.round(averageDailyRevenue / averageDau) : null;
+  // Build daily buckets array
+  const dailyBuckets: Array<{ date: string; revenueGross: number; revenueEstimated: number; dau: number }> = [];
+  
+  // Get all days in range
+  const allDays = new Set<string>();
+  for (const dayKey of dailyActiveUsers.keys()) {
+    allDays.add(dayKey.slice(0, 10));
+  }
+  for (const dayKey of dailyRevenueMap.keys()) {
+    allDays.add(dayKey);
+  }
+  
+  for (const dayKey of Array.from(allDays).sort()) {
+    const revenue = dailyRevenueMap.get(dayKey);
+    const dauSet = dailyActiveUsers.get(dayKey + "T00:00:00.000Z");
+    dailyBuckets.push({
+      date: dayKey,
+      revenueGross: revenue?.gross ?? 0,
+      revenueEstimated: revenue?.estimated ?? 0,
+      dau: dauSet?.size ?? 0,
+    });
+  }
+  
+  // sumDailyDau = sum of DAU across all days (counts same user multiple times if active on multiple days)
+  const sumDailyDau = dailyBuckets.reduce((sum, day) => sum + day.dau, 0);
+  
+  // averageDau = sumDailyDau / numberOfDays (or number of days with data)
+  const daysWithData = dailyBuckets.filter(d => d.dau > 0).length;
+  const averageDau = daysWithData > 0 ? Math.round(sumDailyDau / daysWithData) : null;
+  
+  // averageDailyRevenue
+  const averageDailyRevenueGross = numberOfDays > 0 ? Math.round(totalGrossRevenue / numberOfDays) : null;
+  const averageDailyRevenueEstimated = numberOfDays > 0 ? Math.round(estimatedRevenue / numberOfDays) : null;
+  
+  // Calculate ARPDAU based on range type
+  let arpdauGross: number | null = null;
+  let arpdauEstimated: number | null = null;
+  let arpdauFormulaUsed: string;
+  
+  if (isLongRange) {
+    // For 7D/28D/90D: ARPDAU = totalRevenue / sumDailyDau
+    arpdauFormulaUsed = "total_revenue / sum_daily_dau";
+    if (sumDailyDau > 0) {
+      arpdauGross = Math.round((totalGrossRevenue / sumDailyDau) * 100) / 100;
+      arpdauEstimated = Math.round((estimatedRevenue / sumDailyDau) * 100) / 100;
+    }
+  } else {
+    // For 1H/6H/24H/72H: ARPDAU = revenueInRange / activeUsersInRange
+    arpdauFormulaUsed = "range_revenue / range_active_users";
+    if (activeUsersInRange > 0) {
+      arpdauGross = Math.round((totalGrossRevenue / activeUsersInRange) * 100) / 100;
+      arpdauEstimated = Math.round((estimatedRevenue / activeUsersInRange) * 100) / 100;
+    }
+  }
   
   // Sample users for debug
   const samplePayingUsers = Array.from(payingUserIds).slice(0, 5);
@@ -634,12 +724,18 @@ export async function getPurchaseMetrics(opts: {
     estimatedRevenue,
     arppu,
     pcr,
-    arpdau,
+    arpdauGross,
+    arpdauEstimated,
+    activeUsersInRange,
+    sumDailyDau,
     averageDau,
-    averageDailyRevenue: Math.round(averageDailyRevenue),
+    averageDailyRevenueGross,
+    averageDailyRevenueEstimated,
     numberOfDays,
+    isLongRange,
     products,
     timeSeries,
+    dailyBuckets,
     debug: {
       selectedGameId: gameId,
       range,
@@ -659,9 +755,15 @@ export async function getPurchaseMetrics(opts: {
       pcrWarning,
       
       // ARPDAU debug
+      isLongRange,
+      arpdauFormulaUsed,
+      activeUsersInRange,
+      sumDailyDau,
       averageDau,
-      averageDailyRevenue: Math.round(averageDailyRevenue),
-      arpdau,
+      averageDailyRevenueGross,
+      averageDailyRevenueEstimated,
+      arpdauGross,
+      arpdauEstimated,
       numberOfDays,
       
       // Event type breakdown
