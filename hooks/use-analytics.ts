@@ -667,23 +667,25 @@ export function getRangeLabel(range: DateRange): string {
 
 /**
  * Get chart bucket label based on range
- * Uses undefined locale to respect user's browser timezone
+ * Uses explicit Europe/Paris timezone for consistent display
  */
 export function formatChartTime(timeStr: string, range: DateRange): string {
   const date = new Date(timeStr);
 
   if (range === "1h" || range === "1d") {
-    // Time only format in user's local timezone: "14:32"
-    return date.toLocaleTimeString(undefined, {
+    // Time only format: "14:32" in Europe/Paris
+    return new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    });
+    }).format(date);
   } else {
-    // Daily format in user's local: "15 Jan"
-    return date.toLocaleDateString(undefined, {
+    // Daily format: "15 janv." in Europe/Paris
+    return new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
       day: "2-digit",
       month: "short",
-    });
+    }).format(date);
   }
 }

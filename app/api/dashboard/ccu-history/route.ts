@@ -16,25 +16,39 @@ const RANGE_MS: Record<string, number> = {
 
 /**
  * Format CCU chart axis label based on range
- * Uses undefined locale to respect the user's browser timezone and locale settings
+ * Uses explicit Europe/Paris timezone for consistent display
  */
 function formatCcuAxisLabel(isoString: string, range: string): string {
   const date = new Date(isoString);
   
   if (range === "1h" || range === "24h") {
-    // Show time only: HH:mm in user's local timezone
-    return date.toLocaleTimeString(undefined, {
+    // Show time only: HH:mm in Europe/Paris
+    return new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
-    });
+    }).format(date);
   }
   
-  // 7d, 28d, 90d: show date only in user's local format
-  return date.toLocaleDateString(undefined, {
+  // 7d: show date + time
+  if (range === "7d") {
+    return new Intl.DateTimeFormat("fr-FR", {
+      timeZone: "Europe/Paris",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(date);
+  }
+  
+  // 28d, 90d: show date only
+  return new Intl.DateTimeFormat("fr-FR", {
+    timeZone: "Europe/Paris",
     day: "2-digit",
     month: "short",
-  });
+  }).format(date);
 }
 
 export async function GET(request: Request) {

@@ -998,8 +998,9 @@ export default function PerformancePage() {
                   {JSON.stringify({
                     sessionEndCount: performanceData?.avgSessionDebug?.sessionEndCount ?? 0,
                     validSessionDurationCount: performanceData?.avgSessionDebug?.validSessionDurationCount ?? 0,
+                    usedFallback: performanceData?.avgSessionDebug?.usedFallback ?? false,
                     avgSessionSeconds: performanceData?.avgSessionDebug?.avgSessionSeconds ?? null,
-                    sampleSessionEndEvents: performanceData?.avgSessionDebug?.sampleSessionEndEvents ?? [],
+                    sampleSessionEnds: performanceData?.avgSessionDebug?.sampleSessionEnds ?? [],
                   }, null, 2)}
                 </pre>
               </div>
@@ -1020,6 +1021,7 @@ export default function PerformancePage() {
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
                     selectedRange: ccuRange,
+                    timezoneUsed: "Europe/Paris",
                     browserTimezone: typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "server",
                     firstRawTimestamp: ccuChartData.length > 0 ? ccuChartData[0].time : null,
                     firstFormattedLabel: ccuChartData.length > 0 ? ccuChartData[0].label : null,
