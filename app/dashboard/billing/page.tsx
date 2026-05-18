@@ -102,7 +102,10 @@ function BillingContent() {
       }
       if (data.plan) {
         await loadSubscription();
-        setLastSyncMessage(`Plan synced: ${data.plan} (${data.status})`);
+        // Refresh credits and dispatch event so sidebar updates
+        await refreshCredits();
+        window.dispatchEvent(new CustomEvent("credits-updated"));
+        setLastSyncMessage(`Plan synced: ${data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
       } else if (data.error) {
         setLastSyncMessage(`Sync error: ${data.error}`);
       }

@@ -1,9 +1,82 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
-import { getPlanById, PRICING_PLANS } from "@/lib/products";
+import { getPlanById, PRICING_PLANS, getAiCreditsForPlan } from "@/lib/products";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+
+// Get admin client for credit operations
+function getSupabaseAdmin() {
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
+
+// Grant monthly credits for subscription (same as webhook)
+async function grantMonthlyCredits(userId: string, credits: number) {
+  const supabaseAdmin = getSupabaseAdmin();
+  const now = new Date();
+  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  // Get current balance to preserve extra_credits
+  const { data: currentBalance } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .select("extra_credits, monthly_credits, monthly_credits_reset_at")
+    .eq("user_id", userId)
+    .single();
+
+  // Check if credits were already granted this period
+  if (currentBalance?.monthly_credits_reset_at) {
+    const resetAt = new Date(currentBalance.monthly_credits_reset_at);
+    if (resetAt > now && currentBalance.monthly_credits >= credits) {
+      // Already has credits for this period
+      return { 
+        alreadyGranted: true, 
+        currentCredits: currentBalance.monthly_credits,
+        extraCredits: currentBalance.extra_credits || 0,
+      };
+    }
+  }
+
+  const { error } = await supabaseAdmin
+    .from("ai_credit_balances")
+    .upsert({
+      user_id: userId,
+      monthly_credits: credits,
+      extra_credits: currentBalance?.extra_credits || 0,
+      monthly_credits_reset_at: nextMonth.toISOString(),
+      updated_at: new Date().toISOString(),
+    }, {
+      onConflict: "user_id",
+    });
+
+  if (error) {
+    console.error("Error granting monthly credits:", error);
+    return { error: error.message };
+  }
+
+  const totalCredits = credits + (currentBalance?.extra_credits || 0);
+
+  // Record transaction
+  await supabaseAdmin
+    .from("ai_credit_transactions")
+    .insert({
+      user_id: userId,
+      type: "monthly_grant",
+      amount: credits,
+      balance_after: totalCredits,
+      metadata: { source: "billing_sync" },
+      created_at: new Date().toISOString(),
+    });
+
+  return { 
+    granted: credits, 
+    totalCredits,
+    extraCredits: currentBalance?.extra_credits || 0,
+  };
+}
 
 export async function POST() {
   const supabase = await createClient();
@@ -126,6 +199,13 @@ export async function POST() {
         onConflict: "stripe_subscription_id",
       });
 
+    // Grant monthly AI credits for active subscription
+    let creditsResult = null;
+    const aiCredits = getAiCreditsForPlan(plan.id);
+    if (aiCredits > 0) {
+      creditsResult = await grantMonthlyCredits(user.id, aiCredits);
+    }
+
     return NextResponse.json({
       plan: plan.id,
       planName: plan.name,
@@ -137,6 +217,8 @@ export async function POST() {
       currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
       updateError: updateError?.message || null,
       synced: true,
+      credits: creditsResult,
+      aiCreditsForPlan: aiCredits,
     });
 
   } catch (error) {
