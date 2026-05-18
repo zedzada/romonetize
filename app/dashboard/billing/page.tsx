@@ -81,6 +81,14 @@ function BillingContent() {
     error: string | null;
     creditsGranted: number | null;
   }>({ syncing: false, synced: false, error: null, creditsGranted: null });
+  
+  // Subscription sync state - tracks whether plan was actually updated
+  const [subscriptionSyncState, setSubscriptionSyncState] = useState<{
+    syncing: boolean;
+    synced: boolean;
+    error: string | null;
+    syncedPlan: string | null;
+  }>({ syncing: false, synced: false, error: null, syncedPlan: null });
 
   // Refresh credits on successful purchase
   useEffect(() => {
@@ -157,6 +165,7 @@ function BillingContent() {
 
   const syncBillingFromStripe = async () => {
     setSyncing(true);
+    setSubscriptionSyncState({ syncing: true, synced: false, error: null, syncedPlan: null });
     setLastSyncMessage("Syncing your plan...");
     try {
       const res = await fetch("/api/billing/sync", { method: "POST" });
@@ -164,16 +173,44 @@ function BillingContent() {
       if (debugMode) {
         setDebugInfo(data);
       }
-      if (data.plan) {
+      if (data.synced && data.plan && data.plan !== "free") {
+        // Plan was successfully synced to pro/studio
         await loadSubscription();
-        // Refresh credits and dispatch event so sidebar updates
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
-        setLastSyncMessage(`Plan synced: ${data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
+        setSubscriptionSyncState({ 
+          syncing: false, 
+          synced: true, 
+          error: null, 
+          syncedPlan: data.plan 
+        });
+        setLastSyncMessage(`Plan synced: ${data.planName || data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
       } else if (data.error) {
+        setSubscriptionSyncState({ 
+          syncing: false, 
+          synced: false, 
+          error: data.error, 
+          syncedPlan: null 
+        });
         setLastSyncMessage(`Sync error: ${data.error}`);
+      } else {
+        // Sync completed but plan is still free or no active subscription
+        await loadSubscription();
+        setSubscriptionSyncState({ 
+          syncing: false, 
+          synced: false, 
+          error: data.message || "No active subscription found", 
+          syncedPlan: null 
+        });
+        setLastSyncMessage(data.message || "No active subscription found in Stripe");
       }
     } catch (err) {
+      setSubscriptionSyncState({ 
+        syncing: false, 
+        synced: false, 
+        error: "Failed to sync with Stripe", 
+        syncedPlan: null 
+      });
       setLastSyncMessage("Failed to sync with Stripe");
     }
     setSyncing(false);
@@ -328,12 +365,38 @@ function BillingContent() {
       )}
 
       {/* Success/Cancel alerts */}
-      {(success || sessionId) && (
-        <Alert className="bg-green-500/10 border-green-500/50">
-          <Check className="w-4 h-4 text-green-500" />
-          <AlertDescription className="text-green-500">
-            {syncing ? "Payment successful! Syncing your plan..." : "Your subscription has been activated! Thank you for subscribing."}
-          </AlertDescription>
+      {(success || sessionId) && !creditsSuccess && (
+        <Alert className={subscriptionSyncState.error && !subscriptionSyncState.syncing ? "bg-amber-500/10 border-amber-500/50" : "bg-green-500/10 border-green-500/50"}>
+          {subscriptionSyncState.syncing ? (
+            <>
+              <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+              <AlertDescription className="text-blue-500">
+                Payment received. Syncing your subscription...
+              </AlertDescription>
+            </>
+          ) : subscriptionSyncState.synced && subscriptionSyncState.syncedPlan ? (
+            <>
+              <Check className="w-4 h-4 text-green-500" />
+              <AlertDescription className="text-green-500">
+                Your subscription has been activated! You are now on the {subscriptionSyncState.syncedPlan === "pro" ? "Pro" : subscriptionSyncState.syncedPlan === "studio" ? "Studio" : subscriptionSyncState.syncedPlan} plan.
+              </AlertDescription>
+            </>
+          ) : subscriptionSyncState.error ? (
+            <>
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <AlertDescription className="text-amber-500">
+                Payment received, but subscription sync failed. Click Sync to retry.
+                {debugMode && <span className="block text-xs mt-1">Error: {subscriptionSyncState.error}</span>}
+              </AlertDescription>
+            </>
+          ) : (
+            <>
+              <Loader2 className="w-4 h-4 text-blue-500 animate-spin" />
+              <AlertDescription className="text-blue-500">
+                Payment received. Verifying subscription...
+              </AlertDescription>
+            </>
+          )}
         </Alert>
       )}
       {creditsSuccess && (
@@ -693,8 +756,9 @@ function BillingContent() {
     creditsPurchased,
     creditsCanceled,
   },
+  subscriptionSyncState,
   creditSyncState,
-  subscriptionSyncResult: debugInfo,
+  syncApiResponse: debugInfo,
   lastSyncMessage,
 }, null, 2)}
             </pre>
