@@ -737,9 +737,15 @@ export default function PerformancePage() {
                       </defs>
                       <CartesianGrid {...gridProps} />
                       <XAxis
-                        dataKey="time"
+                        dataKey="label"
                         {...axisProps}
-                        tickFormatter={(value) => formatChartTime(value, ccuRange === "1h" || ccuRange === "24h" ? "1d" : ccuRange === "7d" ? "7d" : "30d")}
+                        interval={
+                          ccuRange === "1h" ? "preserveStartEnd" :
+                          ccuRange === "24h" ? Math.max(0, Math.floor(ccuChartData.length / 12)) :
+                          ccuRange === "7d" ? Math.max(0, Math.floor(ccuChartData.length / 7)) :
+                          ccuRange === "28d" ? Math.max(0, Math.floor(ccuChartData.length / 7)) :
+                          Math.max(0, Math.floor(ccuChartData.length / 10))
+                        }
                       />
                       <YAxis {...axisProps} />
                       <Tooltip

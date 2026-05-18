@@ -14,6 +14,15 @@ const RANGE_MS: Record<string, number> = {
   "90d": 90 * 24 * 60 * 60 * 1000,
 };
 
+// Bucket size in milliseconds per range (for aggregation)
+const BUCKET_MS: Record<string, number> = {
+  "1h": 60 * 1000,           // 1 minute buckets
+  "24h": 5 * 60 * 1000,      // 5 minute buckets
+  "7d": 60 * 60 * 1000,      // 1 hour buckets
+  "28d": 6 * 60 * 60 * 1000, // 6 hour buckets
+  "90d": 24 * 60 * 60 * 1000, // 1 day buckets
+};
+
 /**
  * Format CCU chart axis label based on range
  * Uses explicit Europe/Paris timezone for consistent display
@@ -31,14 +40,13 @@ function formatCcuAxisLabel(isoString: string, range: string): string {
     }).format(date);
   }
   
-  // 7d: show date + time
+  // 7d: show date + time (hour only)
   if (range === "7d") {
     return new Intl.DateTimeFormat("fr-FR", {
       timeZone: "Europe/Paris",
       day: "2-digit",
       month: "short",
       hour: "2-digit",
-      minute: "2-digit",
       hour12: false,
     }).format(date);
   }
@@ -49,6 +57,46 @@ function formatCcuAxisLabel(isoString: string, range: string): string {
     day: "2-digit",
     month: "short",
   }).format(date);
+}
+
+/**
+ * Bucket raw data points into time intervals and return max CCU per bucket
+ */
+function bucketData(
+  rows: Array<{ created_at: string; ccu: number; source: string }>,
+  bucketMs: number,
+  range: string
+): Array<{ time: string; label: string; ccu: number; source: string }> {
+  if (rows.length === 0) return [];
+  
+  // Group rows into buckets
+  const buckets = new Map<number, { maxCcu: number; source: string; timestamp: string }>();
+  
+  for (const row of rows) {
+    const ts = new Date(row.created_at).getTime();
+    const bucketKey = Math.floor(ts / bucketMs) * bucketMs;
+    
+    const existing = buckets.get(bucketKey);
+    if (!existing || row.ccu > existing.maxCcu) {
+      buckets.set(bucketKey, {
+        maxCcu: row.ccu,
+        source: row.source,
+        timestamp: new Date(bucketKey).toISOString(),
+      });
+    }
+  }
+  
+  // Convert to sorted array
+  const sortedBuckets = Array.from(buckets.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([, bucket]) => ({
+      time: bucket.timestamp,
+      label: formatCcuAxisLabel(bucket.timestamp, range),
+      ccu: bucket.maxCcu,
+      source: bucket.source,
+    }));
+  
+  return sortedBuckets;
 }
 
 export async function GET(request: Request) {
@@ -159,19 +207,13 @@ export async function GET(request: Request) {
       debugRecentSnapshotsAnyGame = recentAnyGameRows ?? [];
     }
 
-    // Build chart data directly from used rows (no extra filtering)
-    let chartData = usedRows.map(row => ({
-      time: row.created_at,
-      label: formatCcuAxisLabel(row.created_at, normalizedRange),
-      ccu: Number(row.ccu) || 0,
-      source: row.source,
-    }));
-
-    // Downsample if over 300 points
-    if (chartData.length > 300) {
-      const step = Math.ceil(chartData.length / 300);
-      chartData = chartData.filter((_, index) => index % step === 0);
-    }
+    // Build chart data with proper bucketing per range
+    const bucketMs = BUCKET_MS[normalizedRange] ?? BUCKET_MS["1h"];
+    const chartData = bucketData(
+      usedRows.map(r => ({ created_at: r.created_at, ccu: Number(r.ccu) || 0, source: r.source })),
+      bucketMs,
+      normalizedRange
+    );
 
     // Calculate stats
     const ccuValues = chartData.map(p => p.ccu);
