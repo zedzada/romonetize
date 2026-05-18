@@ -437,69 +437,143 @@ export async function GET(request: NextRequest) {
     }
 
     // Average session duration (if we have session_end events with duration)
+    // Deep/flexible helper to find duration from any field
+    function findDurationSeconds(event: Record<string, unknown>): number | null {
+      const metadata = (event?.metadata ?? {}) as Record<string, unknown>;
+      const session = (metadata?.session ?? {}) as Record<string, unknown>;
+
+      const candidates = [
+        // Root event fields
+        event?.duration,
+        event?.session_duration,
+        event?.duration_seconds,
+        event?.durationSeconds,
+
+        // Metadata fields (comprehensive list)
+        metadata?.duration,
+        metadata?.session_duration,
+        metadata?.duration_seconds,
+        metadata?.durationSeconds,
+        metadata?.sessionLength,
+        metadata?.session_length,
+        metadata?.sessionTime,
+        metadata?.session_time,
+        metadata?.playtime,
+        metadata?.play_time,
+        metadata?.time_played,
+        metadata?.timePlayed,
+        metadata?.elapsed,
+        metadata?.elapsed_seconds,
+        metadata?.elapsedSeconds,
+        metadata?.duration_ms,
+        metadata?.durationMs,
+
+        // Nested session object
+        session?.duration,
+        session?.duration_seconds,
+        session?.durationSeconds,
+        session?.length,
+        session?.time,
+      ];
+
+      for (const raw of candidates) {
+        if (raw === null || raw === undefined) continue;
+
+        let n = Number(raw);
+        if (!Number.isFinite(n) || n <= 0) continue;
+
+        // Convert milliseconds to seconds if needed
+        if (n > 10000) n = n / 1000;
+
+        return n;
+      }
+
+      return null;
+    }
+
     let avgSessionSeconds: number | null = null;
     const sessionEndEvents = allEvents.filter(e => e.event_type === "session_end");
     const validDurations: number[] = [];
     const sampleSessionEndEvents: Array<Record<string, unknown>> = [];
     
-    if (sessionEndEvents.length > 0) {
-      // Capture first 5 samples for debug (per spec)
-      for (let i = 0; i < Math.min(5, sessionEndEvents.length); i++) {
-        const evt = sessionEndEvents[i];
-        const evtRecord = evt as Record<string, unknown>;
-        sampleSessionEndEvents.push({
-          created_at: evt.created_at,
-          player_id: evt.player_id,
-          metadata: evt.metadata,
+    // Capture first 10 samples for debug (per spec)
+    for (let i = 0; i < Math.min(10, sessionEndEvents.length); i++) {
+      const evt = sessionEndEvents[i];
+      const evtRecord = evt as Record<string, unknown>;
+      sampleSessionEndEvents.push({
+        created_at: evt.created_at,
+        player_id: evt.player_id,
+        rootFields: {
           duration: evtRecord.duration,
           session_duration: evtRecord.session_duration,
           duration_seconds: evtRecord.duration_seconds,
-        });
+        },
+        metadataKeys: Object.keys(evt.metadata ?? {}),
+        metadata: evt.metadata,
+      });
+    }
+
+    // Try to extract duration from session_end events
+    for (const e of sessionEndEvents) {
+      const duration = findDurationSeconds(e as Record<string, unknown>);
+      if (duration !== null) {
+        validDurations.push(duration);
       }
+    }
+    
+    // Fallback: if no valid durations from metadata, compute from player_join/session_end pairs
+    let usedFallback = false;
+    if (validDurations.length === 0 && sessionEndEvents.length > 0) {
+      usedFallback = true;
       
-      for (const e of sessionEndEvents) {
-        // Support multiple duration field variants - check root columns and metadata
-        const meta = e.metadata as Record<string, unknown> | null;
-        const eventRecord = e as Record<string, unknown>;
-        
-        const rawDuration = 
-          // Root column variants
-          eventRecord.duration ??
-          eventRecord.session_duration ??
-          eventRecord.duration_seconds ??
-          // Metadata variants (comprehensive list per spec)
-          meta?.duration ??
-          meta?.session_duration ??
-          meta?.duration_seconds ??
-          meta?.session_duration_seconds ??
-          meta?.sessionLength ??
-          meta?.session_length ??
-          meta?.durationSeconds ??
-          meta?.duration_ms ??
-          meta?.durationMs ??
-          meta?.playtime ??
-          meta?.play_time ??
-          meta?.sessionDuration ??
-          meta?.sessionTime ??
-          meta?.session_time ??
-          meta?.length ??
-          meta?.time;
-        
-        let seconds = Number(rawDuration);
-        
-        // If duration looks like milliseconds (> 10000), convert to seconds
-        if (seconds > 10000) {
-          seconds = seconds / 1000;
-        }
-        
-        if (Number.isFinite(seconds) && seconds > 0) {
-          validDurations.push(seconds);
+      // Get all player_join events in range
+      const playerJoinEvents = allEvents.filter(e => e.event_type === "player_join");
+      
+      // Build a map of player_id -> sorted join times
+      const playerJoinTimes = new Map<string, Date[]>();
+      for (const e of playerJoinEvents) {
+        if (e.player_id && e.player_id !== "server") {
+          const times = playerJoinTimes.get(e.player_id) || [];
+          times.push(new Date(e.created_at));
+          playerJoinTimes.set(e.player_id, times);
         }
       }
-      
-      if (validDurations.length > 0) {
-        avgSessionSeconds = Math.round(validDurations.reduce((a, b) => a + b, 0) / validDurations.length);
+      // Sort each player's join times ascending
+      for (const times of playerJoinTimes.values()) {
+        times.sort((a, b) => a.getTime() - b.getTime());
       }
+      
+      // For each session_end, find the latest player_join before it
+      for (const endEvent of sessionEndEvents) {
+        if (!endEvent.player_id || endEvent.player_id === "server") continue;
+        
+        const joinTimes = playerJoinTimes.get(endEvent.player_id);
+        if (!joinTimes || joinTimes.length === 0) continue;
+        
+        const endTime = new Date(endEvent.created_at);
+        
+        // Find latest join time before this end time
+        let latestJoinBefore: Date | null = null;
+        for (const joinTime of joinTimes) {
+          if (joinTime.getTime() < endTime.getTime()) {
+            latestJoinBefore = joinTime;
+          } else {
+            break;
+          }
+        }
+        
+        if (latestJoinBefore) {
+          const durationSeconds = (endTime.getTime() - latestJoinBefore.getTime()) / 1000;
+          // Only accept durations > 0 and < 12 hours
+          if (durationSeconds > 0 && durationSeconds < 12 * 60 * 60) {
+            validDurations.push(durationSeconds);
+          }
+        }
+      }
+    }
+
+    if (validDurations.length > 0) {
+      avgSessionSeconds = Math.round(validDurations.reduce((a, b) => a + b, 0) / validDurations.length);
     }
 
     // Generate charts
@@ -611,7 +685,8 @@ export async function GET(request: NextRequest) {
       avgSessionDebug: {
         sessionEndCount: sessionEndEvents.length,
         validSessionDurationCount: validDurations.length,
-        sampleSessionEndEvents,
+        usedFallback,
+        sampleSessionEnds: sampleSessionEndEvents,
         avgSessionSeconds,
       },
       
