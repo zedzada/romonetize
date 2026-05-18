@@ -173,11 +173,11 @@ function BillingContent() {
       const res = await fetch(syncUrl, { method: "POST" });
       const data = await res.json();
       
-      // Always set debug info in debug mode
-      if (debugMode) {
-        setDebugInfo(data);
-      }
-      if (data.synced && data.plan && data.plan !== "free") {
+      // Always set debug info (for any mode when there's useful data)
+      setDebugInfo(data);
+      
+      // Check for success using the new response format
+      if (data.success && data.plan && data.plan !== "free") {
         // Plan was successfully synced to pro/studio
         await loadSubscription();
         await refreshCredits();
@@ -188,15 +188,17 @@ function BillingContent() {
           error: null, 
           syncedPlan: data.plan 
         });
-        setLastSyncMessage(`Plan synced: ${data.planName || data.plan} (${data.status})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
+        setLastSyncMessage(`Plan synced: ${data.planName || data.plan} (${data.subscriptionStatus})${data.credits?.granted ? ` - ${data.credits.granted} credits granted` : ""}`);
       } else if (data.error) {
+        // Show error with step info
+        const stepInfo = data.step ? ` [step: ${data.step}]` : "";
         setSubscriptionSyncState({ 
           syncing: false, 
           synced: false, 
-          error: data.error, 
+          error: `${data.error}${stepInfo}`, 
           syncedPlan: null 
         });
-        setLastSyncMessage(`Sync error: ${data.error}`);
+        setLastSyncMessage(`Sync error: ${data.error}${stepInfo}`);
       } else {
         // Sync completed but plan is still free or no active subscription
         await loadSubscription();
@@ -209,13 +211,14 @@ function BillingContent() {
         setLastSyncMessage(data.message || "No active subscription found in Stripe");
       }
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to sync with Stripe";
       setSubscriptionSyncState({ 
         syncing: false, 
         synced: false, 
-        error: "Failed to sync with Stripe", 
+        error: errorMsg, 
         syncedPlan: null 
       });
-      setLastSyncMessage("Failed to sync with Stripe");
+      setLastSyncMessage(`Network error: ${errorMsg}`);
     }
     setSyncing(false);
   };
