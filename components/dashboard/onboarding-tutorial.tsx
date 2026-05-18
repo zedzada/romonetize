@@ -11,7 +11,6 @@ import {
   MousePointerClick,
   TrendingDown,
   Package,
-  Bot,
   Rocket,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,45 +22,45 @@ interface OnboardingTutorialProps {
 const tutorialSteps = [
   {
     title: "Welcome to RoMonetize",
-    description: "RoMonetize helps Roblox developers find where they lose Robux. Track every step of your monetization funnel and discover revenue leaks.",
+    description: "Track your Roblox game's revenue, purchases, players, products, and monetization metrics in one dashboard.",
     icon: Sparkles,
     highlight: null,
   },
   {
-    title: "Connect your game",
-    description: "Go to the My Game page and add your Roblox Game ID. This connects your game to our tracking system.",
+    title: "Connect your Roblox game",
+    description: "Choose one of your Roblox experiences or add your Universe ID. This lets RoMonetize know which game to track.",
     icon: Gamepad2,
     highlight: "/dashboard/game",
   },
   {
-    title: "Install the tracker",
-    description: "Copy the Roblox Lua script and paste it into your game's ServerScriptService. This enables activity tracking.",
+    title: "Install the tracker script",
+    description: "Paste the RoMonetize script inside ServerScriptService in Roblox Studio. This sends gameplay events, sessions, and purchases to your dashboard.",
     icon: Code,
     highlight: "/dashboard/game",
   },
   {
-    title: "Track monetization activity",
-    description: "RoMonetize automatically tracks player sessions, purchase prompts, and completed purchases.",
+    title: "Track purchases automatically",
+    description: "RoMonetize detects Developer Product and Game Pass purchases so you can see revenue, buyers, ARPPU, ARPDAU, and product performance.",
     icon: MousePointerClick,
     highlight: "/dashboard/monetization",
   },
   {
-    title: "Read your funnel",
-    description: "The conversion funnel shows where players drop off before buying. Identify bottlenecks and fix them.",
+    title: "Understand your monetization",
+    description: "Use PCR, ARPPU, and ARPDAU to see how well your game turns active players into paying users.",
     icon: TrendingDown,
     highlight: "/dashboard/monetization",
   },
   {
-    title: "Check product performance",
-    description: "Compare all your gamepasses and developer products. See which ones perform best and which need improvement.",
+    title: "Find your best products",
+    description: "Compare purchases, buyers, revenue, and revenue per buyer for each product to see what sells best.",
     icon: Package,
     highlight: "/dashboard/products",
   },
   {
-    title: "Ask the AI assistant",
-    description: "Ask questions like 'Why are players not buying?' and get AI-powered recommendations based on your data.",
-    icon: Bot,
-    highlight: "/dashboard/ai",
+    title: "Optimize your game",
+    description: "Refresh your data, watch your metrics, and improve the products that generate the most revenue.",
+    icon: Rocket,
+    highlight: "/dashboard/performance",
   },
 ];
 
@@ -100,11 +99,6 @@ export function OnboardingTutorial({ onComplete }: OnboardingTutorialProps) {
   const handleClose = () => {
     setIsVisible(false);
     setTimeout(onComplete, 300);
-  };
-
-  const handleStartTracking = () => {
-    handleClose();
-    router.push("/dashboard/game");
   };
 
   const step = tutorialSteps[currentStep];
@@ -171,7 +165,7 @@ export function OnboardingTutorial({ onComplete }: OnboardingTutorialProps) {
               onClick={handleClose}
               className="text-muted-foreground"
             >
-              Stop Tutorial
+              Skip tutorial
             </Button>
 
             <div className="flex gap-2">
@@ -182,9 +176,8 @@ export function OnboardingTutorial({ onComplete }: OnboardingTutorialProps) {
               )}
               
               {isLastStep ? (
-                <Button onClick={handleStartTracking} className="gap-2">
-                  <Rocket className="w-4 h-4" />
-                  Start Tracking
+                <Button onClick={handleClose} className="gap-2">
+                  Finish
                 </Button>
               ) : (
                 <Button onClick={handleNext} className="gap-2">
