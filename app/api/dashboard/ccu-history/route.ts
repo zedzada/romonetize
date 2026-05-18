@@ -16,30 +16,22 @@ const RANGE_MS: Record<string, number> = {
 
 /**
  * Format CCU chart axis label based on range
- * Uses fixed locale to avoid French weekday labels like "dim."
+ * Uses undefined locale to respect the user's browser timezone and locale settings
  */
 function formatCcuAxisLabel(isoString: string, range: string): string {
   const date = new Date(isoString);
   
   if (range === "1h" || range === "24h") {
-    // Show time only: HH:mm (no weekday)
-    return date.toLocaleTimeString("en-GB", {
+    // Show time only: HH:mm in user's local timezone
+    return date.toLocaleTimeString(undefined, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     });
   }
   
-  if (range === "7d") {
-    // Show: "17 May" for 7d
-    return date.toLocaleDateString("en-GB", {
-      day: "2-digit",
-      month: "short",
-    });
-  }
-  
-  // 28d and 90d: show date only
-  return date.toLocaleDateString("en-GB", {
+  // 7d, 28d, 90d: show date only in user's local format
+  return date.toLocaleDateString(undefined, {
     day: "2-digit",
     month: "short",
   });
