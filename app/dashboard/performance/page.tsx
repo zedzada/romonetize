@@ -5,9 +5,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatChartTime, type CCUHistoryRange } from "@/hooks/use-analytics";
+import { formatChartTime } from "@/hooks/use-analytics";
 import { CHART_COLORS } from "@/components/dashboard/chart-card";
-import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
+import { useChartTheme, getChartAxisProps, getChartGridProps } from "@/hooks/use-chart-theme";
 import {
   AreaChart,
   Area,
@@ -37,7 +37,6 @@ import {
   AlertCircle,
   CheckCircle2,
   ExternalLink,
-  TrendingUp,
 } from "lucide-react";
 import Link from "next/link";
 import { GameIcon } from "@/components/dashboard/game-icon";
@@ -91,15 +90,6 @@ export default function PerformancePage() {
   const chartTheme = useChartTheme();
   const axisProps = getChartAxisProps(chartTheme);
   const gridProps = getChartGridProps(chartTheme);
-  const tooltipStyle = getChartTooltipStyle(chartTheme);
-  
-  // CCU History chart controls (independent of other charts)
-  const [ccuRange, setCcuRange] = useState<CCUHistoryRange>("24h");
-  
-  // Handle CCU range change
-  const handleCcuRangeChange = useCallback((newRange: CCUHistoryRange) => {
-    setCcuRange(newRange);
-  }, []);
   
   // ==========================================================================
   // CLEAN DATA SOURCES - Only two endpoints
@@ -110,12 +100,6 @@ export default function PerformancePage() {
   const [performanceData, setPerformanceData] = useState<any>(null);
   const [performanceDataError, setPerformanceDataError] = useState<string | null>(null);
   const [isLoadingPerformanceData, setIsLoadingPerformanceData] = useState(true);
-  
-  // CCU History from /api/dashboard/ccu-history
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [ccuHistoryData, setCcuHistoryData] = useState<any>(null);
-  const [ccuHistoryError, setCcuHistoryError] = useState<string | null>(null);
-  const [isLoadingCcuHistory, setIsLoadingCcuHistory] = useState(true);
   
   // Debug mode - show when ?debug=true in URL
   const [isDebugMode, setIsDebugMode] = useState(false);
@@ -147,42 +131,15 @@ export default function PerformancePage() {
     }
   }, [chartRange]);
   
-  // Fetch CCU History
-  const fetchCcuHistory = useCallback(async () => {
-    setIsLoadingCcuHistory(true);
-    setCcuHistoryError(null);
-    
-    try {
-      const response = await fetch(`/api/dashboard/ccu-history?range=${ccuRange}&t=${Date.now()}`, {
-        cache: "no-store",
-      });
-      
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`);
-      }
-      
-      const data = await response.json();
-      setCcuHistoryData(data);
-    } catch (err) {
-      setCcuHistoryError(err instanceof Error ? err.message : "Failed to fetch CCU history");
-    } finally {
-      setIsLoadingCcuHistory(false);
-    }
-  }, [ccuRange]);
-  
   // Fetch on mount and when range changes
   useEffect(() => {
     fetchPerformanceData();
   }, [fetchPerformanceData]);
   
-  useEffect(() => {
-    fetchCcuHistory();
-  }, [fetchCcuHistory]);
-  
-  // Refresh both endpoints
+  // Refresh endpoint
   const handleRefresh = useCallback(async () => {
-    await Promise.all([fetchPerformanceData(), fetchCcuHistory()]);
-  }, [fetchPerformanceData, fetchCcuHistory]);
+    await fetchPerformanceData();
+  }, [fetchPerformanceData]);
   
   // ==========================================================================
   // DERIVED DATA - All from clean endpoints only
@@ -267,22 +224,6 @@ export default function PerformancePage() {
   const sessionsVisualTotal = normalizedSessions.reduce((s: number, p: { value: number }) => s + p.value, 0);
   const purchasesVisualTotal = normalizedPurchases.reduce((s: number, p: { value: number }) => s + p.value, 0);
   
-  // CCU chart data from ccu-history endpoint
-  const ccuChartData = useMemo(() => {
-    if (!ccuHistoryData?.chartData) return [];
-    return ccuHistoryData.chartData.map((p: { time: string; ccu: number; label?: string; source?: string }) => ({
-      time: p.time,
-      ccu: Number(p.ccu) || 0,
-      label: p.label,
-      source: p.source,
-    }));
-  }, [ccuHistoryData?.chartData]);
-  
-  // CCU stats
-  const currentCcu = ccuHistoryData?.currentCcu ?? 0;
-  const peakCcu = ccuHistoryData?.peakCcu ?? 0;
-  const avgCcu = ccuHistoryData?.avgCcu ?? 0;
-  
   // Data health check - check the correct conditions per the spec
   // Show "Requires tracking script" ONLY if ALL of these are zero
   const hasTrackerData = useMemo(() => {
@@ -308,7 +249,7 @@ export default function PerformancePage() {
   
   // Loading state
   const isLoading = isLoadingPerformanceData;
-  const isRefreshing = isLoadingPerformanceData || isLoadingCcuHistory;
+  const isRefreshing = isLoadingPerformanceData;
   
   // Sync Roblox data and then refresh
   const [isSyncing, setIsSyncing] = useState(false);
@@ -368,9 +309,8 @@ export default function PerformancePage() {
     );
   }
 
-  // Error state
-  const error = performanceDataError || ccuHistoryError;
-  if (error) {
+    // Error state
+    if (performanceDataError) {
     return (
       <div className="space-y-6">
         <div>
@@ -381,7 +321,7 @@ export default function PerformancePage() {
           <CardContent className="pt-6">
             <div className="flex items-center gap-2 text-destructive">
               <AlertCircle className="w-5 h-5" />
-              <p>Failed to load performance data: {error}</p>
+              <p>Failed to load performance data: {performanceDataError}</p>
             </div>
             <Button onClick={handleRefresh} variant="outline" className="mt-4">
               <RefreshCw className="w-4 h-4 mr-2" />
@@ -668,132 +608,9 @@ export default function PerformancePage() {
       </div>
 
       {/* Charts Section */}
-      {(hasTrackerData || ccuChartData.length > 0) && (
+      {hasTrackerData && (
         <div className="space-y-6">
-          {/* Live CCU History - Large 2-column chart with its own controls */}
-          <Card className="border-border bg-card shadow-sm lg:col-span-2">
-            <CardHeader className="pb-4">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <CardTitle className="text-base font-semibold text-foreground flex items-center gap-2">
-                    <TrendingUp className="w-4 h-4 text-sky-500" />
-                    Live CCU History
-                  </CardTitle>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Real-time concurrent users over time
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* CCU Stats */}
-                  <div className="flex items-center gap-4 text-sm">
-                    <div>
-                      <span className="text-muted-foreground">Current:</span>
-                      <span className="ml-1 font-semibold text-foreground">{formatNumber(currentCcu)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Peak:</span>
-                      <span className="ml-1 font-semibold text-foreground">{formatNumber(peakCcu)}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground">Avg:</span>
-                      <span className="ml-1 font-semibold text-foreground">{formatNumber(avgCcu)}</span>
-                    </div>
-                  </div>
-                  {/* Range Controls */}
-                  <div className="flex items-center gap-1">
-                    {(["1h", "24h", "7d", "28d", "90d"] as const).map((range) => (
-                      <Button
-                        key={range}
-                        variant={ccuRange === range ? "default" : "ghost"}
-                        size="sm"
-                        onClick={() => handleCcuRangeChange(range)}
-                        className="h-7 px-2 text-xs"
-                      >
-                        {range.toUpperCase()}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {isLoadingCcuHistory ? (
-                <div className="h-[300px] flex items-center justify-center">
-                  <Skeleton className="h-full w-full" />
-                </div>
-              ) : ccuChartData.length === 0 ? (
-                <div className="h-[300px] flex items-center justify-center text-muted-foreground">
-                  No CCU data available for this time range
-                </div>
-              ) : (
-                <div className="h-[300px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={ccuChartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <defs>
-                        <linearGradient id="liveCcuGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.3} />
-                          <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid {...gridProps} />
-                      <XAxis
-                        dataKey="label"
-                        {...axisProps}
-                        interval={
-                          ccuRange === "1h" ? "preserveStartEnd" :
-                          ccuRange === "24h" ? Math.max(0, Math.floor(ccuChartData.length / 12)) :
-                          ccuRange === "7d" ? Math.max(0, Math.floor(ccuChartData.length / 7)) :
-                          ccuRange === "28d" ? Math.max(0, Math.floor(ccuChartData.length / 7)) :
-                          Math.max(0, Math.floor(ccuChartData.length / 10))
-                        }
-                      />
-                      <YAxis {...axisProps} />
-                      <Tooltip
-                        content={({ active, payload }) => {
-                          if (!active || !payload?.length) return null;
-                          const firstPayload = Array.isArray(payload) ? payload[0] : null;
-                          if (!firstPayload?.payload) return null;
-                          const dataPoint = firstPayload.payload;
-                          const tooltipLabel = dataPoint?.label || (dataPoint?.time ? new Intl.DateTimeFormat("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          }).format(new Date(dataPoint.time)) : "—");
-                          
-                          return (
-                            <div className="bg-card border border-border rounded-lg px-3 py-2 shadow-lg">
-                              <p className="text-sm font-medium text-foreground mb-1">{tooltipLabel}</p>
-                              <p className="text-sm text-foreground">CCU: {dataPoint?.ccu?.toLocaleString() ?? "—"}</p>
-                              {dataPoint?.source && (
-                                <p className="text-xs text-muted-foreground">
-                                  Source: {dataPoint.source === "romonetize_tracker" ? "RoMonetize Tracker" : dataPoint.source}
-                                </p>
-                              )}
-                            </div>
-                          );
-                        }}
-                      />
-                      <Area 
-                        type="linear" 
-                        dataKey="ccu" 
-                        stroke="#0ea5e9"
-                        strokeWidth={2}
-                        fill="url(#liveCcuGradient)"
-                        fillOpacity={0.18}
-                        dot={false}
-                        activeDot={{ r: 4, fill: "#0ea5e9", strokeWidth: 0 }}
-                        connectNulls={false}
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
           {/* Activity, Sessions, Purchases Charts */}
-          {hasTrackerData && (
             <div className="space-y-4">
               {/* Range Controls for Performance Charts */}
               <div className="flex items-center justify-between">
@@ -949,7 +766,6 @@ export default function PerformancePage() {
               )}
             </div>
           </div>
-          )}
         </div>
       )}
 
@@ -1019,23 +835,6 @@ export default function PerformancePage() {
                     rangeEndIso: null,
                     newPlayers: 0,
                     sampleFirstSeenPlayers: [],
-                  }, null, 2)}
-                </pre>
-              </div>
-              <div>
-                <strong>CCU Time Debug:</strong>
-                <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
-                  {JSON.stringify({
-                    selectedRange: ccuRange,
-                    timezoneUsed: "Europe/Paris",
-                    browserTimezone: typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "server",
-                    firstRawTimestamp: ccuChartData.length > 0 ? ccuChartData[0].time : null,
-                    firstFormattedLabel: ccuChartData.length > 0 ? ccuChartData[0].label : null,
-                    lastRawTimestamp: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].time : null,
-                    lastFormattedLabel: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].label : null,
-                    usedSource: ccuHistoryData?.usedSource,
-                    usedSnapshots: ccuHistoryData?.usedSnapshots,
-                    chartDataLength: ccuChartData.length,
                   }, null, 2)}
                 </pre>
               </div>
