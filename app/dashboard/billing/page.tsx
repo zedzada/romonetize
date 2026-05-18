@@ -168,8 +168,12 @@ function BillingContent() {
     setSubscriptionSyncState({ syncing: true, synced: false, error: null, syncedPlan: null });
     setLastSyncMessage("Syncing your plan...");
     try {
-      // Pass debug=true if in debug mode to get extended info
-      const syncUrl = debugMode ? "/api/billing/sync?debug=true" : "/api/billing/sync";
+      // Build sync URL with session_id if available
+      const params = new URLSearchParams();
+      if (sessionId) params.set("session_id", sessionId);
+      if (debugMode) params.set("debug", "true");
+      const syncUrl = `/api/billing/sync${params.toString() ? `?${params.toString()}` : ""}`;
+      
       const res = await fetch(syncUrl, { method: "POST" });
       const data = await res.json();
       
