@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatChartTime } from "@/hooks/use-analytics";
 import { CHART_COLORS } from "@/components/dashboard/chart-card";
-import { useChartTheme, getChartAxisProps, getChartGridProps } from "@/hooks/use-chart-theme";
+import { useChartTheme, getChartAxisProps, getChartGridProps, getChartTooltipStyle } from "@/hooks/use-chart-theme";
 import {
   AreaChart,
   Area,
@@ -90,6 +90,7 @@ export default function PerformancePage() {
   const chartTheme = useChartTheme();
   const axisProps = getChartAxisProps(chartTheme);
   const gridProps = getChartGridProps(chartTheme);
+  const tooltipStyle = getChartTooltipStyle(chartTheme);
   
   // ==========================================================================
   // CLEAN DATA SOURCES - Only two endpoints
@@ -657,7 +658,7 @@ export default function PerformancePage() {
                           tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                         />
                         <YAxis {...axisProps} />
-                        <Tooltip />
+                              <Tooltip {...tooltipStyle} />
                         <Area 
                           type="monotone" 
                           dataKey="value" 
@@ -701,7 +702,7 @@ export default function PerformancePage() {
                           tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                         />
                         <YAxis {...axisProps} />
-                        <Tooltip />
+                              <Tooltip {...tooltipStyle} />
                         <Area 
                           type="monotone" 
                           dataKey="value" 
@@ -745,8 +746,8 @@ export default function PerformancePage() {
                             {...axisProps}
                             tickFormatter={(value) => formatChartTime(value, toChartTimeRange(chartRange))}
                           />
-                          <YAxis {...axisProps} />
-                          <Tooltip />
+                              <YAxis {...axisProps} />
+                              <Tooltip {...tooltipStyle} />
                           <Area 
                             type="monotone" 
                             dataKey="value" 
