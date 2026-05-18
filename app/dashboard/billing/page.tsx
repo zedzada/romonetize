@@ -168,8 +168,12 @@ function BillingContent() {
     setSubscriptionSyncState({ syncing: true, synced: false, error: null, syncedPlan: null });
     setLastSyncMessage("Syncing your plan...");
     try {
-      const res = await fetch("/api/billing/sync", { method: "POST" });
+      // Pass debug=true if in debug mode to get extended info
+      const syncUrl = debugMode ? "/api/billing/sync?debug=true" : "/api/billing/sync";
+      const res = await fetch(syncUrl, { method: "POST" });
       const data = await res.json();
+      
+      // Always set debug info in debug mode
       if (debugMode) {
         setDebugInfo(data);
       }
@@ -732,36 +736,100 @@ function BillingContent() {
         <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm text-amber-400">Billing Debug</CardTitle>
+            <CardDescription className="text-xs text-amber-400/70">
+              Add ?debug=true to URL to see this panel. Sync API also returns extended debug info.
+            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
+          <CardContent className="space-y-4">
+            {/* Failure Reason - prominent if present */}
+            {debugInfo?.failureReason && (
+              <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md">
+                <div className="text-xs font-semibold text-red-400 mb-1">Failure Reason:</div>
+                <div className="text-sm text-red-300 font-mono">{String(debugInfo.failureReason)}</div>
+              </div>
+            )}
+
+            {/* Current UI State */}
+            <div>
+              <div className="text-xs font-semibold text-amber-400 mb-1">Current UI State</div>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
 {JSON.stringify({
-  dbBilling: {
-    plan: currentPlan.id,
-    planName: currentPlan.name,
-    subscriptionStatus: subscription?.status,
-    currentPeriodEnd: subscription?.currentPeriodEnd,
-  },
-  credits: {
-    monthlyCredits,
-    extraCredits,
-    totalCredits,
-    creditsLoading,
-  },
-  urlParams: {
-    success,
-    canceled,
-    sessionId,
-    creditsSuccess,
-    creditsPurchased,
-    creditsCanceled,
-  },
+  currentPlan: currentPlan.id,
+  subscriptionStatus: subscription?.status,
   subscriptionSyncState,
   creditSyncState,
-  syncApiResponse: debugInfo,
-  lastSyncMessage,
+  urlParams: { success, canceled, sessionId, creditsSuccess, creditsPurchased },
 }, null, 2)}
-            </pre>
+              </pre>
+            </div>
+
+            {/* Credits */}
+            <div>
+              <div className="text-xs font-semibold text-amber-400 mb-1">Credits</div>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify({ monthlyCredits, extraCredits, totalCredits, creditsLoading }, null, 2)}
+              </pre>
+            </div>
+
+            {/* Sync API Response */}
+            {debugInfo && (
+              <>
+                {/* DB Before */}
+                {debugInfo.debug?.dbBefore && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">DB Before Sync</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.debug.dbBefore, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Stripe Lookup */}
+                {debugInfo.debug?.stripeLookup && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">Stripe Lookup</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded max-h-60 overflow-y-auto">
+{JSON.stringify(debugInfo.debug.stripeLookup, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Price Mapping */}
+                {debugInfo.debug?.priceMapping && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">Price Mapping</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.debug.priceMapping, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* DB After */}
+                {debugInfo.debug?.dbAfter && (
+                  <div>
+                    <div className="text-xs font-semibold text-amber-400 mb-1">DB After Sync</div>
+                    <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.debug.dbAfter, null, 2)}
+                    </pre>
+                  </div>
+                )}
+
+                {/* Full Sync Response (collapsed) */}
+                <div>
+                  <div className="text-xs font-semibold text-amber-400 mb-1">Full Sync API Response</div>
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded max-h-40 overflow-y-auto">
+{JSON.stringify(debugInfo, null, 2)}
+                  </pre>
+                </div>
+              </>
+            )}
+
+            {/* Last Sync Message */}
+            {lastSyncMessage && (
+              <div className="text-xs text-muted-foreground">
+                <span className="font-semibold">Last sync:</span> {lastSyncMessage}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

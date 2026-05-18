@@ -243,6 +243,7 @@ export async function POST(request: NextRequest) {
   // Check for session_id in URL params or body (for repairing AI credit purchases)
   const url = new URL(request.url);
   const sessionIdFromUrl = url.searchParams.get("session_id");
+  const debugMode = url.searchParams.get("debug") === "true";
   
   let sessionIdFromBody: string | null = null;
   try {
@@ -253,6 +254,25 @@ export async function POST(request: NextRequest) {
   }
   
   const sessionId = sessionIdFromUrl || sessionIdFromBody;
+
+  // Initialize debug info
+  const debug: {
+    userId: string;
+    email: string | undefined;
+    dbBefore: Record<string, unknown>;
+    stripeLookup: Record<string, unknown>;
+    priceMapping: Record<string, unknown>;
+    dbAfter: Record<string, unknown>;
+    failureReason: string | null;
+  } = {
+    userId: user.id,
+    email: user.email,
+    dbBefore: {},
+    stripeLookup: {},
+    priceMapping: {},
+    dbAfter: {},
+    failureReason: null,
+  };
 
   try {
     const stripe = getStripe();
@@ -265,84 +285,203 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get user profile
-    const { data: profile } = await supabase
+    // Get user profile - DB BEFORE state
+    const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("stripe_customer_id, plan, subscription_status")
+      .select("stripe_customer_id, plan, subscription_status, email")
       .eq("id", user.id)
       .single();
 
+    // Also get subscription record if exists
+    const { data: existingSubscription } = await supabase
+      .from("subscriptions")
+      .select("stripe_subscription_id, stripe_price_id, status, plan")
+      .eq("user_id", user.id)
+      .single();
+
+    debug.dbBefore = {
+      plan: profile?.plan || null,
+      subscription_status: profile?.subscription_status || null,
+      stripe_customer_id: profile?.stripe_customer_id || null,
+      stripe_subscription_id: existingSubscription?.stripe_subscription_id || null,
+      stripe_price_id: existingSubscription?.stripe_price_id || null,
+      profileError: profileError?.message || null,
+    };
+
     if (!profile) {
+      debug.failureReason = "no_profile_found";
       return NextResponse.json({ 
         error: "No profile found",
         userId: user.id,
         email: user.email,
+        failureReason: debug.failureReason,
+        debug: debugMode ? debug : undefined,
       });
     }
 
     // If no Stripe customer, return current DB state
     if (!profile.stripe_customer_id) {
+      debug.failureReason = "no_stripe_customer_id_in_db";
+      debug.stripeLookup = {
+        customerIdUsed: null,
+        customerFound: false,
+        activeSubscriptionsFound: 0,
+        subscriptions: [],
+      };
       return NextResponse.json({
         plan: profile.plan || "free",
         status: profile.subscription_status || "inactive",
         source: "database_only",
-        message: "No Stripe customer found",
+        message: "No Stripe customer ID in database",
         stripeCustomerId: null,
+        failureReason: debug.failureReason,
+        debug: debugMode ? debug : undefined,
       });
     }
 
-    // Fetch active subscriptions from Stripe
-    const subscriptions = await stripe.subscriptions.list({
-      customer: profile.stripe_customer_id,
-      status: "active",
-      limit: 1,
-    });
-
-    const subscription = subscriptions.data[0];
-
-    if (!subscription) {
-      // Check for any subscription (including canceled, past_due, etc.)
-      const allSubs = await stripe.subscriptions.list({
-        customer: profile.stripe_customer_id,
-        limit: 5,
-      });
-
-      // No subscriptions at all
-      if (allSubs.data.length === 0) {
-        return NextResponse.json({
-          plan: profile.plan || "free",
-          status: profile.subscription_status || "inactive",
-          source: "stripe_no_subscription",
-          stripeCustomerId: profile.stripe_customer_id,
-          subscriptions: [],
-        });
+    // Check if Stripe customer exists
+    let stripeCustomer = null;
+    try {
+      stripeCustomer = await stripe.customers.retrieve(profile.stripe_customer_id);
+      if ((stripeCustomer as { deleted?: boolean }).deleted) {
+        stripeCustomer = null;
       }
+    } catch {
+      stripeCustomer = null;
+    }
 
-      // Return most recent subscription status
-      const latestSub = allSubs.data[0];
+    if (!stripeCustomer) {
+      debug.failureReason = "stripe_customer_not_found";
+      debug.stripeLookup = {
+        customerIdUsed: profile.stripe_customer_id,
+        customerFound: false,
+        activeSubscriptionsFound: 0,
+        subscriptions: [],
+      };
       return NextResponse.json({
         plan: profile.plan || "free",
-        status: latestSub.status,
-        source: "stripe_inactive",
+        status: profile.subscription_status || "inactive",
+        source: "stripe_customer_deleted",
+        message: "Stripe customer not found or deleted",
         stripeCustomerId: profile.stripe_customer_id,
-        stripeSubscriptionId: latestSub.id,
-        stripePriceId: latestSub.items.data[0]?.price.id,
-        subscriptionStatus: latestSub.status,
-        message: `Subscription status: ${latestSub.status}`,
+        failureReason: debug.failureReason,
+        debug: debugMode ? debug : undefined,
       });
     }
 
-    // Active subscription found - determine plan from metadata or price
+    // Fetch ALL subscriptions from Stripe (not just active)
+    const allSubscriptions = await stripe.subscriptions.list({
+      customer: profile.stripe_customer_id,
+      limit: 10,
+    });
+
+    // Fetch active subscriptions specifically
+    const activeSubscriptions = await stripe.subscriptions.list({
+      customer: profile.stripe_customer_id,
+      status: "active",
+      limit: 5,
+    });
+
+    // Build stripeLookup debug info
+    debug.stripeLookup = {
+      customerIdUsed: profile.stripe_customer_id,
+      customerFound: true,
+      customerEmail: (stripeCustomer as { email?: string }).email,
+      totalSubscriptionsFound: allSubscriptions.data.length,
+      activeSubscriptionsFound: activeSubscriptions.data.length,
+      subscriptions: allSubscriptions.data.map(sub => ({
+        id: sub.id,
+        status: sub.status,
+        priceId: sub.items.data[0]?.price.id,
+        currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+        cancelAtPeriodEnd: sub.cancel_at_period_end,
+        metadata: sub.metadata,
+        itemMetadata: sub.items.data[0]?.metadata,
+      })),
+    };
+
+    const subscription = activeSubscriptions.data[0];
+
+    if (!subscription) {
+      // No active subscriptions
+      const latestSub = allSubscriptions.data[0];
+      
+      if (!latestSub) {
+        debug.failureReason = "no_subscriptions_for_customer";
+      } else {
+        debug.failureReason = `subscription_not_active_status_${latestSub.status}`;
+      }
+
+      return NextResponse.json({
+        plan: profile.plan || "free",
+        status: latestSub?.status || "no_subscription",
+        source: latestSub ? "stripe_inactive" : "stripe_no_subscription",
+        stripeCustomerId: profile.stripe_customer_id,
+        stripeSubscriptionId: latestSub?.id || null,
+        stripePriceId: latestSub?.items.data[0]?.price.id || null,
+        subscriptionStatus: latestSub?.status || null,
+        message: latestSub 
+          ? `Subscription status is '${latestSub.status}', not 'active'` 
+          : "No subscriptions found for this customer",
+        failureReason: debug.failureReason,
+        debug: debugMode ? debug : undefined,
+      });
+    }
+
+    // Active subscription found - determine plan
+    const priceId = subscription.items.data[0]?.price.id;
+    
+    // Check price mapping
+    const priceEnvVars = {
+      proMonthly: process.env.STRIPE_PRO_MONTHLY_PRICE_ID,
+      proYearly: process.env.STRIPE_PRO_YEARLY_PRICE_ID,
+      studioMonthly: process.env.STRIPE_STUDIO_MONTHLY_PRICE_ID,
+      studioYearly: process.env.STRIPE_STUDIO_YEARLY_PRICE_ID,
+    };
+
+    debug.priceMapping = {
+      actualPriceId: priceId,
+      proMonthlyEnvPresent: !!priceEnvVars.proMonthly,
+      proMonthlyMatch: priceId === priceEnvVars.proMonthly,
+      proYearlyEnvPresent: !!priceEnvVars.proYearly,
+      proYearlyMatch: priceId === priceEnvVars.proYearly,
+      studioMonthlyEnvPresent: !!priceEnvVars.studioMonthly,
+      studioMonthlyMatch: priceId === priceEnvVars.studioMonthly,
+      studioYearlyEnvPresent: !!priceEnvVars.studioYearly,
+      studioYearlyMatch: priceId === priceEnvVars.studioYearly,
+      matchedPriceId: null as string | null,
+      resolvedPlan: null as string | null,
+      resolutionMethod: null as string | null,
+    };
+
+    // Determine plan from metadata or price
     let resolvedPlan = "pro"; // Default to pro for any active subscription
+    let resolutionMethod = "default_pro";
     
     // Check subscription metadata first
     if (subscription.metadata?.plan_id) {
       resolvedPlan = subscription.metadata.plan_id;
+      resolutionMethod = "subscription_metadata";
     }
     // Check subscription items metadata
     else if (subscription.items.data[0]?.metadata?.plan_id) {
       resolvedPlan = subscription.items.data[0].metadata.plan_id;
+      resolutionMethod = "item_metadata";
     }
+    // Try price ID matching as fallback
+    else if (priceId === priceEnvVars.proMonthly || priceId === priceEnvVars.proYearly) {
+      resolvedPlan = "pro";
+      resolutionMethod = "price_id_match_pro";
+      debug.priceMapping.matchedPriceId = priceId;
+    }
+    else if (priceId === priceEnvVars.studioMonthly || priceId === priceEnvVars.studioYearly) {
+      resolvedPlan = "studio";
+      resolutionMethod = "price_id_match_studio";
+      debug.priceMapping.matchedPriceId = priceId;
+    }
+
+    debug.priceMapping.resolvedPlan = resolvedPlan;
+    debug.priceMapping.resolutionMethod = resolutionMethod;
 
     const plan = getPlanById(resolvedPlan) || PRICING_PLANS.find(p => p.id === "pro") || PRICING_PLANS[0];
 
@@ -357,14 +496,18 @@ export async function POST(request: NextRequest) {
       })
       .eq("id", user.id);
 
+    if (updateError) {
+      debug.failureReason = `db_update_failed: ${updateError.message}`;
+    }
+
     // Also update/create subscriptions table record
-    await supabase
+    const { error: subUpdateError } = await supabase
       .from("subscriptions")
       .upsert({
         user_id: user.id,
         stripe_customer_id: profile.stripe_customer_id,
         stripe_subscription_id: subscription.id,
-        stripe_price_id: subscription.items.data[0]?.price.id,
+        stripe_price_id: priceId,
         status: "active",
         plan: plan.id,
         current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
@@ -374,6 +517,29 @@ export async function POST(request: NextRequest) {
       }, {
         onConflict: "stripe_subscription_id",
       });
+
+    // Fetch DB AFTER state
+    const { data: profileAfter } = await supabase
+      .from("profiles")
+      .select("stripe_customer_id, plan, subscription_status")
+      .eq("id", user.id)
+      .single();
+
+    const { data: subscriptionAfter } = await supabase
+      .from("subscriptions")
+      .select("stripe_subscription_id, stripe_price_id, status, plan")
+      .eq("user_id", user.id)
+      .single();
+
+    debug.dbAfter = {
+      plan: profileAfter?.plan || null,
+      subscription_status: profileAfter?.subscription_status || null,
+      stripe_customer_id: profileAfter?.stripe_customer_id || null,
+      stripe_subscription_id: subscriptionAfter?.stripe_subscription_id || null,
+      stripe_price_id: subscriptionAfter?.stripe_price_id || null,
+      profileUpdateError: updateError?.message || null,
+      subscriptionUpdateError: subUpdateError?.message || null,
+    };
 
     // Grant monthly AI credits for active subscription
     let creditsResult = null;
@@ -389,19 +555,24 @@ export async function POST(request: NextRequest) {
       source: "stripe_active",
       stripeCustomerId: profile.stripe_customer_id,
       stripeSubscriptionId: subscription.id,
-      stripePriceId: subscription.items.data[0]?.price.id,
+      stripePriceId: priceId,
       currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
       updateError: updateError?.message || null,
-      synced: true,
+      synced: !updateError,
       credits: creditsResult,
       aiCreditsForPlan: aiCredits,
+      failureReason: debug.failureReason,
+      debug: debugMode ? debug : undefined,
     });
 
   } catch (error) {
     console.error("Billing sync error:", error);
+    debug.failureReason = `exception: ${error instanceof Error ? error.message : "Unknown error"}`;
     return NextResponse.json({ 
       error: "Failed to sync billing",
       details: error instanceof Error ? error.message : "Unknown error",
+      failureReason: debug.failureReason,
+      debug: debugMode ? debug : undefined,
     }, { status: 500 });
   }
 }
