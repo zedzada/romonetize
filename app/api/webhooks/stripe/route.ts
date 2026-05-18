@@ -4,9 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 import { getPlanById, PRICING_PLANS, getAiCreditsForPlan } from "@/lib/products";
 import Stripe from "stripe";
 
-// Track processed sessions to prevent duplicate credit grants
-const processedSessions = new Set<string>();
-
 // Lazy init for service role client
 let supabaseAdmin: ReturnType<typeof createClient> | null = null;
 
@@ -18,6 +15,19 @@ function getSupabaseAdmin() {
     supabaseAdmin = createClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
   }
   return supabaseAdmin;
+}
+
+// Check if a Stripe session was already processed (DB-based idempotency)
+async function isSessionProcessed(userId: string, sessionId: string): Promise<boolean> {
+  const supabaseAdmin = getSupabaseAdmin();
+  const { data } = await supabaseAdmin
+    .from("ai_credit_transactions")
+    .select("id")
+    .eq("user_id", userId)
+    .contains("metadata", { stripe_session_id: sessionId })
+    .limit(1);
+  
+  return (data?.length || 0) > 0;
 }
 
 export async function POST(request: NextRequest) {
@@ -82,13 +92,7 @@ export async function POST(request: NextRequest) {
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const sessionId = session.id;
-  
-  // Idempotency check - prevent duplicate processing
-  if (processedSessions.has(sessionId)) {
-    console.log("Session already processed:", sessionId);
-    return;
-  }
-  processedSessions.add(sessionId);
+  const supabaseAdmin = getSupabaseAdmin();
 
   // Check if this is a credit purchase
   const purchaseType = session.metadata?.purchaseType;
@@ -142,12 +146,21 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 
 // Handle AI credit purchases
 async function handleCreditPurchase(session: Stripe.Checkout.Session) {
+  const supabaseAdmin = getSupabaseAdmin();
   const userId = session.metadata?.userId;
   const credits = parseInt(session.metadata?.credits || "0", 10);
   const packageId = session.metadata?.packageId;
+  const sessionId = session.id;
 
   if (!userId || !credits || credits <= 0) {
     console.error("Invalid credit purchase metadata:", session.metadata);
+    return;
+  }
+
+  // DB-based idempotency check
+  const alreadyProcessed = await isSessionProcessed(userId, sessionId);
+  if (alreadyProcessed) {
+    console.log("Credit purchase session already processed:", sessionId);
     return;
   }
 
@@ -161,15 +174,16 @@ async function handleCreditPurchase(session: Stripe.Checkout.Session) {
     .single();
 
   const currentExtraCredits = balance?.extra_credits || 0;
+  const currentMonthlyCredits = balance?.monthly_credits || 0;
   const newExtraCredits = currentExtraCredits + credits;
-  const totalCredits = (balance?.monthly_credits || 0) + newExtraCredits;
+  const totalCredits = currentMonthlyCredits + newExtraCredits;
 
   // Update balance - only increment extra_credits, never touch monthly_credits
   const { error: updateError } = await supabaseAdmin
     .from("ai_credit_balances")
     .upsert({
       user_id: userId,
-      monthly_credits: balance?.monthly_credits || 0,
+      monthly_credits: currentMonthlyCredits,
       extra_credits: newExtraCredits,
       updated_at: new Date().toISOString(),
     }, {
@@ -181,7 +195,7 @@ async function handleCreditPurchase(session: Stripe.Checkout.Session) {
     return;
   }
 
-  // Record transaction with idempotency
+  // Record transaction with stripe_session_id for idempotency
   await supabaseAdmin
     .from("ai_credit_transactions")
     .insert({
@@ -191,8 +205,9 @@ async function handleCreditPurchase(session: Stripe.Checkout.Session) {
       balance_after: totalCredits,
       metadata: {
         packageId,
-        stripe_session_id: session.id,
+        stripe_session_id: sessionId,
         stripe_payment_intent: session.payment_intent,
+        source: "webhook",
       },
       created_at: new Date().toISOString(),
     });

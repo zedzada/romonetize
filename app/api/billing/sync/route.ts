@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getStripe } from "@/lib/stripe";
 import { getPlanById, PRICING_PLANS, getAiCreditsForPlan } from "@/lib/products";
@@ -14,71 +14,162 @@ function getSupabaseAdmin() {
   return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
 }
 
-// Grant monthly credits for subscription (same as webhook)
-async function grantMonthlyCredits(userId: string, credits: number) {
+// Check if a Stripe session was already processed (for idempotency)
+async function isSessionProcessed(userId: string, sessionId: string): Promise<boolean> {
   const supabaseAdmin = getSupabaseAdmin();
-  const now = new Date();
-  const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const { data } = await supabaseAdmin
+    .from("ai_credit_transactions")
+    .select("id")
+    .eq("user_id", userId)
+    .contains("metadata", { stripe_session_id: sessionId })
+    .limit(1);
+  
+  return (data?.length || 0) > 0;
+}
 
-  // Get current balance to preserve extra_credits
-  const { data: currentBalance } = await supabaseAdmin
+// Grant extra credits for AI credit purchase
+async function grantExtraCredits(userId: string, credits: number, stripeSessionId: string, packageId?: string) {
+  const supabaseAdmin = getSupabaseAdmin();
+  
+  // Check idempotency first
+  const alreadyProcessed = await isSessionProcessed(userId, stripeSessionId);
+  if (alreadyProcessed) {
+    return { 
+      alreadyProcessed: true,
+      message: "Session already processed",
+    };
+  }
+
+  // Get current balance
+  const { data: balance } = await supabaseAdmin
     .from("ai_credit_balances")
-    .select("extra_credits, monthly_credits, monthly_credits_reset_at")
+    .select("monthly_credits, extra_credits")
     .eq("user_id", userId)
     .single();
 
-  // Check if credits were already granted this period
-  if (currentBalance?.monthly_credits_reset_at) {
-    const resetAt = new Date(currentBalance.monthly_credits_reset_at);
-    if (resetAt > now && currentBalance.monthly_credits >= credits) {
-      // Already has credits for this period
-      return { 
-        alreadyGranted: true, 
-        currentCredits: currentBalance.monthly_credits,
-        extraCredits: currentBalance.extra_credits || 0,
-      };
-    }
-  }
+  const currentExtraCredits = balance?.extra_credits || 0;
+  const currentMonthlyCredits = balance?.monthly_credits || 0;
+  const newExtraCredits = currentExtraCredits + credits;
+  const totalCredits = currentMonthlyCredits + newExtraCredits;
 
-  const { error } = await supabaseAdmin
+  // Update balance - only add to extra_credits, never touch monthly_credits
+  const { error: updateError } = await supabaseAdmin
     .from("ai_credit_balances")
     .upsert({
       user_id: userId,
-      monthly_credits: credits,
-      extra_credits: currentBalance?.extra_credits || 0,
-      monthly_credits_reset_at: nextMonth.toISOString(),
+      monthly_credits: currentMonthlyCredits,
+      extra_credits: newExtraCredits,
       updated_at: new Date().toISOString(),
     }, {
       onConflict: "user_id",
     });
 
-  if (error) {
-    console.error("Error granting monthly credits:", error);
-    return { error: error.message };
+  if (updateError) {
+    console.error("Error granting extra credits:", updateError);
+    return { error: updateError.message };
   }
 
-  const totalCredits = credits + (currentBalance?.extra_credits || 0);
-
-  // Record transaction
+  // Record transaction with stripe_session_id for idempotency
   await supabaseAdmin
     .from("ai_credit_transactions")
     .insert({
       user_id: userId,
-      type: "monthly_grant",
+      type: `purchase_${credits}`,
       amount: credits,
       balance_after: totalCredits,
-      metadata: { source: "billing_sync" },
+      metadata: {
+        packageId,
+        stripe_session_id: stripeSessionId,
+        source: "billing_sync",
+      },
       created_at: new Date().toISOString(),
     });
 
-  return { 
-    granted: credits, 
+  return {
+    granted: credits,
+    beforeExtraCredits: currentExtraCredits,
+    afterExtraCredits: newExtraCredits,
     totalCredits,
-    extraCredits: currentBalance?.extra_credits || 0,
   };
 }
 
-export async function POST() {
+// Sync a specific checkout session (for repairing AI credit purchases)
+async function syncCheckoutSession(userId: string, sessionId: string, stripe: ReturnType<typeof getStripe>) {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(sessionId);
+    
+    // Verify session belongs to this user
+    if (session.metadata?.userId !== userId && session.metadata?.user_id !== userId) {
+      return {
+        error: "Session does not belong to this user",
+        sessionUserId: session.metadata?.userId || session.metadata?.user_id,
+        requestUserId: userId,
+      };
+    }
+
+    // Check if this is an AI credits purchase
+    if (session.metadata?.purchaseType === "ai_credits") {
+      const credits = parseInt(session.metadata?.credits || "0", 10);
+      const packageId = session.metadata?.packageId;
+
+      if (session.payment_status !== "paid") {
+        return {
+          error: "Payment not completed",
+          paymentStatus: session.payment_status,
+          sessionId,
+        };
+      }
+
+      if (credits <= 0) {
+        return {
+          error: "Invalid credits amount in session",
+          credits,
+          sessionId,
+        };
+      }
+
+      // Grant credits (with idempotency check)
+      const creditsResult = await grantExtraCredits(userId, credits, sessionId, packageId);
+
+      // Get current balance after grant
+      const supabaseAdmin = getSupabaseAdmin();
+      const { data: balance } = await supabaseAdmin
+        .from("ai_credit_balances")
+        .select("monthly_credits, extra_credits")
+        .eq("user_id", userId)
+        .single();
+
+      return {
+        type: "ai_credits",
+        sessionId,
+        paymentStatus: session.payment_status,
+        credits,
+        packageId,
+        creditSync: creditsResult,
+        currentBalance: {
+          monthlyCredits: balance?.monthly_credits || 0,
+          extraCredits: balance?.extra_credits || 0,
+          totalCredits: (balance?.monthly_credits || 0) + (balance?.extra_credits || 0),
+        },
+        synced: true,
+      };
+    }
+
+    // Not an AI credits purchase - it's a subscription checkout
+    // Return null to continue with normal subscription sync
+    return null;
+    
+  } catch (error) {
+    console.error("Error syncing checkout session:", error);
+    return {
+      error: "Failed to retrieve checkout session",
+      sessionId,
+      details: error instanceof Error ? error.message : "Unknown error",
+    };
+  }
+}
+
+export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -86,7 +177,31 @@ export async function POST() {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
+  // Check for session_id in URL params or body (for repairing AI credit purchases)
+  const url = new URL(request.url);
+  const sessionIdFromUrl = url.searchParams.get("session_id");
+  
+  let sessionIdFromBody: string | null = null;
   try {
+    const body = await request.json().catch(() => ({}));
+    sessionIdFromBody = body.session_id || null;
+  } catch {
+    // No body or invalid JSON
+  }
+  
+  const sessionId = sessionIdFromUrl || sessionIdFromBody;
+
+  try {
+    const stripe = getStripe();
+    
+    // If session_id provided, try to sync that specific checkout session
+    if (sessionId) {
+      const syncResult = await syncCheckoutSession(user.id, sessionId, stripe);
+      if (syncResult) {
+        return NextResponse.json(syncResult);
+      }
+    }
+
     // Get user profile
     const { data: profile } = await supabase
       .from("profiles")
