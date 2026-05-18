@@ -667,21 +667,21 @@ export function getRangeLabel(range: DateRange): string {
 
 /**
  * Get chart bucket label based on range
- * Uses fixed locale (en-GB) to avoid French weekday labels like "dim."
+ * Uses undefined locale to respect user's browser timezone
  */
 export function formatChartTime(timeStr: string, range: DateRange): string {
   const date = new Date(timeStr);
 
   if (range === "1h" || range === "1d") {
-    // Time only format: "14:32" (no weekday)
-    return date.toLocaleTimeString("en-GB", {
+    // Time only format in user's local timezone: "14:32"
+    return date.toLocaleTimeString(undefined, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
     });
   } else {
-    // Daily format: "15 Jan"
-    return date.toLocaleDateString("en-GB", {
+    // Daily format in user's local: "15 Jan"
+    return date.toLocaleDateString(undefined, {
       day: "2-digit",
       month: "short",
     });

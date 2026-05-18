@@ -998,8 +998,8 @@ export default function PerformancePage() {
                   {JSON.stringify({
                     sessionEndCount: performanceData?.avgSessionDebug?.sessionEndCount ?? 0,
                     validSessionDurationCount: performanceData?.avgSessionDebug?.validSessionDurationCount ?? 0,
-                    sampleSessionEndMetadata: performanceData?.avgSessionDebug?.sampleSessionEndEvents?.map((e: { metadata?: unknown }) => e.metadata) ?? [],
                     avgSessionSeconds: performanceData?.avgSessionDebug?.avgSessionSeconds ?? null,
+                    sampleSessionEndEvents: performanceData?.avgSessionDebug?.sampleSessionEndEvents ?? [],
                   }, null, 2)}
                 </pre>
               </div>
@@ -1016,13 +1016,14 @@ export default function PerformancePage() {
                 </pre>
               </div>
               <div>
-                <strong>CCU Label Debug:</strong>
+                <strong>CCU Time Debug:</strong>
                 <pre className="mt-1 p-2 bg-black/20 rounded text-xs overflow-auto max-h-40">
                   {JSON.stringify({
-                    range: ccuRange,
-                    firstRawTime: ccuChartData.length > 0 ? ccuChartData[0].time : null,
+                    selectedRange: ccuRange,
+                    browserTimezone: typeof window !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "server",
+                    firstRawTimestamp: ccuChartData.length > 0 ? ccuChartData[0].time : null,
                     firstFormattedLabel: ccuChartData.length > 0 ? ccuChartData[0].label : null,
-                    lastRawTime: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].time : null,
+                    lastRawTimestamp: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].time : null,
                     lastFormattedLabel: ccuChartData.length > 0 ? ccuChartData[ccuChartData.length - 1].label : null,
                     usedSource: ccuHistoryData?.usedSource,
                     usedSnapshots: ccuHistoryData?.usedSnapshots,

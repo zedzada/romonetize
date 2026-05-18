@@ -358,46 +358,79 @@ export async function GET(request: NextRequest) {
     }
     const uniquePlayers = validPlayerIds.size;
 
-    // New Players: players whose FIRST event for this game is within this range
-    // We need to check if player's first event ever is in this range
-    // For efficiency, we'll query for first event per player
+    // New Players: players whose FIRST-EVER event for this game is within this range
+    // IMPORTANT: We must query ALL TIME (no date filter) to find the true first event per player
+    // Then compare that first_seen date against the selected range
     let newPlayers = 0;
     let totalPlayersEver = 0;
-    const sampleFirstSeenPlayers: Array<{ player_id: string; first_seen: string }> = [];
+    const sampleFirstSeenRows: Array<{ player_id: string; first_seen: string }> = [];
     
-    if (validPlayerIds.size > 0) {
-      const playerIdArray = Array.from(validPlayerIds);
+    // Query first_seen per player across ALL TIME for this game using SQL aggregation
+    // This avoids the Supabase 1000 row limit issue
+    const { data: firstSeenRows, error: firstSeenError } = await supabase
+      .rpc("get_player_first_seen", { p_game_id: selectedGame.id });
+    
+    // Fallback if RPC doesn't exist: use raw query with pagination
+    if (firstSeenError || !firstSeenRows) {
+      console.log("[performance-data] RPC get_player_first_seen not available, using fallback");
       
-      // Get ALL players ever for this game to find their first event
-      const { data: allPlayersFirstEvent } = await supabase
-        .from("events")
-        .select("player_id, created_at")
-        .eq("game_id", selectedGame.id)
-        .not("player_id", "is", null)
-        .neq("player_id", "server")
-        .in("event_type", PLAYER_EVENT_TYPES)
-        .order("created_at", { ascending: true });
+      // Fallback: fetch all events and compute first_seen in JS
+      // Use pagination to get all events
+      const allPlayerEvents: Array<{ player_id: string; created_at: string }> = [];
+      let fpOffset = 0;
+      const fpPageSize = 1000;
+      let fpHasMore = true;
+      
+      while (fpHasMore) {
+        const { data: fpPage } = await supabase
+          .from("events")
+          .select("player_id, created_at")
+          .eq("game_id", selectedGame.id)
+          .not("player_id", "is", null)
+          .neq("player_id", "server")
+          .order("created_at", { ascending: true })
+          .range(fpOffset, fpOffset + fpPageSize - 1);
+        
+        if (fpPage && fpPage.length > 0) {
+          allPlayerEvents.push(...fpPage);
+          fpOffset += fpPageSize;
+          fpHasMore = fpPage.length === fpPageSize;
+        } else {
+          fpHasMore = false;
+        }
+      }
+      
+      // Group by player_id and get first event
+      const playerFirstEvent = new Map<string, string>();
+      for (const e of allPlayerEvents) {
+        if (e.player_id && !playerFirstEvent.has(e.player_id)) {
+          playerFirstEvent.set(e.player_id, e.created_at);
+        }
+      }
+      
+      totalPlayersEver = playerFirstEvent.size;
 
-      if (allPlayersFirstEvent) {
-        // Group by player_id and get first event
-        const playerFirstEvent = new Map<string, string>();
-        for (const e of allPlayersFirstEvent) {
-          if (e.player_id && !playerFirstEvent.has(e.player_id)) {
-            playerFirstEvent.set(e.player_id, e.created_at);
+      // Count players whose first event is within range
+      for (const [playerId, firstEventAt] of playerFirstEvent) {
+        const firstMs = new Date(firstEventAt).getTime();
+        if (firstMs >= rangeStart.getTime() && firstMs <= rangeEnd.getTime()) {
+          newPlayers++;
+          // Collect sample for debug
+          if (sampleFirstSeenRows.length < 10) {
+            sampleFirstSeenRows.push({ player_id: playerId, first_seen: firstEventAt });
           }
         }
-        
-        totalPlayersEver = playerFirstEvent.size;
-
-        // Count players whose first event is within range
-        for (const [playerId, firstEventAt] of playerFirstEvent) {
-          const firstMs = new Date(firstEventAt).getTime();
-          if (firstMs >= rangeStart.getTime() && firstMs <= rangeEnd.getTime()) {
-            newPlayers++;
-            // Collect sample for debug
-            if (sampleFirstSeenPlayers.length < 5) {
-              sampleFirstSeenPlayers.push({ player_id: playerId, first_seen: firstEventAt });
-            }
+      }
+    } else {
+      // RPC returned results
+      totalPlayersEver = firstSeenRows.length;
+      
+      for (const row of firstSeenRows) {
+        const firstMs = new Date(row.first_seen).getTime();
+        if (firstMs >= rangeStart.getTime() && firstMs <= rangeEnd.getTime()) {
+          newPlayers++;
+          if (sampleFirstSeenRows.length < 10) {
+            sampleFirstSeenRows.push({ player_id: row.player_id, first_seen: row.first_seen });
           }
         }
       }
@@ -410,12 +443,17 @@ export async function GET(request: NextRequest) {
     const sampleSessionEndEvents: Array<Record<string, unknown>> = [];
     
     if (sessionEndEvents.length > 0) {
-      // Capture first 3 samples for debug
-      for (let i = 0; i < Math.min(3, sessionEndEvents.length); i++) {
+      // Capture first 5 samples for debug (per spec)
+      for (let i = 0; i < Math.min(5, sessionEndEvents.length); i++) {
+        const evt = sessionEndEvents[i];
+        const evtRecord = evt as Record<string, unknown>;
         sampleSessionEndEvents.push({
-          id: sessionEndEvents[i].id,
-          created_at: sessionEndEvents[i].created_at,
-          metadata: sessionEndEvents[i].metadata,
+          created_at: evt.created_at,
+          player_id: evt.player_id,
+          metadata: evt.metadata,
+          duration: evtRecord.duration,
+          session_duration: evtRecord.session_duration,
+          duration_seconds: evtRecord.duration_seconds,
         });
       }
       
@@ -437,6 +475,8 @@ export async function GET(request: NextRequest) {
           meta?.sessionLength ??
           meta?.session_length ??
           meta?.durationSeconds ??
+          meta?.duration_ms ??
+          meta?.durationMs ??
           meta?.playtime ??
           meta?.play_time ??
           meta?.sessionDuration ??
@@ -581,7 +621,7 @@ export async function GET(request: NextRequest) {
         rangeStartIso,
         rangeEndIso,
         newPlayers,
-        sampleFirstSeenPlayers,
+        sampleFirstSeenRows,
       },
     }, { headers });
 
