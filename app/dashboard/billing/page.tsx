@@ -65,11 +65,16 @@ function BillingContent() {
   const { purchaseCredits } = useCreditPackages();
   
   const searchParams = useSearchParams();
-  const success = searchParams.get("success");
-  const canceled = searchParams.get("canceled");
-  const creditsSuccess = searchParams.get("credits_success");
+  const success = searchParams.get("success") === "true";
+  const canceled = searchParams.get("canceled") === "true";
+  const sessionId = searchParams.get("session_id");
+  const creditsSuccess = searchParams.get("credits_success") === "true";
   const creditsPurchased = searchParams.get("credits");
-  const creditsCanceled = searchParams.get("credits_canceled");
+  const creditsCanceled = searchParams.get("credits_canceled") === "true";
+  const debugMode = searchParams.get("debug") === "true";
+  
+  // Debug state
+  const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
 
   // Refresh credits on successful purchase
   useEffect(() => {
@@ -77,6 +82,35 @@ function BillingContent() {
       refreshCredits();
     }
   }, [creditsSuccess, refreshCredits]);
+
+  // Auto-sync on success/session_id return from Stripe
+  useEffect(() => {
+    if (success || sessionId) {
+      syncBillingFromStripe();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [success, sessionId]);
+
+  const syncBillingFromStripe = async () => {
+    setSyncing(true);
+    setLastSyncMessage("Syncing your plan...");
+    try {
+      const res = await fetch("/api/billing/sync", { method: "POST" });
+      const data = await res.json();
+      if (debugMode) {
+        setDebugInfo(data);
+      }
+      if (data.plan) {
+        await loadSubscription();
+        setLastSyncMessage(`Plan synced: ${data.plan} (${data.status})`);
+      } else if (data.error) {
+        setLastSyncMessage(`Sync error: ${data.error}`);
+      }
+    } catch (err) {
+      setLastSyncMessage("Failed to sync with Stripe");
+    }
+    setSyncing(false);
+  };
 
   const loadSubscription = async () => {
     const result = await getSubscriptionStatus();
@@ -93,6 +127,7 @@ function BillingContent() {
   const handleSync = async () => {
     setSyncing(true);
     setLastSyncMessage(null);
+    await syncBillingFromStripe();
     await loadSubscription();
     await refreshCredits();
     setLastSyncMessage(`Last synced at ${new Date().toLocaleTimeString()}`);
@@ -226,11 +261,11 @@ function BillingContent() {
       )}
 
       {/* Success/Cancel alerts */}
-      {success && (
+      {(success || sessionId) && (
         <Alert className="bg-green-500/10 border-green-500/50">
           <Check className="w-4 h-4 text-green-500" />
           <AlertDescription className="text-green-500">
-            Your subscription has been activated! Thank you for subscribing.
+            {syncing ? "Payment successful! Syncing your plan..." : "Your subscription has been activated! Thank you for subscribing."}
           </AlertDescription>
         </Alert>
       )}
@@ -528,6 +563,34 @@ function BillingContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Debug Panel */}
+      {debugMode && (
+        <Card className="border-amber-500/50 bg-amber-500/5 mt-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-amber-400">Billing Debug</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto">
+{JSON.stringify({
+  currentPlanFromDb: currentPlan.id,
+  currentPlanName: currentPlan.name,
+  subscriptionStatus: subscription?.status,
+  currentPeriodEnd: subscription?.currentPeriodEnd,
+  usage: subscription?.usage,
+  urlParams: {
+    success,
+    canceled,
+    sessionId,
+    creditsSuccess,
+  },
+  syncResult: debugInfo,
+  lastSyncMessage,
+}, null, 2)}
+            </pre>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

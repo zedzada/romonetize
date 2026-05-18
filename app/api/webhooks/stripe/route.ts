@@ -8,11 +8,16 @@ import Stripe from "stripe";
 const processedSessions = new Set<string>();
 
 // Lazy init for service role client
+let supabaseAdmin: ReturnType<typeof createClient> | null = null;
+
 function getSupabaseAdmin() {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL;
-  return createClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  if (!supabaseAdmin) {
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
+    supabaseAdmin = createClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  }
+  return supabaseAdmin;
 }
 
 export async function POST(request: NextRequest) {
@@ -242,41 +247,95 @@ async function grantMonthlyCredits(userId: string, credits: number) {
 }
 
 async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
+  const supabaseAdmin = getSupabaseAdmin();
   const customerId = subscription.customer as string;
 
-  // Find user by Stripe customer ID
-  const { data: profile } = await supabaseAdmin
-    .from("profiles")
-    .select("id, plan")
-    .eq("stripe_customer_id", customerId)
-    .single();
+  // Try to find user by multiple methods (priority order):
+  // 1. subscription.metadata.user_id
+  // 2. stripe_customer_id in profiles
+  // 3. customer email fallback
+  
+  let userId: string | null = null;
+  let profile: { id: string; plan: string | null } | null = null;
 
+  // Method 1: Check subscription metadata
+  if (subscription.metadata?.user_id) {
+    userId = subscription.metadata.user_id;
+    const { data } = await supabaseAdmin
+      .from("profiles")
+      .select("id, plan")
+      .eq("id", userId)
+      .single();
+    profile = data;
+  }
+
+  // Method 2: Find by Stripe customer ID
   if (!profile) {
-    console.error("No user found for customer:", customerId);
+    const { data } = await supabaseAdmin
+      .from("profiles")
+      .select("id, plan")
+      .eq("stripe_customer_id", customerId)
+      .single();
+    profile = data;
+    if (profile) userId = profile.id;
+  }
+
+  // Method 3: Fetch customer email from Stripe and find by email
+  if (!profile) {
+    try {
+      const stripe = getStripe();
+      const customer = await stripe.customers.retrieve(customerId);
+      if (!("deleted" in customer) && customer.email) {
+        const { data } = await supabaseAdmin
+          .from("profiles")
+          .select("id, plan")
+          .eq("email", customer.email)
+          .single();
+        profile = data;
+        if (profile) {
+          userId = profile.id;
+          // Update profile with stripe_customer_id for future lookups
+          await supabaseAdmin
+            .from("profiles")
+            .update({ stripe_customer_id: customerId })
+            .eq("id", profile.id);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to fetch Stripe customer:", e);
+    }
+  }
+
+  if (!profile || !userId) {
+    console.error("No user found for subscription:", subscription.id, "customer:", customerId);
     return;
   }
 
-  // Determine plan from price
-  const priceId = subscription.items.data[0]?.price.id;
+  // Determine plan from subscription metadata or price
   let planId = profile.plan || "free";
-
-  // Get plan from subscription metadata or infer from price
+  
+  // Check subscription metadata first
   if (subscription.metadata?.plan_id) {
     planId = subscription.metadata.plan_id;
   }
+  // Check subscription items metadata
+  else if (subscription.items.data[0]?.metadata?.plan_id) {
+    planId = subscription.items.data[0].metadata.plan_id;
+  }
 
-  const plan = getPlanById(planId) || PRICING_PLANS[0];
+  const plan = getPlanById(planId) || PRICING_PLANS.find(p => p.id === "pro") || PRICING_PLANS[0];
+  const priceId = subscription.items.data[0]?.price.id;
 
   // Update subscription record
   await supabaseAdmin
     .from("subscriptions")
     .upsert({
-      user_id: profile.id,
+      user_id: userId,
       stripe_customer_id: customerId,
       stripe_subscription_id: subscription.id,
       stripe_price_id: priceId,
       status: subscription.status,
-      plan: planId,
+      plan: plan.id,
       current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
       current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
       cancel_at_period_end: subscription.cancel_at_period_end,
@@ -289,25 +348,36 @@ async function handleSubscriptionUpdate(subscription: Stripe.Subscription) {
   await supabaseAdmin
     .from("profiles")
     .update({
-      plan: planId,
+      plan: plan.id,
       subscription_status: subscription.status,
       current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
+      stripe_customer_id: customerId,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", profile.id);
+    .eq("id", userId);
 
   // Update usage limits
   const monthYear = new Date().toISOString().slice(0, 7);
   await supabaseAdmin
     .from("usage_limits")
     .upsert({
-      user_id: profile.id,
+      user_id: userId,
       month_year: monthYear,
       events_limit: plan.limits.eventsPerMonth,
       updated_at: new Date().toISOString(),
     }, {
       onConflict: "user_id,month_year",
     });
+
+  // Grant monthly AI credits for new/updated subscription if active
+  if (subscription.status === "active") {
+    const aiCredits = getAiCreditsForPlan(plan.id);
+    if (aiCredits > 0) {
+      await grantMonthlyCredits(userId, aiCredits);
+    }
+  }
+
+  console.log(`Subscription updated for user ${userId}: plan=${plan.id}, status=${subscription.status}`);
 }
 
 async function handleSubscriptionDeleted(subscription: Stripe.Subscription) {
