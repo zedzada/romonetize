@@ -87,9 +87,14 @@ export async function GET(request: NextRequest) {
           estimatedRevenue: metrics.estimatedRevenue,
           totalPurchases: metrics.purchases,
           totalBuyers: metrics.payingUsers,
-          payerConversionRate: metrics.payerConversionRate,
-          activeUsers: metrics.activeUsers,
+          pcr: metrics.pcr,
+          activeUsersRaw: metrics.activeUsersRaw,
+          activeUsersFixed: metrics.activeUsersFixed,
           arppu: metrics.arppu,
+          arpdau: metrics.arpdau,
+          averageDau: metrics.averageDau,
+          averageDailyRevenue: metrics.averageDailyRevenue,
+          numberOfDays: metrics.numberOfDays,
         },
         
         // Has tracker events

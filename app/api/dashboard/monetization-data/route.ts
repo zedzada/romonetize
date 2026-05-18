@@ -83,11 +83,16 @@ export async function GET(request: NextRequest) {
         summary: {
           purchases: metrics.purchases,
           payingUsers: metrics.payingUsers,
-          activeUsers: metrics.activeUsers,
+          activeUsersRaw: metrics.activeUsersRaw,
+          activeUsersFixed: metrics.activeUsersFixed,
           grossRevenue: metrics.grossRevenue,
           estimatedRevenue: metrics.estimatedRevenue,
           arppu: metrics.arppu,
-          payerConversionRate: metrics.payerConversionRate,
+          pcr: metrics.pcr,
+          arpdau: metrics.arpdau,
+          averageDau: metrics.averageDau,
+          averageDailyRevenue: metrics.averageDailyRevenue,
+          numberOfDays: metrics.numberOfDays,
         },
         
         // Time series for chart

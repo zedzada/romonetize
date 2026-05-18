@@ -75,9 +75,14 @@ interface ProductsApiData {
     estimatedRevenue: number;
     totalPurchases: number;
     totalBuyers: number;
-    payerConversionRate: number | null;
-    activeUsers?: number;
+    pcr: number | null;
+    activeUsersRaw?: number;
+    activeUsersFixed?: number;
     arppu?: number | null;
+    arpdau?: number | null;
+    averageDau?: number | null;
+    averageDailyRevenue?: number | null;
+    numberOfDays?: number;
   };
   hasTrackerEvents: boolean;
   debug?: Record<string, unknown>;
@@ -154,7 +159,8 @@ function ProductsPageContent() {
     estimatedRevenue: 0,
     totalPurchases: 0,
     totalBuyers: 0,
-    payerConversionRate: null,
+    pcr: null,
+    activeUsersFixed: 0,
   };
   const selectedGameName = data?.selectedGameName ?? null;
   const hasTrackerProducts = products.length > 0;
@@ -357,14 +363,14 @@ function ProductsPageContent() {
               <span className="text-xs text-muted-foreground">Payer Conversion Rate</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {hasTrackerEvents && summary.payerConversionRate !== null
-                ? formatPercent(summary.payerConversionRate)
+              {hasTrackerEvents && summary.pcr !== null
+                ? `${summary.pcr.toFixed(2)}%`
                 : <span className="text-lg text-muted-foreground font-normal">—</span>
               }
             </div>
-            {hasTrackerEvents && summary.payerConversionRate !== null && (
+            {hasTrackerEvents && summary.pcr !== null && (summary.activeUsersFixed ?? 0) > 0 && (
               <p className="text-[10px] text-muted-foreground mt-1">
-                Paying Users / Active Users
+                {summary.totalBuyers} / {summary.activeUsersFixed} active users
               </p>
             )}
           </CardContent>

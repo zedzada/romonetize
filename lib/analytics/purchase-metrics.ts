@@ -96,11 +96,16 @@ export interface PurchaseMetricsResult {
   // Summary stats
   purchases: number;
   payingUsers: number;
-  activeUsers: number;
+  activeUsersRaw: number;
+  activeUsersFixed: number;
   grossRevenue: number;
   estimatedRevenue: number;
   arppu: number | null;
-  payerConversionRate: number | null;
+  pcr: number | null;
+  arpdau: number | null;
+  averageDau: number | null;
+  averageDailyRevenue: number | null;
+  numberOfDays: number;
   
   // Products list
   products: ProductMetrics[];
@@ -117,9 +122,30 @@ export interface PurchaseMetricsResult {
     firstPurchaseAt: string | null;
     latestPurchaseAt: string | null;
     samplePurchaseMetadata: Array<Record<string, unknown>>;
-    activeUsersCount: number;
     rangeStartIso: string;
     rangeEndIso: string;
+    
+    // PCR debug
+    payingUsers: number;
+    activeUsersRaw: number;
+    activeUsersFixed: number;
+    pcr: number | null;
+    pcrWarning: string | null;
+    
+    // ARPDAU debug
+    averageDau: number | null;
+    averageDailyRevenue: number | null;
+    arpdau: number | null;
+    numberOfDays: number;
+    
+    // Event type breakdown
+    eventTypeCounts: Record<string, number>;
+    activeUserEventTypes: string[];
+    purchaseEventTypes: string[];
+    
+    // Sample users
+    samplePayingUsers: string[];
+    sampleActiveUsers: string[];
   };
 }
 
@@ -320,26 +346,94 @@ export async function getPurchaseMetrics(opts: {
   }
   
   // Fetch active users count (distinct player_id from active user events)
-  let activeUsers = 0;
+  // Use pagination to get ALL active users, not just first 10000
+  const activeUserIds = new Set<string>();
+  const eventTypeCounts: Record<string, number> = {};
+  
   try {
-    // Use SQL aggregation for efficiency
-    const { data: activeData, error: activeError } = await supabase
-      .from("events")
-      .select("player_id")
-      .eq("game_id", gameId)
-      .in("event_type", ACTIVE_USER_EVENT_TYPES)
-      .gte("created_at", rangeStart.toISOString())
-      .lte("created_at", now.toISOString())
-      .not("player_id", "is", null)
-      .neq("player_id", "server")
-      .limit(10000);
+    let activeFrom = 0;
+    let activeHasMore = true;
+    let activePagesFetched = 0;
+    const ACTIVE_MAX_PAGES = 20; // Up to 20,000 active user events
     
-    if (!activeError && activeData) {
-      const uniquePlayerIds = new Set(activeData.map(e => e.player_id));
-      activeUsers = uniquePlayerIds.size;
+    while (activeHasMore && activePagesFetched < ACTIVE_MAX_PAGES) {
+      const { data: activeData, error: activeError } = await supabase
+        .from("events")
+        .select("player_id, event_type")
+        .eq("game_id", gameId)
+        .in("event_type", ACTIVE_USER_EVENT_TYPES)
+        .gte("created_at", rangeStart.toISOString())
+        .lte("created_at", now.toISOString())
+        .not("player_id", "is", null)
+        .neq("player_id", "server")
+        .range(activeFrom, activeFrom + PAGE_SIZE - 1);
+      
+      if (activeError) {
+        console.error("[purchase-metrics] Error fetching active users:", activeError);
+        activeHasMore = false;
+      } else if (activeData && activeData.length > 0) {
+        for (const e of activeData) {
+          if (e.player_id) {
+            activeUserIds.add(e.player_id);
+          }
+          // Count event types for debug
+          eventTypeCounts[e.event_type] = (eventTypeCounts[e.event_type] || 0) + 1;
+        }
+        activePagesFetched++;
+        activeFrom += PAGE_SIZE;
+        activeHasMore = activeData.length === PAGE_SIZE;
+      } else {
+        activeHasMore = false;
+      }
     }
   } catch (err) {
     console.error("[purchase-metrics] Error fetching active users:", err);
+  }
+  
+  // Calculate daily active users (DAU) for ARPDAU
+  // Query distinct players per day
+  const dailyActiveUsers = new Map<string, Set<string>>();
+  
+  try {
+    let dauFrom = 0;
+    let dauHasMore = true;
+    let dauPagesFetched = 0;
+    const DAU_MAX_PAGES = 20;
+    
+    while (dauHasMore && dauPagesFetched < DAU_MAX_PAGES) {
+      const { data: dauData, error: dauError } = await supabase
+        .from("events")
+        .select("player_id, created_at")
+        .eq("game_id", gameId)
+        .in("event_type", ACTIVE_USER_EVENT_TYPES)
+        .gte("created_at", rangeStart.toISOString())
+        .lte("created_at", now.toISOString())
+        .not("player_id", "is", null)
+        .neq("player_id", "server")
+        .range(dauFrom, dauFrom + PAGE_SIZE - 1);
+      
+      if (dauError) {
+        console.error("[purchase-metrics] Error fetching DAU:", dauError);
+        dauHasMore = false;
+      } else if (dauData && dauData.length > 0) {
+        for (const e of dauData) {
+          if (e.player_id) {
+            const dayKey = getBucketKey(e.created_at, "day");
+            if (!dailyActiveUsers.has(dayKey)) {
+              dailyActiveUsers.set(dayKey, new Set());
+            }
+            dailyActiveUsers.get(dayKey)!.add(e.player_id);
+          }
+        }
+        dauPagesFetched++;
+        dauFrom += PAGE_SIZE;
+        dauHasMore = dauData.length === PAGE_SIZE;
+      } else {
+        dauHasMore = false;
+      }
+    }
+  } catch (err) {
+    console.error("[purchase-metrics] Error fetching DAU:", err);
   }
   
   // Aggregate by product
@@ -486,8 +580,46 @@ export async function getPurchaseMetrics(opts: {
   // Calculate summary stats
   const payingUsers = payingUserIds.size;
   const estimatedRevenue = Math.round(totalGrossRevenue * CREATOR_REVENUE_RATE);
+  
+  // activeUsersRaw is what we counted from events
+  const activeUsersRaw = activeUserIds.size;
+  
+  // activeUsersFixed: ensure paying users are included in active users
+  // If activeUsersRaw < payingUsers, it means the active user query missed some payers
+  const activeUsersFixed = Math.max(activeUsersRaw, payingUsers);
+  
+  // PCR warning
+  const pcrWarning = activeUsersRaw < payingUsers 
+    ? `activeUsers was ${activeUsersRaw} but payingUsers was ${payingUsers}; activeUsers was corrected to ${activeUsersFixed}`
+    : null;
+  
+  // PCR = payingUsers / activeUsersFixed * 100
+  const pcr = activeUsersFixed > 0 ? (payingUsers / activeUsersFixed) * 100 : null;
+  
+  // ARPPU = estimatedRevenue / payingUsers
   const arppu = payingUsers > 0 ? Math.round(estimatedRevenue / payingUsers) : null;
-  const payerConversionRate = activeUsers > 0 ? (payingUsers / activeUsers) : null;
+  
+  // Calculate ARPDAU
+  // numberOfDays = number of days in selected range
+  const msInDay = 24 * 60 * 60 * 1000;
+  const numberOfDays = Math.max(1, Math.ceil((now.getTime() - rangeStart.getTime()) / msInDay));
+  
+  // averageDailyRevenue = estimatedRevenue / numberOfDays
+  const averageDailyRevenue = estimatedRevenue / numberOfDays;
+  
+  // averageDau = average of daily distinct active users
+  let averageDau: number | null = null;
+  if (dailyActiveUsers.size > 0) {
+    const totalDau = Array.from(dailyActiveUsers.values()).reduce((sum, set) => sum + set.size, 0);
+    averageDau = Math.round(totalDau / dailyActiveUsers.size);
+  }
+  
+  // ARPDAU = averageDailyRevenue / averageDau
+  const arpdau = averageDau && averageDau > 0 ? Math.round(averageDailyRevenue / averageDau) : null;
+  
+  // Sample users for debug
+  const samplePayingUsers = Array.from(payingUserIds).slice(0, 5);
+  const sampleActiveUsers = Array.from(activeUserIds).slice(0, 5);
   
   // First and last purchase timestamps
   const firstPurchaseAt = purchaseEvents.length > 0 ? purchaseEvents[0].created_at : null;
@@ -496,11 +628,16 @@ export async function getPurchaseMetrics(opts: {
   return {
     purchases: purchaseEvents.length,
     payingUsers,
-    activeUsers,
+    activeUsersRaw,
+    activeUsersFixed,
     grossRevenue: totalGrossRevenue,
     estimatedRevenue,
     arppu,
-    payerConversionRate,
+    pcr,
+    arpdau,
+    averageDau,
+    averageDailyRevenue: Math.round(averageDailyRevenue),
+    numberOfDays,
     products,
     timeSeries,
     debug: {
@@ -511,9 +648,30 @@ export async function getPurchaseMetrics(opts: {
       firstPurchaseAt,
       latestPurchaseAt,
       samplePurchaseMetadata: sampleMetadata,
-      activeUsersCount: activeUsers,
       rangeStartIso: rangeStart.toISOString(),
       rangeEndIso: now.toISOString(),
+      
+      // PCR debug
+      payingUsers,
+      activeUsersRaw,
+      activeUsersFixed,
+      pcr,
+      pcrWarning,
+      
+      // ARPDAU debug
+      averageDau,
+      averageDailyRevenue: Math.round(averageDailyRevenue),
+      arpdau,
+      numberOfDays,
+      
+      // Event type breakdown
+      eventTypeCounts,
+      activeUserEventTypes: ACTIVE_USER_EVENT_TYPES,
+      purchaseEventTypes: PURCHASE_EVENT_TYPES,
+      
+      // Sample users
+      samplePayingUsers,
+      sampleActiveUsers,
     },
   };
 }
