@@ -149,63 +149,10 @@ export async function POST(request: NextRequest) {
       debug.priceIdWarning = "No STRIPE_*_PRICE_ID env vars set. Will default any active subscription to 'pro'.";
     }
 
-    // Step 2: Get authenticated user
+    // Step 2: Get authenticated user (or get user_id from session_id if auth fails)
     step = "get_user";
-    let supabase;
-    try {
-      supabase = await createClient();
-    } catch (e) {
-      return NextResponse.json({
-        success: false,
-        error: "Failed to create Supabase client",
-        step,
-        authDebug: {
-          hasSession: false,
-          authError: e instanceof Error ? e.message : "Unknown error creating client",
-        },
-        debug,
-      }, { status: 500 });
-    }
     
-    let user = null;
-    let userError = null;
-    
-    try {
-      const result = await supabase.auth.getUser();
-      user = result.data?.user || null;
-      userError = result.error;
-    } catch (e) {
-      return NextResponse.json({
-        success: false,
-        error: "Unable to get authenticated user",
-        step,
-        authDebug: {
-          hasSession: false,
-          authError: e instanceof Error ? e.message : "Exception calling getUser",
-        },
-        debug,
-      }, { status: 500 });
-    }
-
-    if (userError || !user) {
-      return NextResponse.json({
-        success: false,
-        error: "Unable to get authenticated user",
-        step,
-        authDebug: {
-          hasSession: false,
-          authError: userError?.message || "No user returned from auth",
-        },
-        debug,
-      }, { status: 401 });
-    }
-    
-    debug.userId = user.id;
-    debug.email = user.email;
-    debug.authDebug = { hasSession: true };
-
-    // Step 3: Get URL params
-    step = "parse_params";
+    // Parse params first since we might need session_id for fallback auth
     const url = new URL(request.url);
     const sessionIdFromUrl = url.searchParams.get("session_id");
     const debugMode = url.searchParams.get("debug") === "true";
@@ -220,12 +167,63 @@ export async function POST(request: NextRequest) {
     
     const sessionId = sessionIdFromUrl || sessionIdFromBody;
     debug.sessionId = sessionId;
+    
+    // Try to get user from auth first
+    let userId: string | null = null;
+    let userEmail: string | null = null;
+    let authMethod = "none";
+    
+    try {
+      const supabase = await createClient();
+      const result = await supabase.auth.getUser();
+      if (result.data?.user) {
+        userId = result.data.user.id;
+        userEmail = result.data.user.email || null;
+        authMethod = "supabase_auth";
+      }
+    } catch (e) {
+      debug.authError = e instanceof Error ? e.message : "Auth exception";
+    }
+    
+    // If auth failed but we have session_id, try to get user_id from checkout session metadata
+    if (!userId && sessionId) {
+      step = "fallback_auth_from_session";
+      try {
+        const stripe = getStripe();
+        const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId);
+        if (checkoutSession.metadata?.user_id) {
+          userId = checkoutSession.metadata.user_id;
+          authMethod = "stripe_session_metadata";
+          debug.userIdFromStripeSession = true;
+        }
+      } catch (e) {
+        debug.sessionFallbackError = e instanceof Error ? e.message : "Session fallback failed";
+      }
+    }
+    
+    if (!userId) {
+      return NextResponse.json({
+        success: false,
+        error: "Unable to identify user - auth failed and no valid session_id provided",
+        step,
+        authDebug: {
+          hasSession: false,
+          sessionIdProvided: !!sessionId,
+          authMethod,
+        },
+        debug,
+      }, { status: 401 });
+    }
+    
+    debug.userId = userId;
+    debug.email = userEmail;
+    debug.authMethod = authMethod;
 
-    // Step 4: Initialize Stripe
+    // Step 3: Initialize Stripe
     step = "init_stripe";
     const stripe = getStripe();
 
-    // Step 5: Load profile from DB
+    // Step 4: Load profile from DB
     step = "load_profile";
     const supabaseAdmin = getSupabaseAdmin();
     
@@ -241,7 +239,7 @@ export async function POST(request: NextRequest) {
     const { data: profile, error: profileError } = await supabaseAdmin
       .from("profiles")
       .select("stripe_customer_id, plan, subscription_status, email")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
 
     debug.dbBefore = {
@@ -261,7 +259,7 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // Step 6: If session_id provided, retrieve checkout session and subscription directly
+    // Step 5: If session_id provided, retrieve checkout session and subscription directly
     step = "resolve_session_id";
     let subscription: Stripe.Subscription | null = null;
     let stripeCustomerId: string | null = profile?.stripe_customer_id || null;
@@ -317,7 +315,7 @@ export async function POST(request: NextRequest) {
           await supabaseAdmin
             .from("profiles")
             .update({ stripe_customer_id: stripeCustomerId, updated_at: new Date().toISOString() })
-            .eq("id", user.id);
+            .eq("id", userId);
           debug.customerIdUpdatedFromSession = true;
         }
         
@@ -329,7 +327,7 @@ export async function POST(request: NextRequest) {
     
     debug.stripeCustomerId = stripeCustomerId;
 
-    // Step 7: List subscriptions from Stripe (if we don't have one from session)
+    // Step 6: List subscriptions from Stripe (if we don't have one from session)
     step = "list_subscriptions";
     
     if (!subscription && !stripeCustomerId) {
@@ -421,7 +419,7 @@ export async function POST(request: NextRequest) {
       metadata: subscription.metadata,
     };
 
-    // Step 8: Resolve plan from price ID
+    // Step 7: Resolve plan from price ID
     step = "resolve_plan";
     const priceId = subscription.items.data[0]?.price.id;
     const priceToPlan = getPriceToPlanMap();
@@ -450,7 +448,7 @@ export async function POST(request: NextRequest) {
 
     const plan = getPlanById(resolvedPlan) || PRICING_PLANS.find(p => p.id === "pro") || PRICING_PLANS[0];
 
-    // Step 9: Update database
+    // Step 8: Update database
     step = "update_database";
     const updateWarnings: string[] = [];
     
@@ -468,14 +466,14 @@ export async function POST(request: NextRequest) {
     const { error: profileUpdateError } = await supabaseAdmin
       .from("profiles")
       .update(profileUpdate)
-      .eq("id", user.id);
+      .eq("id", userId);
     
     if (profileUpdateError) {
       // Try minimal update with just plan
       const { error: minimalError } = await supabaseAdmin
         .from("profiles")
         .update({ plan: plan.id, updated_at: new Date().toISOString() })
-        .eq("id", user.id);
+        .eq("id", userId);
       
       if (minimalError) {
         return NextResponse.json({
@@ -495,7 +493,7 @@ export async function POST(request: NextRequest) {
     const { error: subUpdateError } = await supabaseAdmin
       .from("subscriptions")
       .upsert({
-        user_id: user.id,
+        user_id: userId,
         stripe_customer_id: stripeCustomerId,
         stripe_subscription_id: subscription.id,
         stripe_price_id: priceId,
@@ -517,7 +515,7 @@ export async function POST(request: NextRequest) {
     const { data: profileAfter } = await supabaseAdmin
       .from("profiles")
       .select("plan, subscription_status, stripe_customer_id")
-      .eq("id", user.id)
+      .eq("id", userId)
       .single();
     
     debug.dbAfter = {
@@ -527,22 +525,22 @@ export async function POST(request: NextRequest) {
       updateWarnings,
     };
 
-    // Step 10: Grant monthly credits
+    // Step 9: Grant monthly credits
     step = "grant_credits";
     let creditsResult = null;
     const aiCredits = getAiCreditsForPlan(plan.id);
     if (aiCredits > 0) {
-      creditsResult = await grantMonthlyCredits(user.id, aiCredits);
+      creditsResult = await grantMonthlyCredits(userId, aiCredits);
     }
     
     // Get final credit balance
     const { data: creditBalance } = await supabaseAdmin
       .from("ai_credit_balances")
       .select("monthly_credits, extra_credits")
-      .eq("user_id", user.id)
+      .eq("user_id", userId)
       .single();
 
-    // Step 11: Return success
+    // Step 10: Return success
     step = "return_success";
     
     return NextResponse.json({
