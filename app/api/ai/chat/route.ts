@@ -454,7 +454,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId, debug } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId, debug, aiContext } = body as {
       message: string;
       gameId?: string;
       imageDataUrl?: string;
@@ -462,6 +462,16 @@ export async function POST(request: NextRequest) {
       imageMimeType?: string;
       conversationId?: string;
       debug?: boolean;
+      aiContext?: {
+        selectedGame?: string;
+        gameId?: string;
+        robloxStats?: { visits?: number; ccu?: number; favorites?: number; likes?: number; dislikes?: number };
+        trackerStats?: { trackedActions?: number; uniquePlayers?: number; totalSessions?: number; newPlayers?: number; avgSessionSeconds?: number };
+        monetizationStats?: { purchases?: number; grossRevenue?: number; estimatedRevenue?: number; payingUsers?: number; activeUsers?: number; pcr?: number; arppu?: number; arpdau?: number };
+        productStats?: { totalProducts?: number; topProducts?: unknown[] };
+        overview?: { hasTrackerData?: boolean; hasPurchaseData?: boolean; hasRobloxStats?: boolean };
+        dataHealth?: { trackerConnected?: boolean; lastEventAt?: string | null };
+      };
     };
 
     if (!message && !imageDataUrl) {
@@ -494,12 +504,66 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get analytics context using admin client (bypasses RLS for reliable data access)
-    const analyticsContext = await getAnalyticsContext(
-      supabaseAdmin,
-      user.id,
-      gameId
-    );
+    // PART 4: Trust aiContext from frontend if provided, otherwise query backend
+    let analyticsContext: Record<string, unknown>;
+    let sourceUsed = "backend";
+    
+    if (aiContext && aiContext.selectedGame) {
+      // Use frontend-provided context (from /api/dashboard/analytics)
+      sourceUsed = "frontend_aiContext";
+      
+      // Check if we have ANY data
+      const trackerStats = aiContext.trackerStats || {};
+      const monetizationStats = aiContext.monetizationStats || {};
+      const robloxStats = aiContext.robloxStats || {};
+      const productStats = aiContext.productStats || {};
+      
+      const hasTrackerData = (trackerStats.trackedActions || 0) > 0 || 
+                             (trackerStats.uniquePlayers || 0) > 0 || 
+                             (trackerStats.totalSessions || 0) > 0;
+      const hasPurchaseData = (monetizationStats.purchases || 0) > 0 ||
+                              (monetizationStats.estimatedRevenue || 0) > 0;
+      const hasRobloxStats = (robloxStats.visits || 0) > 0 || 
+                             (robloxStats.ccu || 0) > 0;
+      const hasProducts = (productStats.totalProducts || 0) > 0;
+      
+      const hasData = hasTrackerData || hasPurchaseData || hasRobloxStats || hasProducts;
+      
+      analyticsContext = {
+        hasData,
+        gameName: aiContext.selectedGame,
+        gameId: aiContext.gameId || gameId,
+        robloxStats: robloxStats,
+        trackedActions: trackerStats.trackedActions || 0,
+        uniquePlayers: trackerStats.uniquePlayers || 0,
+        totalSessions: trackerStats.totalSessions || 0,
+        newPlayers: trackerStats.newPlayers || 0,
+        avgSessionSeconds: trackerStats.avgSessionSeconds || 0,
+        totalPurchases: monetizationStats.purchases || 0,
+        grossRevenue: monetizationStats.grossRevenue || 0,
+        estimatedRevenue: monetizationStats.estimatedRevenue || 0,
+        payingUsers: monetizationStats.payingUsers || 0,
+        activeUsers: monetizationStats.activeUsers || 0,
+        pcr: monetizationStats.pcr || 0,
+        arppu: monetizationStats.arppu || 0,
+        arpdau: monetizationStats.arpdau || 0,
+        syncedProductsCount: productStats.totalProducts || 0,
+        topProducts: productStats.topProducts || [],
+        _dataHealth: {
+          hasTrackerData,
+          hasPurchaseData,
+          hasRobloxStats,
+          hasProducts,
+        },
+      };
+    } else {
+      // Fallback: Get analytics context using admin client (bypasses RLS for reliable data access)
+      analyticsContext = await getAnalyticsContext(
+        supabaseAdmin,
+        user.id,
+        gameId
+      );
+    }
 
     // Build system prompt with analytics context
     let systemPrompt = `You are RoMonetize AI, a specialized assistant for Roblox game developers focused on monetization, analytics, and revenue optimization.
@@ -584,15 +648,31 @@ ${
 ${productsSection}
 Use this real data when answering questions. Reference specific numbers and products. When the user asks for stats overview, provide the actual numbers above. Roblox API stats show public game metrics, while tracker stats show deep monetization analytics.`;
     } else {
-      systemPrompt += `
-NOTE: This user ${analyticsContext.gameName ? `has a game called "${analyticsContext.gameName}" but ` : ""}doesn't have tracking data yet.
-If they ask about their stats, guide them to:
-1. Go to the "My Game" page
-2. Copy the Lua tracking script
-3. Install it in their Roblox game
-4. Track events like player_join, gamepass_purchase, devproduct_purchase
+      // PART 5: Only show this when truly ALL data is zero
+      // Check the _dataHealth flags to be specific about what's missing
+      const dataHealth = analyticsContext._dataHealth as Record<string, boolean> | undefined;
+      const hasRobloxStats = dataHealth?.hasRobloxStats || (analyticsContext.robloxStats as Record<string, number> | undefined)?.visits > 0;
+      
+      if (hasRobloxStats) {
+        // User has Roblox stats but no tracker data - suggest installing tracker
+        const robloxStats = analyticsContext.robloxStats as Record<string, number> | undefined;
+        systemPrompt += `
+NOTE: This user has a game called "${analyticsContext.gameName}" with Roblox public stats:
+- Total Visits: ${robloxStats?.visits?.toLocaleString() || 0}
+- Current Players: ${robloxStats?.ccu || 0}
+- Favorites: ${robloxStats?.favorites?.toLocaleString() || 0}
+
+However, deep monetization tracking data is not yet available. To get purchase analytics, conversion rates, and revenue tracking, they need to install the RoMonetize tracking script.
+
+You CAN answer questions using the Roblox public stats above. Only suggest installing tracking if they ask about purchases, revenue, or conversion metrics.`;
+      } else {
+        // No data at all
+        systemPrompt += `
+NOTE: This user ${analyticsContext.gameName ? `has a game called "${analyticsContext.gameName}" but ` : ""}hasn't connected their game data yet.
+If they ask about their stats, let them know you don't have access to their specific game data, and guide them to connect their Roblox game in the "My Game" page.
 
 You can still answer general Roblox monetization questions without the data.`;
+      }
     }
 
     // Build messages for the AI with proper image handling
@@ -708,7 +788,7 @@ You can still answer general Roblox monetization questions without the data.`;
         selectedGameName: analyticsContext.gameName,
         selectedGameId: analyticsContext.gameId || gameId || null,
         contextLoaded: true,
-        sourceUsed: "getDashboardMetrics",
+        sourceUsed, // "frontend_aiContext" or "backend"
         hasData: analyticsContext.hasData,
         emptyStateReason: analyticsContext.emptyReason || null,
         trackerStats: analyticsContext.hasData ? {
@@ -730,7 +810,7 @@ You can still answer general Roblox monetization questions without the data.`;
         } : null,
         productStats: analyticsContext.hasData ? {
           totalProducts: analyticsContext.syncedProductsCount,
-          topProducts: analyticsContext.topProducts?.slice(0, 3),
+          topProducts: (analyticsContext.topProducts as unknown[])?.slice(0, 3),
         } : null,
         robloxStats: analyticsContext.robloxStats || null,
         _dataHealth: analyticsContext._dataHealth || null,
