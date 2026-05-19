@@ -764,14 +764,41 @@ You can still answer general Roblox monetization questions without the data.`;
           metadata: hasImage ? { imageName, imageMimeType } : {},
         });
         
-        // Save assistant message
+        // Build promptContextPreview for metadata
+        const promptContextPreview = analyticsContext.hasData 
+          ? `Game: ${analyticsContext.gameName}, Tracked Actions: ${analyticsContext.trackedActions}, Unique Players: ${analyticsContext.uniquePlayers}, Purchases: ${analyticsContext.totalPurchases}, Est. Revenue: ${analyticsContext.estimatedRevenue}, Products: ${analyticsContext.syncedProductsCount}`
+          : `No data available (reason: ${analyticsContext.emptyReason || "unknown"})`;
+        
+        // Save assistant message with aiContext metadata for verification
         await supabaseAdmin.from("ai_messages").insert({
           conversation_id: savedConversationId,
           user_id: user.id,
           role: "assistant",
           content: result.text,
           has_image: false,
-          metadata: {},
+          metadata: {
+            aiContextReceived: Boolean(aiContext),
+            sourceUsed,
+            selectedGameName: analyticsContext.gameName || null,
+            selectedGameId: analyticsContext.gameId || null,
+            hasData: analyticsContext.hasData || false,
+            trackerStats: analyticsContext.hasData ? {
+              trackedActions: analyticsContext.trackedActions,
+              uniquePlayers: analyticsContext.uniquePlayers,
+              totalSessions: analyticsContext.totalSessions,
+            } : null,
+            monetizationStats: analyticsContext.hasData ? {
+              purchases: analyticsContext.totalPurchases,
+              estimatedRevenue: analyticsContext.estimatedRevenue,
+              grossRevenue: analyticsContext.grossRevenue,
+              payingUsers: analyticsContext.payingUsers,
+            } : null,
+            productStats: analyticsContext.hasData ? {
+              totalProducts: analyticsContext.syncedProductsCount,
+            } : null,
+            robloxStats: analyticsContext.robloxStats || null,
+            promptContextPreview,
+          },
         });
         
         // Update conversation's updated_at

@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
  * Returns debug fields for troubleshooting:
  * - authenticated: boolean
  * - userId: string | null
+ * - source: "ai_conversations" | "ai_messages_fallback" | "empty"
  * - tableCheck: { aiConversationsReadable, aiMessagesReadable, error }
  */
 
@@ -17,6 +18,7 @@ export async function GET(request: NextRequest) {
   let step = "start";
   let authenticated = false;
   let userId: string | null = null;
+  let source: "ai_conversations" | "ai_messages_fallback" | "empty" = "empty";
   const tableCheck = {
     aiConversationsReadable: false,
     aiMessagesReadable: false,
@@ -33,6 +35,7 @@ export async function GET(request: NextRequest) {
         success: false, 
         authenticated: false,
         userId: null,
+        source,
         tableCheck,
         conversations: [],
         error: "Not authenticated",
@@ -76,41 +79,116 @@ export async function GET(request: NextRequest) {
       tableCheck.aiMessagesReadable = true;
     }
 
+    // Try to get conversations from ai_conversations table first
     step = "query_conversations";
-    let query = supabase
-      .from("ai_conversations")
-      .select("id, title, folder, game_id, created_at, updated_at")
-      .eq("user_id", user.id)
-      .order("updated_at", { ascending: false })
-      .range(offset, offset + limit - 1);
+    let conversations: Array<{
+      id: string;
+      title: string;
+      folder: string | null;
+      game_id: string | null;
+      created_at: string;
+      updated_at: string;
+      message_count?: number;
+    }> = [];
 
-    if (gameId) {
-      query = query.eq("game_id", gameId);
+    if (tableCheck.aiConversationsReadable) {
+      let query = supabase
+        .from("ai_conversations")
+        .select("id, title, folder, game_id, created_at, updated_at")
+        .eq("user_id", user.id)
+        .order("updated_at", { ascending: false })
+        .range(offset, offset + limit - 1);
+
+      if (gameId) {
+        query = query.eq("game_id", gameId);
+      }
+
+      const { data: convData, error: queryError } = await query;
+
+      if (!queryError && convData && convData.length > 0) {
+        source = "ai_conversations";
+        conversations = convData;
+      }
     }
 
-    const { data: conversations, error: queryError } = await query;
+    // If no conversations found, fallback to grouping ai_messages by conversation_id
+    if (conversations.length === 0 && tableCheck.aiMessagesReadable) {
+      step = "fallback_to_messages";
+      
+      // Get distinct conversation_ids with their first user message as title
+      const { data: messagesData, error: messagesError } = await supabase
+        .from("ai_messages")
+        .select("conversation_id, role, content, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
 
-    if (queryError) {
-      console.error("[ai/conversations] Query error:", queryError.message);
-      return NextResponse.json({ 
-        success: false,
-        authenticated,
-        userId,
-        tableCheck,
-        conversations: [],
-        error: queryError.message,
-        step,
-      });
+      if (!messagesError && messagesData && messagesData.length > 0) {
+        // Group messages by conversation_id
+        const conversationMap = new Map<string, {
+          id: string;
+          firstUserMessage: string | null;
+          latestCreatedAt: string;
+          messageCount: number;
+        }>();
+
+        for (const msg of messagesData) {
+          if (!msg.conversation_id) continue;
+          
+          const existing = conversationMap.get(msg.conversation_id);
+          if (existing) {
+            existing.messageCount++;
+            if (msg.created_at > existing.latestCreatedAt) {
+              existing.latestCreatedAt = msg.created_at;
+            }
+            // Only set first user message if not already set
+            if (!existing.firstUserMessage && msg.role === "user") {
+              existing.firstUserMessage = msg.content;
+            }
+          } else {
+            conversationMap.set(msg.conversation_id, {
+              id: msg.conversation_id,
+              firstUserMessage: msg.role === "user" ? msg.content : null,
+              latestCreatedAt: msg.created_at,
+              messageCount: 1,
+            });
+          }
+        }
+
+        // Convert to conversation format
+        const fallbackConversations = Array.from(conversationMap.values())
+          .map(conv => ({
+            id: conv.id,
+            title: conv.firstUserMessage 
+              ? (conv.firstUserMessage.length > 50 
+                  ? conv.firstUserMessage.substring(0, 50) + "..." 
+                  : conv.firstUserMessage)
+              : "New conversation",
+            folder: null,
+            game_id: null,
+            created_at: conv.latestCreatedAt,
+            updated_at: conv.latestCreatedAt,
+            message_count: conv.messageCount,
+          }))
+          .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+          .slice(offset, offset + limit);
+
+        if (fallbackConversations.length > 0) {
+          source = "ai_messages_fallback";
+          conversations = fallbackConversations;
+        }
+      }
     }
 
-    // Success - return conversations (may be empty array)
+    // Return result
     step = "return_success";
     return NextResponse.json({
       success: true,
       authenticated,
       userId,
+      source,
       tableCheck,
-      conversations: conversations || [],
+      conversations,
+      messagesFallbackCount: source === "ai_messages_fallback" ? conversations.length : 0,
       step,
     });
   } catch (err) {
@@ -120,6 +198,7 @@ export async function GET(request: NextRequest) {
       success: false,
       authenticated,
       userId,
+      source,
       tableCheck,
       conversations: [],
       error: errMsg,

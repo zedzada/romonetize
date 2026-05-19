@@ -284,8 +284,10 @@ function AIAssistantContent() {
           conversationsHttpStatus: res.status,
           conversationsSuccess: data.success,
           conversationsAuthenticated: data.authenticated,
+          conversationsSource: data.source,
           conversationsTableCheck: data.tableCheck,
           conversationsCount: data.conversations?.length || 0,
+          messagesFallbackCount: data.messagesFallbackCount || 0,
         }));
       }
       
@@ -296,7 +298,12 @@ function AIAssistantContent() {
       } else {
         // API returned success:false - show error but don't block chat
         setConversations([]);
-        setConversationsError(data.error || "Failed to load conversations");
+        // Only show error if both tables failed
+        if (data.tableCheck?.aiConversationsReadable === false && data.tableCheck?.aiMessagesReadable === false) {
+          setConversationsError("Conversation history unavailable");
+        } else {
+          setConversationsError(data.error || "Failed to load conversations");
+        }
       }
     } catch (error) {
       // Network error - conversations failing shouldn't break chat
@@ -613,7 +620,11 @@ function AIAssistantContent() {
               </div>
             ) : conversationsError ? (
               <div className="text-center py-4 px-2">
-                <p className="text-xs text-muted-foreground">{conversationsError === "Not authenticated" ? "Sign in to save conversations" : "Conversation history unavailable"}</p>
+                <p className="text-xs text-muted-foreground">
+                  {conversationsError === "Not authenticated" 
+                    ? "Sign in to save conversations" 
+                    : conversationsError}
+                </p>
               </div>
             ) : conversations.length === 0 ? (
               <div className="text-center py-8 px-4">
@@ -894,9 +905,9 @@ function AIAssistantContent() {
               <h4 className="text-xs font-semibold text-purple-600 mb-2">Conversations (from /api/ai/conversations)</h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><strong>conversationsStatus:</strong> {loadingConversations ? "loading" : conversationsError ? "error" : "success"}</div>
-                <div><strong>conversationsHttpStatus:</strong> {debugInfo.conversationsHttpStatus as number || "N/A"}</div>
-                <div><strong>conversationsSuccess:</strong> {String(debugInfo.conversationsSuccess ?? "N/A")}</div>
+                <div><strong>conversationsSource:</strong> {(debugInfo.conversationsSource as string) || "N/A"}</div>
                 <div><strong>conversationsCount:</strong> {conversations.length}</div>
+                <div><strong>messagesFallbackCount:</strong> {(debugInfo.messagesFallbackCount as number) || 0}</div>
                 <div><strong>authenticated:</strong> {String(debugInfo.conversationsAuthenticated ?? "N/A")}</div>
                 <div><strong>activeConversationId:</strong> {activeConversationId || "none"}</div>
               </div>
