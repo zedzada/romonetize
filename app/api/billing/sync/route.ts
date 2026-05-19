@@ -7,6 +7,23 @@ import type Stripe from "stripe";
 
 export const dynamic = "force-dynamic";
 
+// Safe timestamp to ISO string helper - prevents "Invalid time value" errors
+function safeStripeTimestampToIso(value: unknown): string | null {
+  const n = Number(value);
+  
+  if (!Number.isFinite(n) || n <= 0) {
+    return null;
+  }
+  
+  const date = new Date(n * 1000);
+  
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  
+  return date.toISOString();
+}
+
 // Price ID to plan mapping using correct env var names
 function getPriceToPlanMap(): Record<string, "pro" | "studio"> {
   const map: Record<string, "pro" | "studio"> = {};
@@ -375,7 +392,8 @@ export async function POST(request: NextRequest) {
           id: sub.id,
           status: sub.status,
           priceId: sub.items.data[0]?.price.id,
-          currentPeriodEnd: new Date(sub.current_period_end * 1000).toISOString(),
+          rawCurrentPeriodEnd: sub.current_period_end,
+          currentPeriodEnd: safeStripeTimestampToIso(sub.current_period_end),
           metadata: sub.metadata,
         })),
       };
@@ -410,12 +428,23 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // Add subscription to debug
+    // Add subscription to debug with safe date handling
+    const rawCurrentPeriodEnd = 
+      subscription?.current_period_end ??
+      subscription?.items?.data?.[0]?.current_period_end ??
+      null;
+    const rawCurrentPeriodStart = subscription?.current_period_start ?? null;
+    
+    const currentPeriodEndIso = safeStripeTimestampToIso(rawCurrentPeriodEnd);
+    const currentPeriodStartIso = safeStripeTimestampToIso(rawCurrentPeriodStart);
+    
     debug.stripeSubscription = {
       id: subscription.id,
       status: subscription.status,
       priceId: subscription.items.data[0]?.price.id,
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+      rawCurrentPeriodEnd,
+      currentPeriodEndIso,
+      currentPeriodEndWasSkipped: currentPeriodEndIso === null,
       metadata: subscription.metadata,
     };
 
@@ -452,23 +481,31 @@ export async function POST(request: NextRequest) {
     step = "update_database";
     const updateWarnings: string[] = [];
     
-    // Update profiles table
+    // Build profile update payload - only include current_period_end if valid
     const profileUpdate: Record<string, unknown> = {
       plan: plan.id,
+      subscription_status: "active",
+      stripe_customer_id: stripeCustomerId,
       updated_at: new Date().toISOString(),
     };
     
-    // Add optional fields if they exist in schema
-    profileUpdate.subscription_status = "active";
-    profileUpdate.stripe_customer_id = stripeCustomerId;
-    profileUpdate.current_period_end = new Date(subscription.current_period_end * 1000).toISOString();
+    // Only add current_period_end if we have a valid date
+    if (currentPeriodEndIso) {
+      profileUpdate.current_period_end = currentPeriodEndIso;
+    }
+    
+    debug.updatePayload = { profiles: profileUpdate };
     
     const { error: profileUpdateError } = await supabaseAdmin
       .from("profiles")
       .update(profileUpdate)
       .eq("id", userId);
     
+    let planUpdateResult = "success";
+    
     if (profileUpdateError) {
+      planUpdateResult = `full_failed: ${profileUpdateError.message}`;
+      
       // Try minimal update with just plan
       const { error: minimalError } = await supabaseAdmin
         .from("profiles")
@@ -476,6 +513,7 @@ export async function POST(request: NextRequest) {
         .eq("id", userId);
       
       if (minimalError) {
+        planUpdateResult = `minimal_failed: ${minimalError.message}`;
         return NextResponse.json({
           success: false,
           error: `Database update failed: ${minimalError.message}`,
@@ -486,26 +524,44 @@ export async function POST(request: NextRequest) {
         }, { status: 500 });
       }
       
+      planUpdateResult = "minimal_success";
       updateWarnings.push(`Full profile update failed (${profileUpdateError.message}), but plan was updated`);
     }
     
-    // Update subscriptions table
+    debug.planUpdateResult = planUpdateResult;
+    
+    // Update subscriptions table with safe date handling
+    const subscriptionUpsertPayload: Record<string, unknown> = {
+      user_id: userId,
+      stripe_customer_id: stripeCustomerId,
+      stripe_subscription_id: subscription.id,
+      stripe_price_id: priceId,
+      status: "active",
+      plan: plan.id,
+      cancel_at_period_end: subscription.cancel_at_period_end ?? false,
+      updated_at: new Date().toISOString(),
+    };
+    
+    // Only add date fields if valid
+    if (currentPeriodStartIso) {
+      subscriptionUpsertPayload.current_period_start = currentPeriodStartIso;
+    }
+    if (currentPeriodEndIso) {
+      subscriptionUpsertPayload.current_period_end = currentPeriodEndIso;
+    }
+    
+    debug.updatePayload = { 
+      ...debug.updatePayload as Record<string, unknown>, 
+      subscriptions: subscriptionUpsertPayload 
+    };
+    
     const { error: subUpdateError } = await supabaseAdmin
       .from("subscriptions")
-      .upsert({
-        user_id: userId,
-        stripe_customer_id: stripeCustomerId,
-        stripe_subscription_id: subscription.id,
-        stripe_price_id: priceId,
-        status: "active",
-        plan: plan.id,
-        current_period_start: new Date(subscription.current_period_start * 1000).toISOString(),
-        current_period_end: new Date(subscription.current_period_end * 1000).toISOString(),
-        cancel_at_period_end: subscription.cancel_at_period_end,
-        updated_at: new Date().toISOString(),
-      }, {
+      .upsert(subscriptionUpsertPayload, {
         onConflict: "stripe_subscription_id",
       });
+    
+    let optionalFieldsUpdateResult = subUpdateError ? `failed: ${subUpdateError.message}` : "success";
     
     if (subUpdateError) {
       updateWarnings.push(`Subscriptions table update failed: ${subUpdateError.message}`);
@@ -522,6 +578,8 @@ export async function POST(request: NextRequest) {
       plan: profileAfter?.plan,
       subscription_status: profileAfter?.subscription_status,
       stripe_customer_id: profileAfter?.stripe_customer_id,
+      planUpdateResult,
+      optionalFieldsUpdateResult,
       updateWarnings,
     };
 
@@ -551,7 +609,8 @@ export async function POST(request: NextRequest) {
       stripeCustomerId,
       stripeSubscriptionId: subscription.id,
       stripePriceId: priceId,
-      currentPeriodEnd: new Date(subscription.current_period_end * 1000).toISOString(),
+      currentPeriodEnd: currentPeriodEndIso,
+      currentPeriodEndWasSkipped: currentPeriodEndIso === null,
       monthlyCredits: creditBalance?.monthly_credits || 0,
       extraCredits: creditBalance?.extra_credits || 0,
       totalCredits: (creditBalance?.monthly_credits || 0) + (creditBalance?.extra_credits || 0),
