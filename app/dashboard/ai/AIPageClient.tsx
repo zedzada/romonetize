@@ -1119,11 +1119,17 @@ function AIAssistantContent() {
   selectedGame: aiContext.selectedGame,
   gameId: aiContext.gameId,
   range: aiContext.range,
+  robloxStats: aiContext.robloxStats,
   trackerStats: aiContext.trackerStats,
   monetizationStats: aiContext.monetizationStats,
-  robloxStats: aiContext.robloxStats,
+  revenueByProductType: {
+    gamepassRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.gamepassRevenue,
+    devproductRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.devproductRevenue,
+  },
   productStats: {
     totalProducts: (aiContext.productStats as Record<string, unknown>)?.totalProducts,
+    syncedRobloxProducts: (aiContext.productStats as Record<string, unknown>)?.syncedRobloxProducts,
+    topProducts: ((aiContext.productStats as Record<string, unknown>)?.topProducts as unknown[] || []).slice(0, 3),
   },
 }, null, 2)}
                   </pre>

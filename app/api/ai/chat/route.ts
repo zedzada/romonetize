@@ -370,6 +370,24 @@ async function getAnalyticsContext(
     productViews.set(pid, (productViews.get(pid) || 0) + 1);
   });
 
+  // Get synced Roblox products for name lookup
+  const { data: robloxProductsForLookup } = await supabaseAdmin
+    .from("roblox_products")
+    .select("roblox_product_id, name, product_type, price_robux")
+    .eq("game_id", targetGameId);
+  
+  // Build product name/type lookup map
+  const productLookup = new Map<string, { name: string; productType: string; priceRobux: number }>();
+  robloxProductsForLookup?.forEach(p => {
+    if (p.roblox_product_id) {
+      productLookup.set(p.roblox_product_id, {
+        name: p.name,
+        productType: p.product_type,
+        priceRobux: p.price_robux,
+      });
+    }
+  });
+
   const productRevenue = new Map<string, { 
     productId: string;
     name: string; 
@@ -379,23 +397,40 @@ async function getAnalyticsContext(
     clicks: number;
     views: number;
   }>();
+  
+  // Calculate revenue by type (using ALL purchase data)
+  let gamepassRevenue = 0;
+  let devproductRevenue = 0;
+  
   topProductsData?.forEach(e => {
     const productId = e.product_id || e.product_name || "unknown";
-    const name = e.product_name || (productId !== "unknown" ? `Product ${productId}` : "Unknown Product");
     const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
-    // Normalize product_type
-    let productType = e.product_type || "unknown";
+    const robuxNum = Number(robux) || 0;
+    
+    // Look up product info from roblox_products table
+    const lookup = productLookup.get(productId);
+    const name = e.product_name || lookup?.name || (productId !== "unknown" ? `Product ${productId}` : "Unknown Product");
+    
+    // Normalize product_type - prefer event's product_type, fallback to lookup
+    let productType = e.product_type || lookup?.productType || "unknown";
     if (productType === "developer_product") productType = "devproduct";
+    
+    // Track revenue by type
+    if (productType === "gamepass") {
+      gamepassRevenue += robuxNum;
+    } else if (productType === "devproduct") {
+      devproductRevenue += robuxNum;
+    }
     
     const existing = productRevenue.get(productId);
     if (existing) {
-      existing.revenue += Number(robux) || 0;
+      existing.revenue += robuxNum;
       existing.purchases += 1;
     } else {
       productRevenue.set(productId, { 
         productId,
         name, 
-        revenue: Number(robux) || 0, 
+        revenue: robuxNum, 
         purchases: 1, 
         productType,
         clicks: productClicks.get(productId) || 0,
@@ -429,19 +464,6 @@ async function getAnalyticsContext(
     .order("synced_at", { ascending: false });
 
   const syncedProducts = robloxProducts || [];
-
-  // Calculate revenue by type (gamepass vs devproduct)
-  let gamepassRevenue = 0;
-  let devproductRevenue = 0;
-  topProductsData?.forEach(e => {
-    const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
-    const productType = e.product_type || "gamepass";
-    if (productType === "gamepass") {
-      gamepassRevenue += Number(robux) || 0;
-    } else {
-      devproductRevenue += Number(robux) || 0;
-    }
-  });
 
   // IMPORTANT: Determine if we have real data
   // Only say "no tracking data" if TRULY everything is zero
@@ -720,54 +742,80 @@ Metric formulas (all use period totals, not daily averages):
 `;
 
     if (analyticsContext.hasData) {
-      // Include Roblox synced stats if available
-      const robloxSection = analyticsContext.robloxStats?.lastSynced ? `
-ROBLOX SYNCED STATS (from Roblox API):
-- Current CCU (Players Online): ${formatNum(analyticsContext.robloxStats?.ccu)}
-- Total Visits: ${formatNum(analyticsContext.robloxStats?.visits)}
-- Favorites: ${formatNum(analyticsContext.robloxStats?.favorites)}
-- Likes: ${formatNum(analyticsContext.robloxStats?.likes)}
-- Dislikes: ${formatNum(analyticsContext.robloxStats?.dislikes)}
-- Last Synced: ${analyticsContext.robloxStats?.lastSynced || "Never"}
+      // Include Roblox synced stats - show if ANY stats exist (not just lastSynced)
+      const rStats = analyticsContext.robloxStats as Record<string, unknown> | undefined;
+      const hasAnyRobloxStats = rStats && (
+        safeNumber(rStats.ccu) > 0 || 
+        safeNumber(rStats.visits) > 0 || 
+        safeNumber(rStats.favorites) > 0 ||
+        safeNumber(rStats.likes) > 0 ||
+        safeNumber(rStats.dislikes) > 0
+      );
+      
+      const robloxSection = hasAnyRobloxStats ? `
+ROBLOX PUBLIC STATS (lifetime/current from Roblox API):
+- Current CCU (Players Online): ${formatNum(rStats?.ccu)}
+- Total Visits: ${formatNum(rStats?.visits)}
+- Favorites: ${formatNum(rStats?.favorites)}
+- Likes: ${formatNum(rStats?.likes)}
+- Dislikes: ${formatNum(rStats?.dislikes)}
+${rStats?.lastSynced ? `- Last Synced: ${rStats.lastSynced}` : ""}
 ` : "";
 
-      // Include synced products if available
-      const productsSection = analyticsContext.syncedProductsCount > 0 ? `
-ROBLOX PRODUCTS (synced from Roblox):
-${analyticsContext.syncedProducts?.slice(0, 10).map((p: { name: string; type: string; price: number; isForSale: boolean }) => 
-  `- ${p.name} (${p.type}) - ${safeNumber(p.price)} Robux${p.isForSale ? "" : " [Not for sale]"}`
-).join("\n") || "No products synced"}
-${analyticsContext.syncedProductsCount > 10 ? `... and ${analyticsContext.syncedProductsCount - 10} more products` : ""}
+      // Product catalog count - use max of synced products or top products found
+      const syncedCount = safeNumber(analyticsContext.syncedProductsCount);
+      const topProductsCount = (analyticsContext.topProducts as unknown[])?.length || 0;
+      const totalProductCount = Math.max(syncedCount, topProductsCount);
+      
+      // Include synced products section - fixed contradiction logic
+      const productsSection = totalProductCount > 0 ? `
+PRODUCT CATALOG:
+- Products in catalog: ${totalProductCount}
+${syncedCount > 0 ? `- Synced from Roblox: ${syncedCount} products` : ""}
+${analyticsContext.syncedProducts?.slice(0, 5).map((p: { name: string; type: string; price: number; isForSale: boolean }) => 
+  `  - ${p.name} (${p.type === "devproduct" || p.type === "developer_product" ? "Developer Product" : p.type === "gamepass" ? "Gamepass" : p.type}) - ${safeNumber(p.price)} Robux${p.isForSale ? "" : " [Not for sale]"}`
+).join("\n") || ""}
+${syncedCount > 5 ? `  ... and ${syncedCount - 5} more products` : ""}
 ` : "";
+
+      // Calculate revenue by type - use grossRevenue for unknowns
+      const gamepassRev = safeNumber(analyticsContext.gamepassRevenue);
+      const devproductRev = safeNumber(analyticsContext.devproductRevenue);
+      const totalGross = safeNumber(analyticsContext.grossRevenue);
+      const unknownRev = Math.max(0, totalGross - gamepassRev - devproductRev);
 
       systemPrompt += `
-ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"} (7-day period):
+ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
+
 ${robloxSection}
-TRACKER ANALYTICS (from RoMonetize tracking script):
+--- TRACKER STATS (last 7 days from RoMonetize tracking script) ---
 - Tracked Actions: ${formatNum(analyticsContext.trackedActions)}
 - Unique Players: ${formatNum(analyticsContext.uniquePlayers)}
 - Total Sessions: ${formatNum(analyticsContext.totalSessions)}
 - Avg Session Duration: ${formatMinutes(analyticsContext.avgSessionSeconds)}
 
-MONETIZATION METRICS:
-- Purchases: ${formatNum(analyticsContext.totalPurchases)}
-- Estimated Revenue: ${formatRobux(analyticsContext.estimatedRevenue)} (creator payout after 30% Roblox cut)
+--- MONETIZATION METRICS (last 7 days) ---
+- Total Purchases: ${formatNum(analyticsContext.totalPurchases)}
 - Gross Revenue: ${formatRobux(analyticsContext.grossRevenue)} (before Roblox cut)
+- Estimated Revenue: ${formatRobux(analyticsContext.estimatedRevenue)} (creator payout after 30% Roblox cut)
 - Paying Users: ${formatNum(analyticsContext.payingUsers)}
 - Active Users: ${formatNum(analyticsContext.activeUsers)}
 - PCR (Payer Conversion Rate): ${formatPercent(analyticsContext.pcr, 2)}
 - ARPPU (Avg Revenue Per Paying User): ${safeNumber(analyticsContext.arppu) > 0 ? `${safeNumber(analyticsContext.arppu).toFixed(0)} Robux` : "N/A"}
 - ARPDAU (Avg Revenue Per DAU): ${safeNumber(analyticsContext.arpdau) > 0 ? `${safeNumber(analyticsContext.arpdau).toFixed(2)} Robux` : "N/A"}
-- Gamepass Revenue: ${formatRobux(analyticsContext.gamepassRevenue)}
-- Dev Product Revenue: ${formatRobux(analyticsContext.devproductRevenue)}
 
-TOP PRODUCTS BY REVENUE:
+REVENUE BY PRODUCT TYPE (last 7 days):
+- Gamepasses: ${formatRobux(gamepassRev)}
+- Developer Products: ${formatRobux(devproductRev)}
+${unknownRev > 0 ? `- Unknown/Unmapped: ${formatRobux(unknownRev)}` : ""}
+
+--- TOP PRODUCTS BY REVENUE (last 7 days) ---
 ${
   analyticsContext.topProducts
     ?.map(
       (p: { productId?: string; name: string; revenue: number; purchases: number; productType: string; clicks?: number; views?: number; conversionRate?: number | null }, i: number) => {
         const productName = p.name || (p.productId && p.productId !== "unknown" ? `Product ${p.productId}` : "Unknown");
-        const productType = p.productType === "devproduct" ? "Dev Product" : p.productType === "gamepass" ? "Gamepass" : p.productType || "unknown";
+        const productType = p.productType === "devproduct" || p.productType === "developer_product" ? "Developer Product" : p.productType === "gamepass" ? "Gamepass" : "Unknown";
         const conversionStr = p.conversionRate !== null && p.conversionRate !== undefined ? `${p.conversionRate.toFixed(1)}% conv` : "";
         const clicksStr = (p.clicks ?? 0) > 0 ? `${safeNumber(p.clicks)} clicks` : "";
         const viewsStr = (p.views ?? 0) > 0 ? `${safeNumber(p.views)} views` : "";
@@ -775,10 +823,14 @@ ${
         return `${i + 1}. ${productName} (${productType}) - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases${funnelInfo ? `, ${funnelInfo}` : ""})`;
       }
     )
-    .join("\n") || "No product data"
+    .join("\n") || "No product data available"
 }
 ${productsSection}
-Use this real data when answering questions. Reference specific numbers and products. When the user asks for stats overview, provide the actual numbers above. Roblox API stats show public game metrics, while tracker stats show deep monetization analytics.`;
+Use this real data when answering questions. Reference specific numbers and products. When the user asks for stats overview, provide the actual numbers above.
+
+IMPORTANT LABELS:
+- "Roblox Public Stats" are lifetime/current stats from the Roblox API
+- "Tracker Stats", "Monetization Metrics", and "Product Stats" are from the last 7 days of RoMonetize tracking`;
     } else {
       // PART 5: Only show this when truly ALL data is zero
       // Check the _dataHealth flags to be specific about what's missing
