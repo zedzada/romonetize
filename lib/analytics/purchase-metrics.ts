@@ -78,6 +78,10 @@ export interface ProductMetrics {
   grossRevenue: number;
   estimatedRevenue: number;
   revPerBuyer: number;
+  // New fields for conversion tracking
+  clicks: number;
+  views: number;
+  conversionRate: number | null; // purchases / clicks if clicks > 0, else purchases / views if views > 0, else null
 }
 
 // Time series point for charts
@@ -468,6 +472,8 @@ export async function getPurchaseMetrics(opts: {
     purchases: number;
     buyerIds: Set<string>;
     grossRevenue: number;
+    clicks: number;
+    views: number;
   }>();
   
   // Track unique paying users and total revenue
@@ -549,6 +555,8 @@ export async function getPurchaseMetrics(opts: {
         purchases: 1,
         buyerIds,
         grossRevenue: price,
+        clicks: 0,
+        views: 0,
       });
     }
     
@@ -568,12 +576,102 @@ export async function getPurchaseMetrics(opts: {
     }
   }
   
+  // Fetch click events to aggregate by product
+  const CLICK_EVENT_TYPES = ["product_click", "gamepass_click", "devproduct_click"];
+  try {
+    const { data: clickData } = await supabase
+      .from("events")
+      .select("product_id, product_name, product_type")
+      .eq("game_id", gameId)
+      .in("event_type", CLICK_EVENT_TYPES)
+      .gte("created_at", rangeStart.toISOString())
+      .lte("created_at", now.toISOString())
+      .not("product_id", "is", null)
+      .limit(5000);
+    
+    if (clickData) {
+      for (const event of clickData) {
+        const productId = event.product_id || "unknown";
+        const existing = productMap.get(productId);
+        if (existing) {
+          existing.clicks += 1;
+        } else {
+          // Create new product entry from click event
+          const productType = event.product_type === "gamepass" ? "gamepass" 
+            : (event.product_type === "devproduct" || event.product_type === "developer_product") ? "devproduct" 
+            : "unknown";
+          productMap.set(productId, {
+            productId,
+            productName: event.product_name || `Product ${productId}`,
+            productType: productType as "gamepass" | "devproduct" | "unknown",
+            purchases: 0,
+            buyerIds: new Set(),
+            grossRevenue: 0,
+            clicks: 1,
+            views: 0,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[purchase-metrics] Error fetching click events:", err);
+  }
+  
+  // Fetch view events to aggregate by product
+  const VIEW_EVENT_TYPES = ["product_view", "gamepass_view"];
+  try {
+    const { data: viewData } = await supabase
+      .from("events")
+      .select("product_id, product_name, product_type")
+      .eq("game_id", gameId)
+      .in("event_type", VIEW_EVENT_TYPES)
+      .gte("created_at", rangeStart.toISOString())
+      .lte("created_at", now.toISOString())
+      .not("product_id", "is", null)
+      .limit(5000);
+    
+    if (viewData) {
+      for (const event of viewData) {
+        const productId = event.product_id || "unknown";
+        const existing = productMap.get(productId);
+        if (existing) {
+          existing.views += 1;
+        } else {
+          // Create new product entry from view event
+          const productType = event.product_type === "gamepass" ? "gamepass" 
+            : (event.product_type === "devproduct" || event.product_type === "developer_product") ? "devproduct" 
+            : "unknown";
+          productMap.set(productId, {
+            productId,
+            productName: event.product_name || `Product ${productId}`,
+            productType: productType as "gamepass" | "devproduct" | "unknown",
+            purchases: 0,
+            buyerIds: new Set(),
+            grossRevenue: 0,
+            clicks: 0,
+            views: 1,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error("[purchase-metrics] Error fetching view events:", err);
+  }
+  
   // Build products array sorted by revenue
   const products: ProductMetrics[] = Array.from(productMap.values())
     .map(p => {
       const estimatedRevenue = Math.round(p.grossRevenue * CREATOR_REVENUE_RATE);
       const buyers = p.buyerIds.size;
       const revPerBuyer = buyers > 0 ? Math.round(estimatedRevenue / buyers) : 0;
+      
+      // Calculate conversion rate: purchases / clicks if clicks > 0, else purchases / views if views > 0, else null
+      let conversionRate: number | null = null;
+      if (p.clicks > 0) {
+        conversionRate = p.purchases / p.clicks;
+      } else if (p.views > 0) {
+        conversionRate = p.purchases / p.views;
+      }
       
       return {
         productId: p.productId,
@@ -584,6 +682,9 @@ export async function getPurchaseMetrics(opts: {
         grossRevenue: p.grossRevenue,
         estimatedRevenue,
         revPerBuyer,
+        clicks: p.clicks,
+        views: p.views,
+        conversionRate,
       };
     })
     .sort((a, b) => b.grossRevenue - a.grossRevenue);
@@ -784,6 +885,22 @@ export async function getPurchaseMetrics(opts: {
       // Sample users
       samplePayingUsers,
       sampleActiveUsers,
+      
+      // Product debug - required by acceptance criteria
+      totalPurchaseEvents: purchaseEvents.length,
+      purchaseEventsWithProductId: purchaseEvents.filter(e => e.product_id && e.product_id !== "unknown").length,
+      purchaseEventsMissingProductId: purchaseEvents.filter(e => !e.product_id || e.product_id === "unknown").length,
+      purchaseEventsWithRobux: purchaseEvents.filter(e => (e.robux ?? 0) > 0).length,
+      topProductsPreview: products.slice(0, 5).map(p => ({
+        productId: p.productId,
+        productName: p.productName,
+        productType: p.productType,
+        purchases: p.purchases,
+        grossRevenue: p.grossRevenue,
+        clicks: p.clicks,
+        views: p.views,
+        conversionRate: p.conversionRate,
+      })),
     },
   };
 }

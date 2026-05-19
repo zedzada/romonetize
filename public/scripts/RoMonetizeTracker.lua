@@ -136,7 +136,7 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
         local robuxPrice = success and gamePassInfo and gamePassInfo.PriceInRobux or 0
         
         sendEvent({
-            eventType = "purchase_success",
+            eventType = "gamepass_purchase",
             playerId = tostring(player.UserId),
             productId = tostring(gamePassId),
             productName = productName,
@@ -168,7 +168,7 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
         local robuxPrice = success and productInfo and productInfo.PriceInRobux or 0
         
         sendEvent({
-            eventType = "purchase_success",
+            eventType = "devproduct_purchase",
             playerId = tostring(userId),
             productId = tostring(productId),
             productName = productName,

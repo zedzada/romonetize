@@ -202,13 +202,13 @@ MarketplaceService.PromptGamePassPurchaseFinished:Connect(function(player, gameP
         print("[RoMonetize] Gamepass purchased:", gamePassId, "by", player.Name)
         
         local info = MarketplaceService:GetProductInfo(gamePassId, Enum.InfoType.GamePass)
-        local productName = info and info.Name or "Unknown Gamepass"
+        local productName = info and info.Name or ("Product " .. tostring(gamePassId))
         local priceRobux = info and info.PriceInRobux or 0
         
         print("[RoMonetize] Gamepass info - Name:", productName, "Price:", priceRobux)
         
-        -- Send purchase_success with top-level product fields for revenue tracking
-        sendEvent("purchase_success", {
+        -- Send gamepass_purchase with top-level product fields for revenue tracking
+        sendEvent("gamepass_purchase", {
             player_id = tostring(player.UserId),
             session_id = sessionId .. "-" .. player.UserId,
             product_id = tostring(gamePassId),
@@ -235,13 +235,13 @@ MarketplaceService.PromptProductPurchaseFinished:Connect(function(userId, produc
         
         local player = Players:GetPlayerByUserId(userId)
         local info = MarketplaceService:GetProductInfo(productId, Enum.InfoType.Product)
-        local productName = info and info.Name or "Unknown DevProduct"
+        local productName = info and info.Name or ("Product " .. tostring(productId))
         local priceRobux = info and info.PriceInRobux or 0
         
         print("[RoMonetize] DevProduct info - Name:", productName, "Price:", priceRobux)
         
-        -- Send purchase_success with top-level product fields for revenue tracking
-        sendEvent("purchase_success", {
+        -- Send devproduct_purchase with top-level product fields for revenue tracking
+        sendEvent("devproduct_purchase", {
             player_id = tostring(userId),
             session_id = sessionId .. "-" .. userId,
             product_id = tostring(productId),
