@@ -97,13 +97,16 @@ function BillingContent() {
     }
   }, [creditsSuccess, refreshCredits]);
 
-  // Auto-sync on success/session_id return from Stripe (for subscriptions)
+  // Auto-sync on success/session_id return from Stripe (for subscriptions only, not credits)
   useEffect(() => {
+    // Skip if this is a credits purchase - that has its own sync
+    if (creditsSuccess) return;
+    
     if (success || sessionId) {
       syncBillingFromStripe();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [success, sessionId]);
+  }, [success, sessionId, creditsSuccess]);
 
   // Auto-sync AI credits purchase when returning from checkout
   useEffect(() => {
@@ -123,13 +126,13 @@ function BillingContent() {
       const res = await fetch(`/api/billing/sync?${params.toString()}`, { method: "POST" });
       const data = await res.json();
       
-      if (debugMode) {
-        setDebugInfo(prev => ({ ...prev, creditSync: data }));
-      }
+      // Always set debug info for credit sync responses
+      setDebugInfo(prev => ({ ...prev, creditSync: data }));
 
       // Handle the new response format from billing/sync
       if (data.type === "ai_credits" && data.success) {
-        // Credits synced successfully - refresh and dispatch event
+        // Credits synced successfully - small delay then refresh to ensure DB write propagated
+        await new Promise(resolve => setTimeout(resolve, 500));
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
         
