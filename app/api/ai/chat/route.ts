@@ -718,19 +718,76 @@ You can still answer general Roblox monetization questions without the data.`;
     // Vision-capable models: gpt-4o, gpt-4o-mini, gpt-4-turbo
     const modelId = hasImage ? "openai/gpt-4o-mini" : "openai/gpt-4.1-mini";
 
-    // Generate response
-    const result = await generateText({
-      model: gateway(modelId),
-      system: systemPrompt,
-      messages: [
-        { 
-          role: "user" as const, 
-          content: userContent,
-        },
-      ],
-      maxTokens: 1500,
-      temperature: 0.7,
-    });
+    // Track OpenAI call metadata for debugging
+    let openaiCalled = false;
+    let fallbackUsed = false;
+    let fallbackReason: string | null = null;
+    let responseId: string | null = null;
+    let inputTokens = 0;
+    let outputTokens = 0;
+    let totalTokens = 0;
+
+    // Check if we have the required API key for AI Gateway
+    // Vercel AI Gateway uses AI_GATEWAY_API_KEY or falls back to provider-specific keys
+    const aiGatewayKey = process.env.AI_GATEWAY_API_KEY;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const hasApiKey = Boolean(aiGatewayKey || openaiKey);
+    const apiKeyPrefix = aiGatewayKey 
+      ? aiGatewayKey.slice(0, 12) + "..." 
+      : openaiKey 
+        ? openaiKey.slice(0, 12) + "..." 
+        : null;
+
+    let result: { text: string; usage?: { promptTokens?: number; completionTokens?: number; totalTokens?: number }; response?: { id?: string } };
+
+    if (!hasApiKey) {
+      // No API key - cannot call OpenAI
+      fallbackUsed = true;
+      fallbackReason = "No API key found (AI_GATEWAY_API_KEY or OPENAI_API_KEY missing)";
+      result = { 
+        text: "I'm unable to process your request right now. The AI service is not properly configured. Please contact support if this issue persists.",
+      };
+    } else {
+      try {
+        // Generate response via Vercel AI Gateway
+        const aiResult = await generateText({
+          model: gateway(modelId),
+          system: systemPrompt,
+          messages: [
+            { 
+              role: "user" as const, 
+              content: userContent,
+            },
+          ],
+          maxTokens: 1500,
+          temperature: 0.7,
+        });
+        
+        openaiCalled = true;
+        result = aiResult;
+        
+        // Extract usage info if available
+        if (aiResult.usage) {
+          inputTokens = aiResult.usage.promptTokens || 0;
+          outputTokens = aiResult.usage.completionTokens || 0;
+          totalTokens = aiResult.usage.totalTokens || (inputTokens + outputTokens);
+        }
+        
+        // Try to get response ID from the result
+        // The AI SDK may include this in different places depending on the provider
+        responseId = (aiResult as unknown as { response?: { id?: string } }).response?.id || 
+                     (aiResult as unknown as { responseId?: string }).responseId ||
+                     `gen-${Date.now()}`;
+                     
+      } catch (aiError) {
+        console.error("[v0] AI generation failed:", aiError);
+        fallbackUsed = true;
+        fallbackReason = `AI request failed: ${aiError instanceof Error ? aiError.message : "Unknown error"}`;
+        
+        // Return error instead of hardcoded fallback
+        throw new Error(fallbackReason);
+      }
+    }
 
     // Save messages to conversation using Supabase client
     // If no conversationId provided, create a new conversation
@@ -820,6 +877,21 @@ You can still answer general Roblox monetization questions without the data.`;
       message: result.text,
       credits: creditResult.remaining,
       conversationId: savedConversationId,
+      // Always include OpenAI debug info
+      openai: {
+        apiKeyPresent: hasApiKey,
+        apiKeyPrefix,
+        model: modelId,
+        openaiCalled,
+        responseId,
+        usage: {
+          inputTokens,
+          outputTokens,
+          totalTokens,
+        },
+      },
+      fallbackUsed,
+      fallbackReason,
     };
     
     // Include debug context if requested
