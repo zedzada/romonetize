@@ -193,6 +193,12 @@ function AIAssistantContent() {
         requestBody.imageDataUrl = currentImageDataUrl;
         requestBody.imageName = currentImageFile.name;
         requestBody.imageMimeType = currentImageFile.type || "image/png";
+        console.log("[v0] Sending image to API:", {
+          hasDataUrl: Boolean(currentImageDataUrl),
+          dataUrlLength: currentImageDataUrl.length,
+          mimeType: currentImageFile.type,
+          fileName: currentImageFile.name,
+        });
       }
 
       // Call API

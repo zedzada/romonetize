@@ -347,6 +347,15 @@ export async function POST(request: NextRequest) {
     // Detect if we have an image
     const hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
     
+    // Debug: Log image detection
+    console.log("[v0] AI Chat - Image detection:", {
+      hasImageDataUrl: Boolean(imageDataUrl),
+      imageDataUrlLength: imageDataUrl?.length || 0,
+      startsWithDataImage: imageDataUrl?.startsWith("data:image") || false,
+      hasImage,
+      imageMimeType,
+    });
+    
     // Determine credit type based on image
     const creditType = hasImage ? "image" : "text";
 
@@ -478,6 +487,7 @@ You can still answer general Roblox monetization questions without the data.`;
     if (hasImage && imageDataUrl) {
       // Vision request - content must be array of parts
       // AI SDK ImagePart uses 'image' not 'image_url'
+      console.log("[v0] Building vision message with image part");
       userContent = [
         {
           type: "text" as const,
@@ -491,6 +501,7 @@ You can still answer general Roblox monetization questions without the data.`;
       ];
     } else {
       // Text-only request
+      console.log("[v0] Building text-only message");
       userContent = userMessageText;
     }
 
