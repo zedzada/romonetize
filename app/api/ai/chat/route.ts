@@ -508,7 +508,8 @@ export async function POST(request: NextRequest) {
     let analyticsContext: Record<string, unknown>;
     let sourceUsed = "backend";
     
-    if (aiContext && aiContext.selectedGame) {
+    // Accept aiContext if it exists (even if selectedGame is null - we can still have Roblox stats or other data)
+    if (aiContext) {
       // Use frontend-provided context (from /api/dashboard/analytics)
       sourceUsed = "frontend_aiContext";
       
@@ -531,8 +532,8 @@ export async function POST(request: NextRequest) {
       
       analyticsContext = {
         hasData,
-        gameName: aiContext.selectedGame,
-        gameId: aiContext.gameId || gameId,
+        gameName: aiContext.selectedGame || null,
+        gameId: aiContext.gameId || gameId || null,
         robloxStats: robloxStats,
         trackedActions: trackerStats.trackedActions || 0,
         uniquePlayers: trackerStats.uniquePlayers || 0,
@@ -549,6 +550,7 @@ export async function POST(request: NextRequest) {
         arpdau: monetizationStats.arpdau || 0,
         syncedProductsCount: productStats.totalProducts || 0,
         topProducts: productStats.topProducts || [],
+        emptyReason: hasData ? null : "no_data_in_aiContext",
         _dataHealth: {
           hasTrackerData,
           hasPurchaseData,
@@ -764,14 +766,41 @@ You can still answer general Roblox monetization questions without the data.`;
           metadata: hasImage ? { imageName, imageMimeType } : {},
         });
         
-        // Save assistant message
+        // Build promptContextPreview for metadata
+        const promptContextPreview = analyticsContext.hasData 
+          ? `Game: ${analyticsContext.gameName}, Tracked Actions: ${analyticsContext.trackedActions}, Unique Players: ${analyticsContext.uniquePlayers}, Purchases: ${analyticsContext.totalPurchases}, Est. Revenue: ${analyticsContext.estimatedRevenue}, Products: ${analyticsContext.syncedProductsCount}`
+          : `No data available (reason: ${analyticsContext.emptyReason || "unknown"})`;
+        
+        // Save assistant message with aiContext metadata for verification
         await supabaseAdmin.from("ai_messages").insert({
           conversation_id: savedConversationId,
           user_id: user.id,
           role: "assistant",
           content: result.text,
           has_image: false,
-          metadata: {},
+          metadata: {
+            aiContextReceived: Boolean(aiContext),
+            sourceUsed,
+            selectedGameName: analyticsContext.gameName || null,
+            selectedGameId: analyticsContext.gameId || null,
+            hasData: analyticsContext.hasData || false,
+            trackerStats: analyticsContext.hasData ? {
+              trackedActions: analyticsContext.trackedActions,
+              uniquePlayers: analyticsContext.uniquePlayers,
+              totalSessions: analyticsContext.totalSessions,
+            } : null,
+            monetizationStats: analyticsContext.hasData ? {
+              purchases: analyticsContext.totalPurchases,
+              estimatedRevenue: analyticsContext.estimatedRevenue,
+              grossRevenue: analyticsContext.grossRevenue,
+              payingUsers: analyticsContext.payingUsers,
+            } : null,
+            productStats: analyticsContext.hasData ? {
+              totalProducts: analyticsContext.syncedProductsCount,
+            } : null,
+            robloxStats: analyticsContext.robloxStats || null,
+            promptContextPreview,
+          },
         });
         
         // Update conversation's updated_at
