@@ -8,28 +8,56 @@ export async function POST(request: NextRequest) {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
-      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      return NextResponse.json({ 
+        success: false, 
+        error: "Not authenticated" 
+      }, { status: 401 });
     }
 
     const body = await request.json();
     const { email } = body;
 
     if (!email) {
-      return NextResponse.json({ error: "Email required" }, { status: 400 });
+      return NextResponse.json({ 
+        success: false, 
+        error: "Email required" 
+      }, { status: 400 });
     }
 
-    // Check if Resend is configured
+    // Check notification settings - is email_alerts enabled?
+    const { data: settings } = await supabase
+      .from("user_notification_settings")
+      .select("email_alerts")
+      .eq("user_id", user.id)
+      .single();
+
+    if (settings && settings.email_alerts === false) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Email alerts are disabled in your settings. Enable them first." 
+      });
+    }
+
+    // Check if Resend is configured - do NOT fake success
     const resendApiKey = process.env.RESEND_API_KEY;
     if (!resendApiKey) {
-      // Return success even without Resend for testing
-      console.log("[v0] Resend not configured, skipping test email");
-      return NextResponse.json({ success: true, message: "Test email would be sent (Resend not configured)" });
+      return NextResponse.json({ 
+        success: false, 
+        error: "Missing RESEND_API_KEY - email provider not configured" 
+      });
+    }
+
+    const fromEmail = process.env.FROM_EMAIL || process.env.EMAIL_FROM;
+    if (!fromEmail) {
+      return NextResponse.json({ 
+        success: false, 
+        error: "Missing FROM_EMAIL or EMAIL_FROM - sender address not configured" 
+      });
     }
 
     const resend = new Resend(resendApiKey);
-    const fromEmail = process.env.FROM_EMAIL || "RoMonetize <noreply@romonetize.com>";
 
-    await resend.emails.send({
+    const { data, error } = await resend.emails.send({
       from: fromEmail,
       to: email,
       subject: "RoMonetize Test Email",
@@ -44,9 +72,24 @@ export async function POST(request: NextRequest) {
       `,
     });
 
-    return NextResponse.json({ success: true });
+    if (error) {
+      console.error("[Test Email] Resend error:", error);
+      return NextResponse.json({ 
+        success: false, 
+        error: `Email send failed: ${error.message}` 
+      });
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Test email sent successfully",
+      messageId: data?.id 
+    });
   } catch (error) {
-    console.error("[v0] Error sending test email:", error);
-    return NextResponse.json({ error: "Failed to send test email" }, { status: 500 });
+    console.error("[Test Email] Error:", error);
+    return NextResponse.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : "Failed to send test email" 
+    }, { status: 500 });
   }
 }
