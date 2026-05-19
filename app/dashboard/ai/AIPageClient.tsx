@@ -354,20 +354,63 @@ function AIAssistantContent() {
   };
 
   const loadConversation = async (conversationId: string) => {
+    const url = `/api/ai/conversations/${conversationId}`;
     try {
-      const res = await fetch(`/api/ai/conversations/${conversationId}`);
+      const res = await fetch(url);
       const data = await res.json();
+      
+      if (debug) {
+        setDebugInfo(prev => ({
+          ...prev,
+          lastConversationLoad: {
+            url,
+            status: res.status,
+            success: data.success,
+            messageCount: data.messages?.length || 0,
+            step: data.step || null,
+            error: data.error || null,
+          },
+        }));
+      }
+      
       if (data.success) {
         setActiveConversationId(conversationId);
-        setMessages(data.messages.map((m: { id: string; role: string; content: string; has_image?: boolean }) => ({
+        setMessages((data.messages || []).map((m: { id: string; role: string; content: string; has_image?: boolean }) => ({
           id: m.id,
           role: m.role as "user" | "assistant" | "error",
           content: m.content,
           has_image: m.has_image,
         })));
+      } else {
+        // Show error in chat but keep UI usable
+        console.error("Failed to load conversation:", data.error);
+        setMessages([{
+          id: `error-${Date.now()}`,
+          role: "error",
+          content: `Could not load conversation: ${data.error || "Unknown error"}`,
+        }]);
       }
     } catch (error) {
       console.error("Failed to load conversation:", error);
+      if (debug) {
+        setDebugInfo(prev => ({
+          ...prev,
+          lastConversationLoad: {
+            url,
+            status: 0,
+            success: false,
+            messageCount: 0,
+            step: "network_error",
+            error: error instanceof Error ? error.message : "Network error",
+          },
+        }));
+      }
+      // Show error but don't crash
+      setMessages([{
+        id: `error-${Date.now()}`,
+        role: "error",
+        content: "Could not load conversation. Please try again.",
+      }]);
     }
   };
 
@@ -604,19 +647,38 @@ function AIAssistantContent() {
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        // Handle error
+        // Handle error - capture full debug info
         const errorMessage = data.error || "Something went wrong";
+        
+        // Update debug info with error details
+        if (debug) {
+          setDebugInfo(prev => ({
+            ...prev,
+            lastChatRequest: {
+              step: data.step || "unknown",
+              success: false,
+              openaiCalled: data.openaiCalled || false,
+              aiContextReceived: data.aiContextReceived || false,
+              selectedGameName: null,
+              creditsCharged: data.creditsCharged || false,
+              creditsRefunded: data.creditsRefunded || false,
+              error: errorMessage,
+            },
+          }));
+        }
         
         // Check if insufficient credits
         if (res.status === 402 || errorMessage.toLowerCase().includes("insufficient")) {
           setShowBuyCreditsModal(true);
         }
 
-        // Add error message
+        // Add error message with full details in debug mode
         setMessages(prev => [...prev, {
           id: `error-${Date.now()}`,
           role: "error",
-          content: errorMessage,
+          content: debug 
+            ? `${errorMessage}\n\nStep: ${data.step || "unknown"}\nOpenAI Called: ${data.openaiCalled || false}\nCredits Refunded: ${data.creditsRefunded || false}`
+            : errorMessage,
         }]);
       } else {
         // Add assistant message
@@ -632,10 +694,21 @@ function AIAssistantContent() {
         }
 
         // Capture debug context from response
-        if (debug && data.debugContext) {
+        if (debug) {
           setDebugInfo(prev => ({
             ...prev,
-            apiDebugContext: data.debugContext,
+            apiDebugContext: data.debugContext || null,
+            lastChatRequest: {
+              step: data.step || "return_success",
+              success: true,
+              openaiCalled: data.openai?.openaiCalled || false,
+              aiContextReceived: data.aiContextReceived || false,
+              selectedGameName: data.debugContext?.selectedGameName || null,
+              creditsCharged: data.creditsCharged || false,
+              creditsRefunded: false,
+              saveError: data.saveError || null,
+              error: null,
+            },
           }));
         }
         
@@ -658,6 +731,21 @@ function AIAssistantContent() {
       }
     } catch (error) {
       console.error("API call failed:", error);
+      if (debug) {
+        setDebugInfo(prev => ({
+          ...prev,
+          lastChatRequest: {
+            step: "network_error",
+            success: false,
+            openaiCalled: false,
+            aiContextReceived: false,
+            selectedGameName: null,
+            creditsCharged: false,
+            creditsRefunded: false,
+            error: error instanceof Error ? error.message : "Network error",
+          },
+        }));
+      }
       setMessages(prev => [...prev, {
         id: `error-${Date.now()}`,
         role: "error",
@@ -1051,7 +1139,39 @@ function AIAssistantContent() {
                 <div><strong>source:</strong> {(debugInfo.conversationsSource as string) || "N/A"}</div>
               </div>
               {conversationsError && <div className="mt-2 text-xs text-red-500"><strong>error:</strong> {conversationsError}</div>}
+              
+              {/* Last Conversation Load - Per spec requirement #6 */}
+              {debugInfo.lastConversationLoad && (
+                <div className="mt-2 p-2 bg-purple-500/10 border border-purple-500/30 rounded">
+                  <strong className="text-xs text-purple-600">lastConversationLoad:</strong>
+                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto text-xs">
+{JSON.stringify(debugInfo.lastConversationLoad, null, 2)}
+                  </pre>
+                </div>
+              )}
             </div>
+            
+            {/* Last Chat Request - Per spec requirement #6 */}
+            {debugInfo.lastChatRequest && (
+              <div className="mb-4 p-3 bg-green-500/10 rounded-lg border border-green-500/30">
+                <h4 className="text-xs font-semibold text-green-600 mb-2">Last Chat Request</h4>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div><strong>step:</strong> {(debugInfo.lastChatRequest as Record<string, unknown>).step as string || "N/A"}</div>
+                  <div><strong>success:</strong> <span className={(debugInfo.lastChatRequest as Record<string, unknown>).success ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{String((debugInfo.lastChatRequest as Record<string, unknown>).success)}</span></div>
+                  <div><strong>openaiCalled:</strong> <span className={(debugInfo.lastChatRequest as Record<string, unknown>).openaiCalled ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{String((debugInfo.lastChatRequest as Record<string, unknown>).openaiCalled)}</span></div>
+                  <div><strong>aiContextReceived:</strong> {String((debugInfo.lastChatRequest as Record<string, unknown>).aiContextReceived)}</div>
+                  <div><strong>selectedGameName:</strong> {(debugInfo.lastChatRequest as Record<string, unknown>).selectedGameName as string || "N/A"}</div>
+                  <div><strong>creditsCharged:</strong> {String((debugInfo.lastChatRequest as Record<string, unknown>).creditsCharged)}</div>
+                  <div><strong>creditsRefunded:</strong> {String((debugInfo.lastChatRequest as Record<string, unknown>).creditsRefunded)}</div>
+                </div>
+                {(debugInfo.lastChatRequest as Record<string, unknown>).error && (
+                  <div className="mt-2 text-xs text-red-500"><strong>error:</strong> {(debugInfo.lastChatRequest as Record<string, unknown>).error as string}</div>
+                )}
+                {(debugInfo.lastChatRequest as Record<string, unknown>).saveError && (
+                  <div className="mt-2 text-xs text-orange-500"><strong>saveError:</strong> {(debugInfo.lastChatRequest as Record<string, unknown>).saveError as string}</div>
+                )}
+              </div>
+            )}
             
             {/* OpenAI Debug - CRITICAL for verifying AI is actually being called */}
             <div className="mb-4 p-3 bg-red-500/10 rounded-lg border border-red-500/30">
