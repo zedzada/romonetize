@@ -439,6 +439,13 @@ async function getAnalyticsContext(
 }
 
 export async function POST(request: NextRequest) {
+  let step = "start";
+  let creditsCharged = false;
+  let creditsRefunded = false;
+  let openaiCalled = false;
+  let aiContextReceived = false;
+  let saveError: string | null = null;
+  
   const supabaseAdmin = getSupabaseAdmin();
   const supabase = await createServerClient();
   const {
@@ -447,14 +454,20 @@ export async function POST(request: NextRequest) {
 
   if (!user) {
     return NextResponse.json(
-      { success: false, error: "Not authenticated" },
+      { success: false, error: "Not authenticated", step: "auth" },
       { status: 401 }
     );
   }
 
+  // Variables we need in catch block
+  let hasImage = false;
+  let creditType: "text" | "image" = "text";
+  let debug = false;
+
   try {
+    step = "parse_body";
     const body = await request.json();
-    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId, debug, aiContext } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId, debug: debugFlag, aiContext } = body as {
       message: string;
       gameId?: string;
       imageDataUrl?: string;
@@ -466,28 +479,32 @@ export async function POST(request: NextRequest) {
         selectedGame?: string;
         gameId?: string;
         robloxStats?: { visits?: number; ccu?: number; favorites?: number; likes?: number; dislikes?: number };
-        trackerStats?: { trackedActions?: number; uniquePlayers?: number; totalSessions?: number; newPlayers?: number; avgSessionSeconds?: number };
+        trackerStats?: { trackedActions?: number; uniquePlayers?: number; totalSessions?: number; newPlayers?: number; avgSessionSeconds?: number; purchases?: number };
         monetizationStats?: { purchases?: number; grossRevenue?: number; estimatedRevenue?: number; payingUsers?: number; activeUsers?: number; pcr?: number; arppu?: number; arpdau?: number };
         productStats?: { totalProducts?: number; topProducts?: unknown[] };
         overview?: { hasTrackerData?: boolean; hasPurchaseData?: boolean; hasRobloxStats?: boolean };
         dataHealth?: { trackerConnected?: boolean; lastEventAt?: string | null };
       };
     };
+    
+    debug = Boolean(debugFlag);
+    aiContextReceived = Boolean(aiContext);
 
     if (!message && !imageDataUrl) {
       return NextResponse.json(
-        { success: false, error: "Message or image is required" },
+        { success: false, error: "Message or image is required", step },
         { status: 400 }
       );
     }
 
     // Detect if we have an image
-    const hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
+    hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
     
     // Determine credit type based on image
-    const creditType = hasImage ? "image" : "text";
+    creditType = hasImage ? "image" : "text";
 
     // Consume credits before making AI call
+    step = "credits_charge";
     const creditResult = await consumeCredits(
       supabaseAdmin,
       user.id,
@@ -499,12 +516,15 @@ export async function POST(request: NextRequest) {
           success: false,
           error: creditResult.error,
           creditsRequired: AI_CREDIT_COSTS[creditType],
+          step,
         },
         { status: 402 }
       );
     }
+    creditsCharged = true;
 
     // PART 4: Trust aiContext from frontend if provided, otherwise query backend
+    step = "analytics_context";
     let analyticsContext: Record<string, unknown>;
     let sourceUsed = "backend";
     
@@ -719,7 +739,7 @@ You can still answer general Roblox monetization questions without the data.`;
     const modelId = hasImage ? "openai/gpt-4o-mini" : "openai/gpt-4.1-mini";
 
     // Track OpenAI call metadata for debugging
-    let openaiCalled = false;
+    step = "openai_call";
     let fallbackUsed = false;
     let fallbackReason: string | null = null;
     let responseId: string | null = null;
@@ -789,12 +809,14 @@ You can still answer general Roblox monetization questions without the data.`;
       }
     }
 
-    // Save messages to conversation using Supabase client
-    // If no conversationId provided, create a new conversation
+    // Save messages to conversation using Supabase client (NON-BLOCKING)
+    // If saving fails, still return the AI response
+    step = "save_messages";
     let savedConversationId = conversationId;
     try {
       if (!conversationId) {
         // Create a new conversation with first message as title
+        step = "save_user_message";
         const title = userMessageText.substring(0, 50).trim() + (userMessageText.length > 50 ? "..." : "");
         const { data: newConv, error: convError } = await supabaseAdmin
           .from("ai_conversations")
@@ -808,12 +830,14 @@ You can still answer general Roblox monetization questions without the data.`;
         
         if (!convError && newConv) {
           savedConversationId = newConv.id;
+        } else if (convError) {
+          saveError = `Create conversation failed: ${convError.message}`;
         }
       }
       
       if (savedConversationId) {
         // Save user message
-        await supabaseAdmin.from("ai_messages").insert({
+        const { error: userMsgError } = await supabaseAdmin.from("ai_messages").insert({
           conversation_id: savedConversationId,
           user_id: user.id,
           role: "user",
@@ -823,13 +847,18 @@ You can still answer general Roblox monetization questions without the data.`;
           metadata: hasImage ? { imageName, imageMimeType } : {},
         });
         
+        if (userMsgError) {
+          saveError = `Save user message failed: ${userMsgError.message}`;
+        }
+        
         // Build promptContextPreview for metadata
+        step = "save_assistant_message";
         const promptContextPreview = analyticsContext.hasData 
           ? `Game: ${analyticsContext.gameName}, Tracked Actions: ${analyticsContext.trackedActions}, Unique Players: ${analyticsContext.uniquePlayers}, Purchases: ${analyticsContext.totalPurchases}, Est. Revenue: ${analyticsContext.estimatedRevenue}, Products: ${analyticsContext.syncedProductsCount}`
           : `No data available (reason: ${analyticsContext.emptyReason || "unknown"})`;
         
         // Save assistant message with aiContext metadata for verification
-        await supabaseAdmin.from("ai_messages").insert({
+        const { error: assistantMsgError } = await supabaseAdmin.from("ai_messages").insert({
           conversation_id: savedConversationId,
           user_id: user.id,
           role: "assistant",
@@ -860,6 +889,10 @@ You can still answer general Roblox monetization questions without the data.`;
           },
         });
         
+        if (assistantMsgError) {
+          saveError = (saveError ? saveError + "; " : "") + `Save assistant message failed: ${assistantMsgError.message}`;
+        }
+        
         // Update conversation's updated_at
         await supabaseAdmin
           .from("ai_conversations")
@@ -868,15 +901,21 @@ You can still answer general Roblox monetization questions without the data.`;
       }
     } catch (msgError) {
       console.error("[v0] Failed to save messages:", msgError);
-      // Don't fail the request if message saving fails
+      saveError = msgError instanceof Error ? msgError.message : "Unknown save error";
+      // Don't fail the request if message saving fails - AI response is still valid
     }
 
     // Return success response
+    step = "return_success";
     const response: Record<string, unknown> = {
       success: true,
       message: result.text,
       credits: creditResult.remaining,
       conversationId: savedConversationId,
+      step,
+      creditsCharged,
+      aiContextReceived,
+      saveError,
       // Always include OpenAI debug info
       openai: {
         apiKeyPresent: hasApiKey,
@@ -935,32 +974,33 @@ You can still answer general Roblox monetization questions without the data.`;
     return NextResponse.json(response);
   } catch (error) {
     console.error("[v0] AI chat error:", error);
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
 
-    // Refund credits on error - need to check if image was present
-    // We can't access hasImage here since it's in the try block, so check body
-    let refundType: "text" | "image" = "text";
-    try {
-      const body = await request.clone().json();
-      if (body.imageDataUrl && body.imageDataUrl.startsWith("data:image")) {
-        refundType = "image";
+    // Refund credits on error (only if they were charged)
+    if (creditsCharged) {
+      try {
+        await refundCredits(
+          supabaseAdmin,
+          user.id,
+          creditType,
+          errorMessage
+        );
+        creditsRefunded = true;
+      } catch (refundError) {
+        console.error("[v0] Failed to refund credits:", refundError);
       }
-    } catch {
-      // Ignore parse errors, default to text refund
-    }
-
-    try {
-      await refundCredits(
-        supabaseAdmin,
-        user.id,
-        refundType,
-        "AI request failed"
-      );
-    } catch (refundError) {
-      console.error("[v0] Failed to refund credits:", refundError);
     }
 
     return NextResponse.json(
-      { success: false, error: "AI request failed. Credits have been refunded." },
+      { 
+        success: false, 
+        error: errorMessage,
+        step,
+        openaiCalled,
+        aiContextReceived,
+        creditsCharged,
+        creditsRefunded,
+      },
       { status: 500 }
     );
   }
