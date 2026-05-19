@@ -336,22 +336,88 @@ async function getAnalyticsContext(
     .order("created_at", { ascending: false })
     .limit(500);
 
-  const productRevenue = new Map<string, { name: string; revenue: number; purchases: number; productType: string }>();
+  // Get click events for products
+  const { data: clickEventsData } = await supabaseAdmin
+    .from("events")
+    .select("product_id")
+    .eq("game_id", targetGameId)
+    .in("event_type", ["product_click", "gamepass_click", "devproduct_click"])
+    .gte("created_at", rangeStart.toISOString())
+    .not("product_id", "is", null)
+    .limit(2000);
+
+  // Get view events for products
+  const { data: viewEventsData } = await supabaseAdmin
+    .from("events")
+    .select("product_id")
+    .eq("game_id", targetGameId)
+    .in("event_type", ["product_view", "gamepass_view"])
+    .gte("created_at", rangeStart.toISOString())
+    .not("product_id", "is", null)
+    .limit(2000);
+
+  // Count clicks and views per product
+  const productClicks = new Map<string, number>();
+  const productViews = new Map<string, number>();
+  
+  clickEventsData?.forEach(e => {
+    const pid = e.product_id || "unknown";
+    productClicks.set(pid, (productClicks.get(pid) || 0) + 1);
+  });
+  
+  viewEventsData?.forEach(e => {
+    const pid = e.product_id || "unknown";
+    productViews.set(pid, (productViews.get(pid) || 0) + 1);
+  });
+
+  const productRevenue = new Map<string, { 
+    productId: string;
+    name: string; 
+    revenue: number; 
+    purchases: number; 
+    productType: string;
+    clicks: number;
+    views: number;
+  }>();
   topProductsData?.forEach(e => {
     const productId = e.product_id || e.product_name || "unknown";
-    const name = e.product_name || productId;
+    const name = e.product_name || (productId !== "unknown" ? `Product ${productId}` : "Unknown Product");
     const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
-    const productType = e.product_type || "gamepass";
+    // Normalize product_type
+    let productType = e.product_type || "unknown";
+    if (productType === "developer_product") productType = "devproduct";
+    
     const existing = productRevenue.get(productId);
     if (existing) {
       existing.revenue += Number(robux) || 0;
       existing.purchases += 1;
     } else {
-      productRevenue.set(productId, { name, revenue: Number(robux) || 0, purchases: 1, productType });
+      productRevenue.set(productId, { 
+        productId,
+        name, 
+        revenue: Number(robux) || 0, 
+        purchases: 1, 
+        productType,
+        clicks: productClicks.get(productId) || 0,
+        views: productViews.get(productId) || 0,
+      });
     }
   });
   
   const topProducts = Array.from(productRevenue.values())
+    .map(p => {
+      // Calculate conversion rate
+      let conversionRate: number | null = null;
+      if (p.clicks > 0) {
+        conversionRate = Math.round((p.purchases / p.clicks) * 100 * 10) / 10; // percentage with 1 decimal
+      } else if (p.views > 0) {
+        conversionRate = Math.round((p.purchases / p.views) * 100 * 10) / 10;
+      }
+      return {
+        ...p,
+        conversionRate,
+      };
+    })
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
@@ -699,8 +765,15 @@ TOP PRODUCTS BY REVENUE:
 ${
   analyticsContext.topProducts
     ?.map(
-      (p: { name: string; revenue: number; purchases: number; productType: string }, i: number) =>
-        `${i + 1}. ${p.name || "Unknown"} - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases, ${p.productType || "unknown"})`
+      (p: { productId?: string; name: string; revenue: number; purchases: number; productType: string; clicks?: number; views?: number; conversionRate?: number | null }, i: number) => {
+        const productName = p.name || (p.productId && p.productId !== "unknown" ? `Product ${p.productId}` : "Unknown");
+        const productType = p.productType === "devproduct" ? "Dev Product" : p.productType === "gamepass" ? "Gamepass" : p.productType || "unknown";
+        const conversionStr = p.conversionRate !== null && p.conversionRate !== undefined ? `${p.conversionRate.toFixed(1)}% conv` : "";
+        const clicksStr = (p.clicks ?? 0) > 0 ? `${safeNumber(p.clicks)} clicks` : "";
+        const viewsStr = (p.views ?? 0) > 0 ? `${safeNumber(p.views)} views` : "";
+        const funnelInfo = [clicksStr, viewsStr, conversionStr].filter(Boolean).join(", ");
+        return `${i + 1}. ${productName} (${productType}) - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases${funnelInfo ? `, ${funnelInfo}` : ""})`;
+      }
     )
     .join("\n") || "No product data"
 }

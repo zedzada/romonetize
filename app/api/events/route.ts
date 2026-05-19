@@ -27,14 +27,18 @@ const VALID_EVENT_TYPES = [
   // Product funnel events (for conversion tracking)
   "product_view",       // Player views a product in UI (optional - for funnel tracking)
   "product_click",      // Player clicks on a product (optional - for funnel tracking)
+  "gamepass_view",      // Player views a gamepass
+  "gamepass_click",     // Player clicks on gamepass
+  "developer_product_view",  // Player views a dev product
+  "developer_product_click", // Player clicks on dev product
   
   // Monetization events
-  "gamepass_click",     // Player clicks on gamepass (legacy - use product_click)
   "devproduct_click",   // Player clicks on devproduct (legacy - use product_click)
   "gamepass_prompt",    // Gamepass purchase prompt shown
   "gamepass_purchase",  // Gamepass purchased successfully
   "devproduct_prompt",  // Dev product purchase prompt shown
   "devproduct_purchase",// Dev product purchased successfully
+  "developer_product_purchase", // Dev product purchased (alternative naming)
   "offer_view",         // Special offer viewed
   "offer_accept",       // Special offer accepted
   "offer_decline",      // Special offer declined
@@ -66,7 +70,7 @@ interface TrackingEvent {
   session_id?: string;
   product_id?: string;
   product_name?: string;
-  product_type?: "gamepass" | "devproduct" | "subscription";
+  product_type?: "gamepass" | "devproduct" | "developer_product" | "subscription";
   robux?: number;
   metadata?: Record<string, unknown>;
   // CCU heartbeat fields
@@ -81,20 +85,24 @@ const LEGACY_EVENT_MAP: Record<string, string> = {
   "player_join": "session_start",
   "player_leave": "session_end",
   "purchase_success": "gamepass_purchase", // Default to gamepass, can be overridden by product_type
+  "developer_product_purchase": "devproduct_purchase", // Normalize to devproduct_purchase
+  "developer_product_click": "product_click", // Normalize clicks
+  "developer_product_view": "product_view", // Normalize views
 };
 
 // Normalize camelCase to snake_case (Roblox sends camelCase, DB expects snake_case)
 // Also extracts product fields from metadata as fallback for compatibility
+// Normalizes developer_product → devproduct for consistency
 function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   // Support both camelCase and snake_case for each field
   const eventType = String(raw.event_type ?? raw.eventType ?? "");
   const metadata = (raw.metadata ?? {}) as Record<string, unknown>;
   
   // Extract product fields - top level first, then metadata fallback
-  const productType = raw.product_type ?? raw.productType ?? metadata.product_type ?? metadata.productType;
+  let productType = raw.product_type ?? raw.productType ?? metadata.product_type ?? metadata.productType;
   const productId = raw.product_id ?? raw.productId ?? metadata.product_id ?? metadata.productId;
   const productName = raw.product_name ?? raw.productName ?? metadata.product_name ?? metadata.productName;
-  const robux = raw.robux ?? metadata.robux;
+  const robux = raw.robux ?? raw.price_robux ?? metadata.robux ?? metadata.price_robux;
   const sessionId = raw.session_id ?? raw.sessionId ?? metadata.session_id ?? metadata.sessionId;
   
   // CCU heartbeat fields
@@ -103,12 +111,31 @@ function normalizeEvent(raw: Record<string, unknown>): Record<string, unknown> {
   const universeId = raw.universe_id ?? raw.universeId ?? metadata.universe_id ?? metadata.universeId;
   const ccu = raw.ccu ?? metadata.ccu;
   
+  // Normalize developer_product → devproduct for consistency
+  if (productType === "developer_product") {
+    productType = "devproduct";
+  }
+  
   // Normalize legacy purchase_success based on product_type
   let normalizedEventType = eventType;
   if (eventType === "purchase_success" && productType === "devproduct") {
     normalizedEventType = "devproduct_purchase";
   } else if (eventType === "purchase_success" && productType === "gamepass") {
     normalizedEventType = "gamepass_purchase";
+  } else if (eventType === "developer_product_purchase") {
+    // Normalize developer_product_purchase to devproduct_purchase
+    normalizedEventType = "devproduct_purchase";
+  }
+  
+  // Infer product_type from event_type if missing
+  if (!productType) {
+    if (eventType === "gamepass_purchase" || eventType === "gamepass_click" || eventType === "gamepass_view") {
+      productType = "gamepass";
+    } else if (eventType === "devproduct_purchase" || eventType === "developer_product_purchase" || 
+               eventType === "devproduct_click" || eventType === "developer_product_click" ||
+               eventType === "devproduct_view" || eventType === "developer_product_view") {
+      productType = "devproduct";
+    }
   }
   
   const normalized: Record<string, unknown> = {
@@ -269,6 +296,56 @@ export async function POST(request: NextRequest) {
     const validatedEvents = [];
     const errors: string[] = [];
 
+    // Collect product IDs that need enrichment (missing product_name)
+    const productIdsNeedingEnrichment = new Set<string>();
+    for (const event of events) {
+      if (event.product_id && !event.product_name) {
+        productIdsNeedingEnrichment.add(String(event.product_id));
+      }
+    }
+
+    // Fetch product names from roblox_products table if needed
+    let productEnrichmentMap = new Map<string, { name: string; product_type: string; price_robux: number }>();
+    if (productIdsNeedingEnrichment.size > 0) {
+      const { data: robloxProducts } = await supabaseAdmin
+        .from("roblox_products")
+        .select("roblox_product_id, name, product_type, price_robux")
+        .eq("game_id", game.id)
+        .in("roblox_product_id", Array.from(productIdsNeedingEnrichment));
+      
+      if (robloxProducts) {
+        for (const product of robloxProducts) {
+          if (product.roblox_product_id) {
+            productEnrichmentMap.set(product.roblox_product_id, {
+              name: product.name,
+              product_type: product.product_type,
+              price_robux: product.price_robux,
+            });
+          }
+        }
+      }
+
+      // Also check the products table as fallback
+      const { data: trackerProducts } = await supabaseAdmin
+        .from("products")
+        .select("roblox_product_id, name, product_type, price_robux")
+        .eq("game_id", game.id)
+        .in("roblox_product_id", Array.from(productIdsNeedingEnrichment));
+      
+      if (trackerProducts) {
+        for (const product of trackerProducts) {
+          // Only add if not already in the map from roblox_products
+          if (product.roblox_product_id && !productEnrichmentMap.has(product.roblox_product_id)) {
+            productEnrichmentMap.set(product.roblox_product_id, {
+              name: product.name,
+              product_type: product.product_type,
+              price_robux: product.price_robux,
+            });
+          }
+        }
+      }
+    }
+
     for (let i = 0; i < events.length; i++) {
       const event = events[i];
 
@@ -284,9 +361,9 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      // Validate product_type if provided
-      if (event.product_type && !["gamepass", "devproduct", "subscription"].includes(event.product_type)) {
-        errors.push(`Event ${i}: Invalid product_type. Must be gamepass, devproduct, or subscription.`);
+      // Validate product_type if provided (note: developer_product is already normalized to devproduct)
+      if (event.product_type && !["gamepass", "devproduct", "developer_product", "subscription"].includes(event.product_type)) {
+        errors.push(`Event ${i}: Invalid product_type. Must be gamepass, devproduct, developer_product, or subscription.`);
         continue;
       }
 
@@ -294,6 +371,35 @@ export async function POST(request: NextRequest) {
       if (event.robux !== undefined && (typeof event.robux !== "number" || event.robux < 0)) {
         errors.push(`Event ${i}: robux must be a positive number.`);
         continue;
+      }
+
+      // Normalize product_type for storage (developer_product → devproduct)
+      let normalizedProductType = event.product_type || null;
+      if (normalizedProductType === "developer_product") {
+        normalizedProductType = "devproduct";
+      }
+
+      // Enrich product_name from roblox_products if missing
+      let enrichedProductName = event.product_name || null;
+      let enrichedRobux = event.robux || 0;
+      const productIdStr = event.product_id ? String(event.product_id) : null;
+      
+      if (productIdStr && !enrichedProductName && productEnrichmentMap.has(productIdStr)) {
+        const enrichment = productEnrichmentMap.get(productIdStr)!;
+        enrichedProductName = enrichment.name;
+        // Also enrich product_type if missing
+        if (!normalizedProductType && enrichment.product_type) {
+          normalizedProductType = enrichment.product_type === "developer_product" ? "devproduct" : enrichment.product_type;
+        }
+        // Enrich robux if 0 and we have price_robux
+        if (enrichedRobux === 0 && enrichment.price_robux > 0) {
+          enrichedRobux = enrichment.price_robux;
+        }
+      }
+
+      // Fallback: use "Product {product_id}" instead of null for unknown products with an ID
+      if (!enrichedProductName && productIdStr && productIdStr !== "unknown") {
+        enrichedProductName = `Product ${productIdStr}`;
       }
 
       // Store session_id in metadata since the column may not exist yet
@@ -306,10 +412,10 @@ export async function POST(request: NextRequest) {
         game_id: game.id,
         event_type: event.event_type,
         player_id: event.player_id || null,
-        product_id: event.product_id || null,
-        product_name: event.product_name || null,
-        product_type: event.product_type || null,
-        robux: event.robux || 0,
+        product_id: productIdStr,
+        product_name: enrichedProductName,
+        product_type: normalizedProductType,
+        robux: enrichedRobux,
         metadata: eventMetadata,
       });
     }
