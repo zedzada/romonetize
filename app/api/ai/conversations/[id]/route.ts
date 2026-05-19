@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { Pool } from "pg";
 
 export const dynamic = "force-dynamic";
 
-// Admin client for bypassing RLS - with schema cache disabled
-function getSupabaseAdmin() {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL;
-  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
-    db: { schema: "public" },
-    auth: { persistSession: false },
+// Direct PostgreSQL connection to bypass PostgREST schema cache issues
+function getPool() {
+  const connectionString = process.env.POSTGRES_URL;
+  if (!connectionString) {
+    throw new Error("Missing POSTGRES_URL");
+  }
+  return new Pool({ 
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+    max: 1,
   });
 }
 
@@ -25,50 +27,51 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
-  }
-
-  const supabaseAdmin = getSupabaseAdmin();
-  const { id } = await params;
-
+  let pool: Pool | null = null;
+  
   try {
-    // Get conversation (using admin, but filter by user_id for security)
-    const { data: conversation, error: convError } = await supabaseAdmin
-      .from("ai_conversations")
-      .select("id, title, folder, game_id, created_at, updated_at")
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .single();
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (convError || !conversation) {
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+    }
+
+    pool = getPool();
+    const { id } = await params;
+
+    // Get conversation
+    const convResult = await pool.query(`
+      SELECT id, title, folder, game_id, created_at, updated_at
+      FROM public.ai_conversations
+      WHERE id = $1 AND user_id = $2
+    `, [id, user.id]);
+
+    if (convResult.rows.length === 0) {
       return NextResponse.json({ success: false, error: "Conversation not found" }, { status: 404 });
     }
 
     // Get messages
-    const { data: messages, error: msgError } = await supabaseAdmin
-      .from("ai_messages")
-      .select("id, role, content, has_image, image_url, metadata, created_at")
-      .eq("conversation_id", id)
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: true });
-
-    if (msgError) {
-      console.error("[api/ai/conversations/[id]] Error fetching messages:", msgError);
-      return NextResponse.json({ success: false, error: msgError.message }, { status: 500 });
-    }
+    const msgResult = await pool.query(`
+      SELECT id, role, content, has_image, image_url, metadata, created_at
+      FROM public.ai_messages
+      WHERE conversation_id = $1 AND user_id = $2
+      ORDER BY created_at ASC
+    `, [id, user.id]);
 
     return NextResponse.json({
       success: true,
-      conversation,
-      messages: messages || [],
+      conversation: convResult.rows[0],
+      messages: msgResult.rows || [],
     });
   } catch (error) {
     console.error("[api/ai/conversations/[id]] Unexpected error:", error);
-    return NextResponse.json({ success: false, error: "Failed to fetch conversation" }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : "Failed to fetch conversation" 
+    }, { status: 500 });
+  } finally {
+    if (pool) await pool.end();
   }
 }
 
@@ -76,51 +79,68 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
-  }
-
-  const supabaseAdmin = getSupabaseAdmin();
-  const { id } = await params;
-
+  let pool: Pool | null = null;
+  
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
+    }
+
+    pool = getPool();
+    const { id } = await params;
+
     const body = await request.json();
     const { title, folder } = body as {
       title?: string;
       folder?: string | null;
     };
 
-    const updates: Record<string, unknown> = {};
-    if (title !== undefined) updates.title = title;
-    if (folder !== undefined) updates.folder = folder;
+    const updates: string[] = [];
+    const values: (string | null)[] = [];
+    let paramIdx = 1;
 
-    if (Object.keys(updates).length === 0) {
+    if (title !== undefined) {
+      updates.push(`title = $${paramIdx++}`);
+      values.push(title);
+    }
+    if (folder !== undefined) {
+      updates.push(`folder = $${paramIdx++}`);
+      values.push(folder);
+    }
+
+    if (updates.length === 0) {
       return NextResponse.json({ success: false, error: "No updates provided" }, { status: 400 });
     }
 
-    const { data: conversation, error } = await supabaseAdmin
-      .from("ai_conversations")
-      .update(updates)
-      .eq("id", id)
-      .eq("user_id", user.id)
-      .select("id, title, folder, game_id, created_at, updated_at")
-      .single();
+    updates.push(`updated_at = NOW()`);
+    values.push(id, user.id);
 
-    if (error) {
-      console.error("[api/ai/conversations/[id]] Error updating conversation:", error);
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    const result = await pool.query(`
+      UPDATE public.ai_conversations
+      SET ${updates.join(", ")}
+      WHERE id = $${paramIdx++} AND user_id = $${paramIdx}
+      RETURNING id, title, folder, game_id, created_at, updated_at
+    `, values);
+
+    if (result.rows.length === 0) {
+      return NextResponse.json({ success: false, error: "Conversation not found" }, { status: 404 });
     }
 
     return NextResponse.json({
       success: true,
-      conversation,
+      conversation: result.rows[0],
     });
   } catch (error) {
     console.error("[api/ai/conversations/[id]] Unexpected error:", error);
-    return NextResponse.json({ success: false, error: "Failed to update conversation" }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : "Failed to update conversation" 
+    }, { status: 500 });
+  } finally {
+    if (pool) await pool.end();
   }
 }
 
@@ -128,31 +148,32 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
-  }
-
-  const supabaseAdmin = getSupabaseAdmin();
-  const { id } = await params;
-
+  let pool: Pool | null = null;
+  
   try {
-    const { error } = await supabaseAdmin
-      .from("ai_conversations")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", user.id);
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
-    if (error) {
-      console.error("[api/ai/conversations/[id]] Error deleting conversation:", error);
-      return NextResponse.json({ success: false, error: error.message }, { status: 500 });
+    if (!user) {
+      return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
     }
+
+    pool = getPool();
+    const { id } = await params;
+
+    await pool.query(`
+      DELETE FROM public.ai_conversations
+      WHERE id = $1 AND user_id = $2
+    `, [id, user.id]);
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error("[api/ai/conversations/[id]] Unexpected error:", error);
-    return NextResponse.json({ success: false, error: "Failed to delete conversation" }, { status: 500 });
+    return NextResponse.json({ 
+      success: false, 
+      error: error instanceof Error ? error.message : "Failed to delete conversation" 
+    }, { status: 500 });
+  } finally {
+    if (pool) await pool.end();
   }
 }

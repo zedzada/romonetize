@@ -1,23 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import { createClient as createAdminClient } from "@supabase/supabase-js";
+import { Pool } from "pg";
 
 export const dynamic = "force-dynamic";
 
-// Admin client for bypassing RLS - with schema cache disabled
-function getSupabaseAdmin() {
-  const supabaseUrl =
-    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  
-  if (!supabaseUrl || !serviceRoleKey) {
-    throw new Error("Missing Supabase configuration");
+// Direct PostgreSQL connection to bypass PostgREST schema cache issues
+function getPool() {
+  const connectionString = process.env.POSTGRES_URL;
+  if (!connectionString) {
+    throw new Error("Missing POSTGRES_URL");
   }
-  
-  return createAdminClient(supabaseUrl, serviceRoleKey, {
-    db: { schema: "public" },
-    auth: { persistSession: false },
+  return new Pool({ 
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+    max: 1,
   });
 }
 
@@ -28,6 +24,7 @@ function getSupabaseAdmin() {
 
 export async function GET(request: NextRequest) {
   let step = "start";
+  let pool: Pool | null = null;
   
   try {
     step = "get_user";
@@ -50,67 +47,70 @@ export async function GET(request: NextRequest) {
       }, { status: 401 });
     }
 
-    step = "init_admin";
-    const supabaseAdmin = getSupabaseAdmin();
+    step = "init_pool";
+    pool = getPool();
     
     step = "parse_params";
     const url = new URL(request.url);
     const limit = Math.min(Math.max(parseInt(url.searchParams.get("limit") || "20", 10), 1), 100);
     const offset = Math.max(parseInt(url.searchParams.get("offset") || "0", 10), 0);
-    const gameId = url.searchParams.get("gameId") || undefined;
+    const gameId = url.searchParams.get("gameId") || null;
 
     step = "query_conversations";
-    let query = supabaseAdmin
-      .from("ai_conversations")
-      .select("id, title, folder, game_id, created_at, updated_at")
-      .eq("user_id", user.id)
-      .order("updated_at", { ascending: false })
-      .range(offset, offset + limit - 1);
-
+    let queryText = `
+      SELECT id, title, folder, game_id, created_at, updated_at
+      FROM public.ai_conversations
+      WHERE user_id = $1
+    `;
+    const params: (string | number)[] = [user.id];
+    
     if (gameId) {
-      query = query.eq("game_id", gameId);
+      queryText += ` AND game_id = $2`;
+      params.push(gameId);
     }
+    
+    queryText += ` ORDER BY updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+    params.push(limit, offset);
 
-    const { data: conversations, error: queryError } = await query;
-
-    if (queryError) {
-      // Check if table is missing
-      if (queryError.message.includes("ai_conversations") && 
-          (queryError.message.includes("does not exist") || 
-           queryError.message.includes("schema cache") ||
-           queryError.code === "42P01")) {
-        return NextResponse.json({ 
-          success: false, 
-          step, 
-          error: "ai_conversations table missing. Run migration: supabase/migrations/20240601000001_ai_conversations.sql" 
-        }, { status: 500 });
-      }
-      return NextResponse.json({ 
-        success: false, 
-        step, 
-        error: queryError.message 
-      }, { status: 500 });
-    }
+    const result = await pool.query(queryText, params);
 
     step = "return_success";
     return NextResponse.json({
       success: true,
-      conversations: conversations || [],
+      conversations: result.rows || [],
     });
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    
+    // Check if table is missing
+    if (errMsg.includes("ai_conversations") && 
+        (errMsg.includes("does not exist") || errMsg.includes("relation"))) {
+      return NextResponse.json({ 
+        success: false, 
+        step, 
+        error: "ai_conversations table missing",
+        fix: "Run supabase/migrations/20250618000100_ai_conversations.sql"
+      }, { status: 500 });
+    }
+    
     return NextResponse.json(
       {
         success: false,
         step,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMsg,
       },
       { status: 500 }
     );
+  } finally {
+    if (pool) {
+      await pool.end();
+    }
   }
 }
 
 export async function POST(request: NextRequest) {
   let step = "start";
+  let pool: Pool | null = null;
   
   try {
     step = "get_user";
@@ -133,8 +133,8 @@ export async function POST(request: NextRequest) {
       }, { status: 401 });
     }
 
-    step = "init_admin";
-    const supabaseAdmin = getSupabaseAdmin();
+    step = "init_pool";
+    pool = getPool();
 
     step = "parse_body";
     const body = await request.json();
@@ -145,49 +145,47 @@ export async function POST(request: NextRequest) {
     };
 
     step = "insert_conversation";
-    const { data: conversation, error: insertError } = await supabaseAdmin
-      .from("ai_conversations")
-      .insert({
-        user_id: user.id,
-        title: title ? title.substring(0, 100) : "New Chat",
-        game_id: gameId || null,
-        folder: folder || null,
-      })
-      .select("id, title, folder, game_id, created_at, updated_at")
-      .single();
-
-    if (insertError) {
-      // Check if table is missing
-      if (insertError.message.includes("ai_conversations") && 
-          (insertError.message.includes("does not exist") || 
-           insertError.message.includes("schema cache") ||
-           insertError.code === "42P01")) {
-        return NextResponse.json({ 
-          success: false, 
-          step, 
-          error: "ai_conversations table missing. Run migration: supabase/migrations/20240601000001_ai_conversations.sql" 
-        }, { status: 500 });
-      }
-      return NextResponse.json({ 
-        success: false, 
-        step, 
-        error: insertError.message 
-      }, { status: 500 });
-    }
+    const result = await pool.query(`
+      INSERT INTO public.ai_conversations (user_id, title, game_id, folder)
+      VALUES ($1, $2, $3, $4)
+      RETURNING id, title, folder, game_id, created_at, updated_at
+    `, [
+      user.id,
+      title ? title.substring(0, 100) : "New Chat",
+      gameId || null,
+      folder || null,
+    ]);
 
     step = "return_success";
     return NextResponse.json({
       success: true,
-      conversation,
+      conversation: result.rows[0],
     });
   } catch (err) {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    
+    // Check if table is missing
+    if (errMsg.includes("ai_conversations") && 
+        (errMsg.includes("does not exist") || errMsg.includes("relation"))) {
+      return NextResponse.json({ 
+        success: false, 
+        step, 
+        error: "ai_conversations table missing",
+        fix: "Run supabase/migrations/20250618000100_ai_conversations.sql"
+      }, { status: 500 });
+    }
+    
     return NextResponse.json(
       {
         success: false,
         step,
-        error: err instanceof Error ? err.message : String(err),
+        error: errMsg,
       },
       { status: 500 }
     );
+  } finally {
+    if (pool) {
+      await pool.end();
+    }
   }
 }
