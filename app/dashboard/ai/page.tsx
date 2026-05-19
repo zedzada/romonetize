@@ -311,9 +311,11 @@ function AIAssistantContent() {
         imageName?: string;
         imageMimeType?: string;
         conversationId?: string;
+        debug?: boolean;
       } = {
         message: text || "Please analyze this screenshot.",
         conversationId: conversationId || undefined,
+        debug: debug || undefined,
       };
       
       // Include image data if present
@@ -366,6 +368,14 @@ function AIAssistantContent() {
           role: "assistant",
           content: data.message,
         }]);
+
+        // Capture debug context from response
+        if (debug && data.debugContext) {
+          setDebugInfo(prev => ({
+            ...prev,
+            apiDebugContext: data.debugContext,
+          }));
+        }
 
         // Update credits
         refreshCredits();
@@ -698,16 +708,66 @@ function AIAssistantContent() {
 
         {/* Debug panel */}
         {debug && (
-          <Card className="mt-4 p-4 border-border bg-card">
-            <h3 className="font-semibold text-sm mb-2">Debug Info</h3>
-            <pre className="text-xs overflow-auto max-h-40 bg-secondary/30 p-2 rounded">
-              {JSON.stringify({
-                activeConversationId,
-                conversationCount: conversations.length,
-                messageCount: messages.length,
-                ...debugInfo,
-              }, null, 2)}
-            </pre>
+          <Card className="mt-4 p-4 border-yellow-500/30 bg-yellow-500/5">
+            <h3 className="font-semibold text-sm mb-2 text-yellow-600">Debug Panel (AI Context)</h3>
+            {debugInfo.apiDebugContext ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  <div><strong>Game:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).selectedGameName as string || "N/A"}</div>
+                  <div><strong>Game ID:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).selectedGameId as string || "N/A"}</div>
+                  <div><strong>Has Data:</strong> {String((debugInfo.apiDebugContext as Record<string, unknown>).hasData)}</div>
+                  <div><strong>Source:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).sourceUsed as string || "N/A"}</div>
+                </div>
+                {(debugInfo.apiDebugContext as Record<string, unknown>).trackerStats && (
+                  <div className="text-xs">
+                    <strong>Tracker Stats:</strong>
+                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
+                      {JSON.stringify((debugInfo.apiDebugContext as Record<string, unknown>).trackerStats, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {(debugInfo.apiDebugContext as Record<string, unknown>).monetizationStats && (
+                  <div className="text-xs">
+                    <strong>Monetization Stats:</strong>
+                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
+                      {JSON.stringify((debugInfo.apiDebugContext as Record<string, unknown>).monetizationStats, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                {(debugInfo.apiDebugContext as Record<string, unknown>).robloxStats && (
+                  <div className="text-xs">
+                    <strong>Roblox Stats:</strong>
+                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
+                      {JSON.stringify((debugInfo.apiDebugContext as Record<string, unknown>).robloxStats, null, 2)}
+                    </pre>
+                  </div>
+                )}
+                <div className="text-xs">
+                  <strong>Prompt Context Preview:</strong>
+                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto whitespace-pre-wrap">
+                    {(debugInfo.apiDebugContext as Record<string, unknown>).promptContextPreview as string || "N/A"}
+                  </pre>
+                </div>
+                {(debugInfo.apiDebugContext as Record<string, unknown>).emptyStateReason && (
+                  <div className="text-xs text-red-500">
+                    <strong>Empty State Reason:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).emptyStateReason as string}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">Send a message to see debug context from the API.</p>
+            )}
+            <details className="mt-3">
+              <summary className="text-xs cursor-pointer text-muted-foreground">Raw Debug Info</summary>
+              <pre className="text-xs overflow-auto max-h-40 bg-secondary/30 p-2 rounded mt-1">
+                {JSON.stringify({
+                  activeConversationId,
+                  conversationCount: conversations.length,
+                  messageCount: messages.length,
+                  ...debugInfo,
+                }, null, 2)}
+              </pre>
+            </details>
           </Card>
         )}
       </div>

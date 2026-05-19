@@ -243,9 +243,14 @@ async function getAnalyticsContext(
   const hasPurchaseEvents = (metrics.purchases ?? 0) > 0;
   const hasRobloxStats = !!(game.total_visits || game.current_players || game.favorites);
   const hasProducts = syncedProducts.length > 0 || topProducts.length > 0;
+  const hasNewPlayers = (metrics.newPlayers ?? 0) > 0;
+  const hasUniquePlayers = (metrics.uniquePlayers ?? 0) > 0;
+  const hasSessions = (metrics.totalSessions ?? 0) > 0;
+  const hasEstimatedRevenue = (metrics.estimatedRevenue ?? 0) > 0;
   
-  // We have data if ANY of these are true
-  const hasData = hasTrackerEvents || hasPurchaseEvents || hasRobloxStats || hasProducts;
+  // We have data if ANY of these are true (per the acceptance criteria)
+  const hasData = hasTrackerEvents || hasPurchaseEvents || hasRobloxStats || hasProducts || 
+                  hasNewPlayers || hasUniquePlayers || hasSessions || hasEstimatedRevenue;
 
   if (!hasData) {
     return { 
@@ -267,6 +272,7 @@ async function getAnalyticsContext(
   return {
     hasData: true,
     gameName: game.name,
+    gameId: targetGameId,
     // Roblox synced stats
     robloxStats: {
       ccu: game.current_players,
@@ -329,13 +335,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId, debug } = body as {
       message: string;
       gameId?: string;
       imageDataUrl?: string;
       imageName?: string;
       imageMimeType?: string;
       conversationId?: string;
+      debug?: boolean;
     };
 
     if (!message && !imageDataUrl) {
@@ -550,12 +557,52 @@ You can still answer general Roblox monetization questions without the data.`;
     }
 
     // Return success response
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       success: true,
       message: result.text,
       credits: creditResult.remaining,
       conversationId: savedConversationId,
-    });
+    };
+    
+    // Include debug context if requested
+    if (debug) {
+      response.debugContext = {
+        selectedGameName: analyticsContext.gameName,
+        selectedGameId: analyticsContext.gameId || gameId || null,
+        contextLoaded: true,
+        sourceUsed: "getDashboardMetrics",
+        hasData: analyticsContext.hasData,
+        emptyStateReason: analyticsContext.emptyReason || null,
+        trackerStats: analyticsContext.hasData ? {
+          trackedActions: analyticsContext.trackedActions,
+          uniquePlayers: analyticsContext.uniquePlayers,
+          totalSessions: analyticsContext.totalSessions,
+          avgSessionSeconds: analyticsContext.avgSessionSeconds,
+          purchases: analyticsContext.totalPurchases,
+        } : null,
+        monetizationStats: analyticsContext.hasData ? {
+          estimatedRevenue: analyticsContext.estimatedRevenue,
+          grossRevenue: analyticsContext.grossRevenue,
+          purchases: analyticsContext.totalPurchases,
+          payingUsers: analyticsContext.payingUsers,
+          activeUsers: analyticsContext.activeUsers,
+          pcr: analyticsContext.pcr,
+          arppu: analyticsContext.arppu,
+          arpdau: analyticsContext.arpdau,
+        } : null,
+        productStats: analyticsContext.hasData ? {
+          totalProducts: analyticsContext.syncedProductsCount,
+          topProducts: analyticsContext.topProducts?.slice(0, 3),
+        } : null,
+        robloxStats: analyticsContext.robloxStats || null,
+        _dataHealth: analyticsContext._dataHealth || null,
+        promptContextPreview: analyticsContext.hasData 
+          ? `Game: ${analyticsContext.gameName}\nTracked Actions: ${analyticsContext.trackedActions}\nUnique Players: ${analyticsContext.uniquePlayers}\nPurchases: ${analyticsContext.totalPurchases}\nEstimated Revenue: ${analyticsContext.estimatedRevenue} Robux\nCCU: ${analyticsContext.robloxStats?.ccu || 0}\nVisits: ${analyticsContext.robloxStats?.visits || 0}`
+          : "No data loaded - fallback message will be shown",
+      };
+    }
+    
+    return NextResponse.json(response);
   } catch (error) {
     console.error("[v0] AI chat error:", error);
 
