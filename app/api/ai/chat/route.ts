@@ -5,7 +5,7 @@ import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
-// Lazy init for service role client
+// Lazy init for service role client - with schema cache disabled
 function getSupabaseAdmin() {
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
@@ -20,7 +20,10 @@ function getSupabaseAdmin() {
     throw new Error("Missing Supabase configuration");
   }
   
-  return createClient(supabaseUrl, serviceRoleKey);
+  return createClient(supabaseUrl, serviceRoleKey, {
+    db: { schema: "public" },
+    auth: { persistSession: false },
+  });
 }
 
 // Consume credits
