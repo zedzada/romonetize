@@ -167,7 +167,8 @@ function AIAssistantContent() {
     setAiContextLoading(true);
     setAiContextError(null);
     try {
-      const res = await fetch("/api/dashboard/analytics?hours=168", { cache: "no-store" });
+      // Use range=7d to match dashboard default (28d for monetization would be better but keep consistent)
+      const res = await fetch("/api/dashboard/analytics?range=7d", { cache: "no-store" });
       const data = await res.json();
       
       if (debug) {
@@ -175,48 +176,62 @@ function AIAssistantContent() {
           ...prev,
           analyticsHttpStatus: res.status,
           analyticsResponseKeys: Object.keys(data),
+          analyticsRawData: data,
         }));
       }
       
-      // Handle multiple possible response shapes
-      const root = data?.data || data;
-      const success = data.success !== false;
+      // The API returns { success: true, data: { ... } }
+      const root = data?.data;
+      const success = data.success !== false && root;
       
       if (success) {
-        // Build aiContext from dashboard analytics response - handle multiple shapes
+        // Build aiContext EXACTLY from the dashboard analytics response shape
+        // These are the EXACT same fields displayed in Game Performance and Monetization pages
         const context = {
-          selectedGame: root?.game?.name || root?.selectedGame || null,
-          gameId: root?.game?.id || root?.gameId || null,
-          robloxStats: root?.robloxStats || {
-            visits: root?.game?.total_visits || 0,
-            ccu: root?.game?.current_players || 0,
-            favorites: root?.game?.favorites || 0,
-            likes: root?.game?.likes || 0,
-            dislikes: root?.game?.dislikes || 0,
+          // Game identity
+          selectedGame: root.selectedGameName || root.game?.name || null,
+          gameId: root.selectedGameId || root.game?.id || null,
+          range: root.range || "7d",
+          
+          // Roblox Stats - from robloxStats object (same as Roblox Stats section)
+          robloxStats: {
+            visits: root.robloxStats?.totalVisits || root.robloxStats?.visits || 0,
+            ccu: root.robloxStats?.currentPlayers || root.robloxStats?.ccu || 0,
+            favorites: root.robloxStats?.favorites || 0,
+            likes: root.robloxStats?.likes || 0,
+            dislikes: root.robloxStats?.dislikes || 0,
           },
-          trackerStats: root?.trackerStats || {
-            trackedActions: root?.metrics?.trackedActions || root?.overview?.trackedActions || 0,
-            uniquePlayers: root?.metrics?.uniquePlayers || root?.overview?.uniquePlayers || 0,
-            totalSessions: root?.metrics?.totalSessions || root?.overview?.totalSessions || 0,
-            newPlayers: root?.metrics?.newPlayers || root?.overview?.newPlayers || 0,
-            avgSessionSeconds: root?.metrics?.avgSessionSeconds || root?.overview?.avgSessionSeconds || 0,
+          
+          // Tracker Stats - from trackerStats object (same as Game Performance cards)
+          trackerStats: {
+            trackedActions: root.trackerStats?.totalEvents || 0,
+            uniquePlayers: root.trackerStats?.uniquePlayers || 0,
+            totalSessions: root.trackerStats?.totalSessions || 0,
+            avgSessionSeconds: root.trackerStats?.avgSessionDuration || 0,
+            newPlayers: root.trackerStats?.newPlayers || 0,
+            purchases: root.trackerStats?.totalPurchases || 0,
           },
-          monetizationStats: root?.monetizationStats || {
-            purchases: root?.metrics?.purchases || root?.overview?.purchases || 0,
-            grossRevenue: root?.metrics?.grossRevenue || root?.overview?.grossRevenue || 0,
-            estimatedRevenue: root?.metrics?.estimatedRevenue || root?.overview?.estimatedRevenue || 0,
-            payingUsers: root?.metrics?.payingUsers || root?.overview?.payingUsers || 0,
-            activeUsers: root?.metrics?.activeUsers || root?.overview?.activeUsers || 0,
-            pcr: root?.metrics?.pcr || root?.overview?.pcr || 0,
-            arppu: root?.metrics?.arppu || root?.overview?.arppu || 0,
-            arpdau: root?.metrics?.arpdau || root?.overview?.arpdau || 0,
+          
+          // Monetization Stats - from revenueStats object (same as Monetization cards)
+          monetizationStats: {
+            purchases: root.revenueStats?.totalPurchases || root.trackerStats?.totalPurchases || 0,
+            grossRevenue: root.revenueStats?.grossRevenue || root.revenueStats?.totalRevenue || 0,
+            estimatedRevenue: root.revenueStats?.estimatedRevenue || 0,
+            payingUsers: root.revenueStats?.payingUsers || root.revenueStats?.trackerPayingUsers || 0,
+            activeUsers: root.revenueStats?.trackerActiveUsers || root.trackerStats?.uniquePlayers || 0,
+            pcr: root.revenueStats?.trackerPcr || root.revenueStats?.conversionRate || 0,
+            arppu: root.revenueStats?.estimatedArppu || root.revenueStats?.arppu || 0,
+            arpdau: root.revenueStats?.estimatedArpdau || root.revenueStats?.arpdau || 0,
           },
-          productStats: root?.productStats || {
-            totalProducts: root?.products?.length || 0,
-            topProducts: root?.products?.slice(0, 5) || [],
+          
+          // Product Stats - from productStats or productAnalytics
+          productStats: {
+            totalProducts: root.productAnalytics?.productsCount || root.productStats?.products?.length || 0,
+            topProducts: root.productAnalytics?.topProducts || root.productStats?.products?.slice(0, 5) || [],
           },
-          overview: root?.overview || null,
-          dataHealth: root?.dataHealth || null,
+          
+          // Data health for verification
+          dataHealth: root.dataHealth || null,
         };
         setAiContext(context);
         setAnalyticsLoaded(true);
@@ -229,21 +244,27 @@ function AIAssistantContent() {
             aiContextReady: true,
             selectedGameNameFromAnalytics: context.selectedGame,
             selectedGameIdFromAnalytics: context.gameId,
+            selectedRange: context.range,
             aiContextBuilt: true,
-            aiContextPreview: {
-              selectedGame: context.selectedGame,
-              trackedActions: (context.trackerStats as Record<string, number>).trackedActions,
-              uniquePlayers: (context.trackerStats as Record<string, number>).uniquePlayers,
-              totalSessions: (context.trackerStats as Record<string, number>).totalSessions,
-              newPlayers: (context.trackerStats as Record<string, number>).newPlayers,
-              purchases: (context.monetizationStats as Record<string, number>).purchases,
-              estimatedRevenue: (context.monetizationStats as Record<string, number>).estimatedRevenue,
-              grossRevenue: (context.monetizationStats as Record<string, number>).grossRevenue,
-              payingUsers: (context.monetizationStats as Record<string, number>).payingUsers,
-              visits: (context.robloxStats as Record<string, number>).visits,
-              ccu: (context.robloxStats as Record<string, number>).ccu,
-              favorites: (context.robloxStats as Record<string, number>).favorites,
-              totalProducts: (context.productStats as Record<string, number>).totalProducts,
+            // Show exact mapped values for verification
+            dashboardStatsPreview: {
+              // These should match Game Performance cards exactly
+              trackedActions: context.trackerStats.trackedActions,
+              uniquePlayers: context.trackerStats.uniquePlayers,
+              totalSessions: context.trackerStats.totalSessions,
+              avgSessionSeconds: context.trackerStats.avgSessionSeconds,
+              newPlayers: context.trackerStats.newPlayers,
+              purchases: context.trackerStats.purchases,
+              // These should match Monetization cards exactly
+              estimatedRevenue: context.monetizationStats.estimatedRevenue,
+              payingUsers: context.monetizationStats.payingUsers,
+              pcr: context.monetizationStats.pcr,
+              arppu: context.monetizationStats.arppu,
+              arpdau: context.monetizationStats.arpdau,
+              // These should match Roblox Stats exactly
+              visits: context.robloxStats.visits,
+              ccu: context.robloxStats.ccu,
+              favorites: context.robloxStats.favorites,
             },
             emptyStateReason: null,
           }));
@@ -439,46 +460,49 @@ function AIAssistantContent() {
     let contextToSend = aiContext;
     if (!contextToSend || !analyticsLoaded) {
       try {
-        const res = await fetch("/api/dashboard/analytics?hours=168", { cache: "no-store" });
+        const res = await fetch("/api/dashboard/analytics?range=7d", { cache: "no-store" });
         const data = await res.json();
-        const root = data?.data || data;
+        const root = data?.data;
         
-        contextToSend = {
-          selectedGame: root?.game?.name || root?.selectedGame || null,
-          gameId: root?.game?.id || root?.gameId || null,
-          robloxStats: root?.robloxStats || {
-            visits: root?.game?.total_visits || 0,
-            ccu: root?.game?.current_players || 0,
-            favorites: root?.game?.favorites || 0,
-            likes: root?.game?.likes || 0,
-            dislikes: root?.game?.dislikes || 0,
-          },
-          trackerStats: root?.trackerStats || {
-            trackedActions: root?.metrics?.trackedActions || root?.overview?.trackedActions || 0,
-            uniquePlayers: root?.metrics?.uniquePlayers || root?.overview?.uniquePlayers || 0,
-            totalSessions: root?.metrics?.totalSessions || root?.overview?.totalSessions || 0,
-            newPlayers: root?.metrics?.newPlayers || root?.overview?.newPlayers || 0,
-            avgSessionSeconds: root?.metrics?.avgSessionSeconds || root?.overview?.avgSessionSeconds || 0,
-          },
-          monetizationStats: root?.monetizationStats || {
-            purchases: root?.metrics?.purchases || root?.overview?.purchases || 0,
-            grossRevenue: root?.metrics?.grossRevenue || root?.overview?.grossRevenue || 0,
-            estimatedRevenue: root?.metrics?.estimatedRevenue || root?.overview?.estimatedRevenue || 0,
-            payingUsers: root?.metrics?.payingUsers || root?.overview?.payingUsers || 0,
-            activeUsers: root?.metrics?.activeUsers || root?.overview?.activeUsers || 0,
-            pcr: root?.metrics?.pcr || root?.overview?.pcr || 0,
-            arppu: root?.metrics?.arppu || root?.overview?.arppu || 0,
-            arpdau: root?.metrics?.arpdau || root?.overview?.arpdau || 0,
-          },
-          productStats: root?.productStats || {
-            totalProducts: root?.products?.length || 0,
-            topProducts: root?.products?.slice(0, 5) || [],
-          },
-          overview: root?.overview || null,
-          dataHealth: root?.dataHealth || null,
-        };
-        setAiContext(contextToSend);
-        setAnalyticsLoaded(true);
+        if (root) {
+          contextToSend = {
+            selectedGame: root.selectedGameName || root.game?.name || null,
+            gameId: root.selectedGameId || root.game?.id || null,
+            range: root.range || "7d",
+            robloxStats: {
+              visits: root.robloxStats?.totalVisits || root.robloxStats?.visits || 0,
+              ccu: root.robloxStats?.currentPlayers || root.robloxStats?.ccu || 0,
+              favorites: root.robloxStats?.favorites || 0,
+              likes: root.robloxStats?.likes || 0,
+              dislikes: root.robloxStats?.dislikes || 0,
+            },
+            trackerStats: {
+              trackedActions: root.trackerStats?.totalEvents || 0,
+              uniquePlayers: root.trackerStats?.uniquePlayers || 0,
+              totalSessions: root.trackerStats?.totalSessions || 0,
+              avgSessionSeconds: root.trackerStats?.avgSessionDuration || 0,
+              newPlayers: root.trackerStats?.newPlayers || 0,
+              purchases: root.trackerStats?.totalPurchases || 0,
+            },
+            monetizationStats: {
+              purchases: root.revenueStats?.totalPurchases || root.trackerStats?.totalPurchases || 0,
+              grossRevenue: root.revenueStats?.grossRevenue || root.revenueStats?.totalRevenue || 0,
+              estimatedRevenue: root.revenueStats?.estimatedRevenue || 0,
+              payingUsers: root.revenueStats?.payingUsers || root.revenueStats?.trackerPayingUsers || 0,
+              activeUsers: root.revenueStats?.trackerActiveUsers || root.trackerStats?.uniquePlayers || 0,
+              pcr: root.revenueStats?.trackerPcr || root.revenueStats?.conversionRate || 0,
+              arppu: root.revenueStats?.estimatedArppu || root.revenueStats?.arppu || 0,
+              arpdau: root.revenueStats?.estimatedArpdau || root.revenueStats?.arpdau || 0,
+            },
+            productStats: {
+              totalProducts: root.productAnalytics?.productsCount || root.productStats?.products?.length || 0,
+              topProducts: root.productAnalytics?.topProducts || root.productStats?.products?.slice(0, 5) || [],
+            },
+            dataHealth: root.dataHealth || null,
+          };
+          setAiContext(contextToSend);
+          setAnalyticsLoaded(true);
+        }
       } catch {
         // Continue without context - backend will try to fetch
       }
@@ -979,14 +1003,34 @@ function AIAssistantContent() {
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><strong>selectedGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
                 <div><strong>gameId:</strong> {(aiContext?.gameId as string) || "N/A"}</div>
+                <div><strong>range:</strong> {(aiContext?.range as string) || "N/A"}</div>
               </div>
+              {/* Dashboard Stats Preview - MUST MATCH DASHBOARD CARDS */}
+              {debugInfo.dashboardStatsPreview && (
+                <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded">
+                  <strong className="text-xs text-yellow-600">Dashboard Stats Preview (should match dashboard cards):</strong>
+                  <div className="grid grid-cols-3 gap-1 text-xs mt-1">
+                    <div>Tracked: {(debugInfo.dashboardStatsPreview as Record<string, number>).trackedActions?.toLocaleString()}</div>
+                    <div>Players: {(debugInfo.dashboardStatsPreview as Record<string, number>).uniquePlayers?.toLocaleString()}</div>
+                    <div>Sessions: {(debugInfo.dashboardStatsPreview as Record<string, number>).totalSessions?.toLocaleString()}</div>
+                    <div>Purchases: {(debugInfo.dashboardStatsPreview as Record<string, number>).purchases?.toLocaleString()}</div>
+                    <div>Est Rev: R${(debugInfo.dashboardStatsPreview as Record<string, number>).estimatedRevenue?.toLocaleString()}</div>
+                    <div>Paying: {(debugInfo.dashboardStatsPreview as Record<string, number>).payingUsers?.toLocaleString()}</div>
+                    <div>PCR: {((debugInfo.dashboardStatsPreview as Record<string, number>).pcr || 0).toFixed(1)}%</div>
+                    <div>ARPPU: R${(debugInfo.dashboardStatsPreview as Record<string, number>).arppu?.toLocaleString()}</div>
+                    <div>CCU: {(debugInfo.dashboardStatsPreview as Record<string, number>).ccu?.toLocaleString()}</div>
+                    <div>Visits: {(debugInfo.dashboardStatsPreview as Record<string, number>).visits?.toLocaleString()}</div>
+                  </div>
+                </div>
+              )}
               {aiContext && (
                 <div className="mt-2">
-                  <strong className="text-xs">aiContextPreview:</strong>
+                  <strong className="text-xs">Full aiContext:</strong>
                   <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto text-xs max-h-60">
 {JSON.stringify({
   selectedGame: aiContext.selectedGame,
   gameId: aiContext.gameId,
+  range: aiContext.range,
   trackerStats: aiContext.trackerStats,
   monetizationStats: aiContext.monetizationStats,
   robloxStats: aiContext.robloxStats,
