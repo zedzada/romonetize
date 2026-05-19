@@ -4,7 +4,7 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Admin client for bypassing RLS
+// Admin client for bypassing RLS - with schema cache disabled
 function getSupabaseAdmin() {
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
@@ -15,7 +15,10 @@ function getSupabaseAdmin() {
     throw new Error("Missing Supabase configuration");
   }
   
-  return createAdminClient(supabaseUrl, serviceRoleKey);
+  return createAdminClient(supabaseUrl, serviceRoleKey, {
+    db: { schema: "public" },
+    auth: { persistSession: false },
+  });
 }
 
 /**
@@ -71,6 +74,17 @@ export async function GET(request: NextRequest) {
     const { data: conversations, error: queryError } = await query;
 
     if (queryError) {
+      // Check if table is missing
+      if (queryError.message.includes("ai_conversations") && 
+          (queryError.message.includes("does not exist") || 
+           queryError.message.includes("schema cache") ||
+           queryError.code === "42P01")) {
+        return NextResponse.json({ 
+          success: false, 
+          step, 
+          error: "ai_conversations table missing. Run migration: supabase/migrations/20240601000001_ai_conversations.sql" 
+        }, { status: 500 });
+      }
       return NextResponse.json({ 
         success: false, 
         step, 
@@ -143,6 +157,17 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
+      // Check if table is missing
+      if (insertError.message.includes("ai_conversations") && 
+          (insertError.message.includes("does not exist") || 
+           insertError.message.includes("schema cache") ||
+           insertError.code === "42P01")) {
+        return NextResponse.json({ 
+          success: false, 
+          step, 
+          error: "ai_conversations table missing. Run migration: supabase/migrations/20240601000001_ai_conversations.sql" 
+        }, { status: 500 });
+      }
       return NextResponse.json({ 
         success: false, 
         step, 

@@ -4,12 +4,15 @@ import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
 
-// Admin client for bypassing RLS
+// Admin client for bypassing RLS - with schema cache disabled
 function getSupabaseAdmin() {
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
     process.env.NEXT_PUBLIC_SUPABASE_URL;
-  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!, {
+    db: { schema: "public" },
+    auth: { persistSession: false },
+  });
 }
 
 /**

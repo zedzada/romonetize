@@ -374,6 +374,11 @@ function AIAssistantContent() {
           content: data.message,
         }]);
 
+        // Update conversation ID if the API created a new one
+        if (data.conversationId && data.conversationId !== activeConversationId) {
+          setActiveConversationId(data.conversationId);
+        }
+
         // Capture debug context from response
         if (debug && data.debugContext) {
           setDebugInfo(prev => ({
@@ -386,7 +391,7 @@ function AIAssistantContent() {
         refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
         
-        // Refresh conversations list to update timestamps
+        // Refresh conversations list to show new/updated conversation
         fetchConversations();
       }
     } catch (error) {

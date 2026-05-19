@@ -5,7 +5,7 @@ import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
-// Lazy init for service role client
+// Lazy init for service role client - with schema cache disabled
 function getSupabaseAdmin() {
   const supabaseUrl =
     process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
@@ -20,7 +20,10 @@ function getSupabaseAdmin() {
     throw new Error("Missing Supabase configuration");
   }
   
-  return createClient(supabaseUrl, serviceRoleKey);
+  return createClient(supabaseUrl, serviceRoleKey, {
+    db: { schema: "public" },
+    auth: { persistSession: false },
+  });
 }
 
 // Consume credits
@@ -146,15 +149,13 @@ async function getAnalyticsContext(
   userId: string,
   gameId?: string
 ) {
-  console.log("[v0] getAnalyticsContext called with userId:", userId, "gameId:", gameId);
-  
   // Get user's selected game (is_selected = true) using ADMIN client to bypass RLS
   let targetGameId = gameId;
   let game = null;
 
   if (!targetGameId) {
     // First try to get the selected game
-    const { data: selectedGame, error: selectedError } = await supabaseAdmin
+    const { data: selectedGame } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", userId)
@@ -162,14 +163,12 @@ async function getAnalyticsContext(
       .neq("status", "deleted")
       .single();
 
-    console.log("[v0] Selected game query result:", selectedGame?.name || "none", "error:", selectedError?.message || "none");
-
     if (selectedGame) {
       targetGameId = selectedGame.id;
       game = selectedGame;
     } else {
       // Fallback: auto-select the first active game
-      const { data: games, error: fallbackError } = await supabaseAdmin
+      const { data: games } = await supabaseAdmin
         .from("games")
         .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
         .eq("user_id", userId)
@@ -177,32 +176,25 @@ async function getAnalyticsContext(
         .order("created_at", { ascending: false })
         .limit(1);
 
-      console.log("[v0] Fallback games query:", games?.length || 0, "games found, error:", fallbackError?.message || "none");
-
       if (games && games.length > 0) {
         targetGameId = games[0].id;
         game = games[0];
-        console.log("[v0] Using fallback game:", games[0].name, "id:", games[0].id);
       }
     }
   } else {
     // Verify ownership and get Roblox stats
-    const { data: gameData, error: gameError } = await supabaseAdmin
+    const { data: gameData } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("id", targetGameId)
       .eq("user_id", userId)
       .single();
     game = gameData;
-    console.log("[v0] Specified game query:", gameData?.name || "none", "error:", gameError?.message || "none");
   }
 
   if (!targetGameId || !game) {
-    console.log("[v0] No game found! Returning hasData: false, emptyReason: no_game");
     return { hasData: false, gameName: null, emptyReason: "no_game", gameId: null };
   }
-  
-  console.log("[v0] Found game:", game.name, "visits:", game.total_visits, "ccu:", game.current_players);
 
   // CRITICAL FIX: Query events directly with admin client instead of getDashboardMetrics
   // getDashboardMetrics uses createClient() which requires cookies - doesn't work in API routes
@@ -219,7 +211,6 @@ async function getAnalyticsContext(
     .lte("created_at", now.toISOString());
   
   const trackedActions = eventsError ? 0 : (totalEventsCount ?? 0);
-  console.log("[v0] trackedActions:", trackedActions, "eventsError:", eventsError?.message || "none");
   
   // Query 2: Unique players
   const PLAYER_ACTIVITY_TYPES = [
@@ -243,7 +234,6 @@ async function getAnalyticsContext(
   const uniquePlayerIds = new Set(playerData?.map(e => e.player_id) || []);
   const uniquePlayers = uniquePlayerIds.size;
   const activeUsers = uniquePlayers;
-  console.log("[v0] uniquePlayers:", uniquePlayers, "from", playerData?.length || 0, "player events");
   
   // Query 3: Sessions
   const { count: sessionsCount } = await supabaseAdmin
@@ -389,25 +379,6 @@ async function getAnalyticsContext(
   // We have data if ANY of these are true (per the acceptance criteria)
   const hasData = hasTrackerEvents || hasPurchaseEvents || hasRobloxStats || hasProducts || 
                   hasNewPlayersFlag || hasUniquePlayersFlag || hasSessionsFlag || hasEstimatedRevenueFlag;
-
-  console.log("[v0] hasData calculation:", {
-    hasData,
-    hasTrackerEvents,
-    hasPurchaseEvents,
-    hasRobloxStats,
-    hasProducts,
-    hasNewPlayersFlag,
-    hasUniquePlayersFlag,
-    hasSessionsFlag,
-    hasEstimatedRevenueFlag,
-    trackedActions,
-    uniquePlayers,
-    purchases,
-    estimatedRevenue,
-    totalVisits: game.total_visits,
-    ccu: game.current_players,
-    productCount: syncedProducts.length + topProducts.length,
-  });
 
   if (!hasData) {
     return { 
@@ -682,13 +653,34 @@ You can still answer general Roblox monetization questions without the data.`;
       temperature: 0.7,
     });
 
-    // Save messages to conversation if conversationId provided
+    // Save messages to conversation
+    // If no conversationId provided, create a new conversation
     let savedConversationId = conversationId;
-    if (conversationId) {
-      try {
+    try {
+      if (!conversationId) {
+        // Create a new conversation with first message as title
+        const title = userMessageText.substring(0, 50).trim() + (userMessageText.length > 50 ? "..." : "");
+        const { data: newConv, error: createError } = await supabaseAdmin
+          .from("ai_conversations")
+          .insert({
+            user_id: user.id,
+            title,
+            game_id: gameId || null,
+          })
+          .select("id")
+          .single();
+        
+        if (createError) {
+          console.error("[v0] Failed to create conversation:", createError);
+        } else if (newConv) {
+          savedConversationId = newConv.id;
+        }
+      }
+      
+      if (savedConversationId) {
         // Save user message
         await supabaseAdmin.from("ai_messages").insert({
-          conversation_id: conversationId,
+          conversation_id: savedConversationId,
           user_id: user.id,
           role: "user",
           content: userMessageText,
@@ -699,7 +691,7 @@ You can still answer general Roblox monetization questions without the data.`;
         
         // Save assistant message
         await supabaseAdmin.from("ai_messages").insert({
-          conversation_id: conversationId,
+          conversation_id: savedConversationId,
           user_id: user.id,
           role: "assistant",
           content: result.text,
@@ -711,11 +703,11 @@ You can still answer general Roblox monetization questions without the data.`;
         await supabaseAdmin
           .from("ai_conversations")
           .update({ updated_at: new Date().toISOString() })
-          .eq("id", conversationId);
-      } catch (msgError) {
-        console.error("[v0] Failed to save messages:", msgError);
-        // Don't fail the request if message saving fails
+          .eq("id", savedConversationId);
       }
+    } catch (msgError) {
+      console.error("[v0] Failed to save messages:", msgError);
+      // Don't fail the request if message saving fails
     }
 
     // Return success response
