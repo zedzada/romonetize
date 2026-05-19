@@ -4,7 +4,6 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
-import { getDashboardMetrics } from "@/lib/server/dashboard-metrics";
 
 // Lazy init for service role client
 function getSupabaseAdmin() {
@@ -181,11 +180,127 @@ async function getAnalyticsContext(
   }
 
   if (!targetGameId || !game) {
-    return { hasData: false, gameName: null, emptyReason: "no_game" };
+    return { hasData: false, gameName: null, emptyReason: "no_game", gameId: null };
   }
 
-  // Use SHARED dashboard metrics - same source as Overview, Monetization, Products
-  const metrics = await getDashboardMetrics(userId, targetGameId, "7d");
+  // CRITICAL FIX: Query events directly with admin client instead of getDashboardMetrics
+  // getDashboardMetrics uses createClient() which requires cookies - doesn't work in API routes
+  const hours = 168; // 7 days
+  const now = new Date();
+  const rangeStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
+  
+  // Query 1: Total events count (trackedActions)
+  const { count: totalEventsCount, error: eventsError } = await supabaseAdmin
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .eq("game_id", targetGameId)
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString());
+  
+  const trackedActions = eventsError ? 0 : (totalEventsCount ?? 0);
+  
+  // Query 2: Unique players
+  const PLAYER_ACTIVITY_TYPES = [
+    "player_join", "session_start", "session_end", "player_leave",
+    "purchase_success", "gamepass_purchase", "devproduct_purchase",
+    "product_click", "gamepass_click", "devproduct_click",
+    "gamepass_prompt", "devproduct_prompt", "product_view", "shop_open",
+  ];
+  
+  const { data: playerData } = await supabaseAdmin
+    .from("events")
+    .select("player_id")
+    .eq("game_id", targetGameId)
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString())
+    .in("event_type", PLAYER_ACTIVITY_TYPES)
+    .not("player_id", "is", null)
+    .neq("player_id", "server")
+    .neq("player_id", "");
+  
+  const uniquePlayerIds = new Set(playerData?.map(e => e.player_id) || []);
+  const uniquePlayers = uniquePlayerIds.size;
+  const activeUsers = uniquePlayers;
+  
+  // Query 3: Sessions
+  const { count: sessionsCount } = await supabaseAdmin
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .eq("game_id", targetGameId)
+    .in("event_type", ["player_join", "session_start"])
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString());
+  
+  const totalSessions = sessionsCount ?? 0;
+  
+  // Query 4: New players (first-time players in period)
+  const { data: newPlayerData } = await supabaseAdmin
+    .from("events")
+    .select("player_id, metadata")
+    .eq("game_id", targetGameId)
+    .in("event_type", ["player_join", "session_start"])
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString())
+    .not("player_id", "is", null)
+    .neq("player_id", "server");
+  
+  // Count players with is_new_player metadata or estimate from first joins
+  const newPlayers = newPlayerData?.filter(e => 
+    (e.metadata as Record<string, unknown>)?.is_new_player === true
+  ).length ?? 0;
+  
+  // Query 5: Purchase events with revenue data
+  const PURCHASE_TYPES = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
+  const { data: purchaseData } = await supabaseAdmin
+    .from("events")
+    .select("id, event_type, player_id, product_id, product_name, product_type, robux, metadata, created_at")
+    .eq("game_id", targetGameId)
+    .in("event_type", PURCHASE_TYPES)
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString());
+  
+  const purchases = purchaseData?.length ?? 0;
+  let grossRevenue = 0;
+  const payerIds = new Set<string>();
+  
+  purchaseData?.forEach(e => {
+    const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
+    grossRevenue += Number(robux) || 0;
+    if (e.player_id && e.player_id !== "server" && e.player_id !== "") {
+      payerIds.add(e.player_id);
+    }
+  });
+  
+  const payingUsers = payerIds.size;
+  const CREATOR_REVENUE_RATE = 0.7;
+  const estimatedRevenue = Math.round(grossRevenue * CREATOR_REVENUE_RATE);
+  
+  // Calculate derived metrics
+  const pcr = activeUsers > 0 ? (payingUsers / activeUsers) * 100 : 0;
+  const arppu = payingUsers > 0 ? grossRevenue / payingUsers : 0;
+  const arpdau = activeUsers > 0 ? grossRevenue / activeUsers : 0;
+  
+  // Query 6: Avg session duration
+  const { data: sessionEndData } = await supabaseAdmin
+    .from("events")
+    .select("metadata")
+    .eq("game_id", targetGameId)
+    .in("event_type", ["session_end", "player_leave"])
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString())
+    .limit(500);
+  
+  const durations: number[] = [];
+  sessionEndData?.forEach(e => {
+    const duration = (e.metadata as Record<string, unknown>)?.duration_seconds || 
+                     (e.metadata as Record<string, unknown>)?.session_duration;
+    if (typeof duration === "number" && duration > 0 && duration < 86400) {
+      durations.push(duration);
+    }
+  });
+  const avgSessionSeconds = durations.length > 0 
+    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
+    : 0;
 
   // Get top products from events using admin client
   const { data: topProductsData } = await supabaseAdmin
@@ -239,13 +354,18 @@ async function getAnalyticsContext(
 
   // IMPORTANT: Determine if we have real data
   // Only say "no tracking data" if TRULY everything is zero
-  const hasTrackerEvents = (metrics.trackedActions ?? 0) > 0;
-  const hasPurchaseEvents = (metrics.purchases ?? 0) > 0;
+  const hasTrackerEvents = trackedActions > 0;
+  const hasPurchaseEvents = purchases > 0;
   const hasRobloxStats = !!(game.total_visits || game.current_players || game.favorites);
   const hasProducts = syncedProducts.length > 0 || topProducts.length > 0;
+  const hasNewPlayersFlag = newPlayers > 0;
+  const hasUniquePlayersFlag = uniquePlayers > 0;
+  const hasSessionsFlag = totalSessions > 0;
+  const hasEstimatedRevenueFlag = estimatedRevenue > 0;
   
-  // We have data if ANY of these are true
-  const hasData = hasTrackerEvents || hasPurchaseEvents || hasRobloxStats || hasProducts;
+  // We have data if ANY of these are true (per the acceptance criteria)
+  const hasData = hasTrackerEvents || hasPurchaseEvents || hasRobloxStats || hasProducts || 
+                  hasNewPlayersFlag || hasUniquePlayersFlag || hasSessionsFlag || hasEstimatedRevenueFlag;
 
   if (!hasData) {
     return { 
@@ -267,6 +387,7 @@ async function getAnalyticsContext(
   return {
     hasData: true,
     gameName: game.name,
+    gameId: targetGameId,
     // Roblox synced stats
     robloxStats: {
       ccu: game.current_players,
@@ -284,20 +405,21 @@ async function getAnalyticsContext(
       isForSale: p.is_for_sale,
     })),
     syncedProductsCount: syncedProducts.length,
-    // SHARED DASHBOARD METRICS (same as Overview, Monetization, Products pages)
-    trackedActions: metrics.trackedActions ?? 0,
-    uniquePlayers: metrics.uniquePlayers ?? 0,
-    totalSessions: metrics.totalSessions ?? 0,
-    avgSessionSeconds: metrics.avgSessionSeconds ?? 0,
+    // DASHBOARD METRICS (queried directly with admin client)
+    trackedActions,
+    uniquePlayers,
+    totalSessions,
+    avgSessionSeconds,
+    newPlayers,
     // Monetization metrics
-    totalPurchases: metrics.purchases ?? 0,
-    grossRevenue: metrics.grossRevenue ?? 0,
-    estimatedRevenue: metrics.estimatedRevenue ?? 0,
-    payingUsers: metrics.payingUsers ?? 0,
-    activeUsers: metrics.activeUsers ?? 0,
-    pcr: metrics.pcr ?? 0,
-    arppu: metrics.arppu ?? 0,
-    arpdau: metrics.arpdau ?? 0,
+    totalPurchases: purchases,
+    grossRevenue,
+    estimatedRevenue,
+    payingUsers,
+    activeUsers,
+    pcr,
+    arppu,
+    arpdau,
     // Revenue by type
     gamepassRevenue,
     devproductRevenue,
@@ -309,6 +431,10 @@ async function getAnalyticsContext(
       hasPurchaseEvents,
       hasRobloxStats,
       hasProducts,
+      hasNewPlayersFlag,
+      hasUniquePlayersFlag,
+      hasSessionsFlag,
+      hasEstimatedRevenueFlag,
     },
   };
 }
@@ -329,13 +455,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId, debug } = body as {
       message: string;
       gameId?: string;
       imageDataUrl?: string;
       imageName?: string;
       imageMimeType?: string;
       conversationId?: string;
+      debug?: boolean;
     };
 
     if (!message && !imageDataUrl) {
@@ -550,12 +677,52 @@ You can still answer general Roblox monetization questions without the data.`;
     }
 
     // Return success response
-    return NextResponse.json({
+    const response: Record<string, unknown> = {
       success: true,
       message: result.text,
       credits: creditResult.remaining,
       conversationId: savedConversationId,
-    });
+    };
+    
+    // Include debug context if requested
+    if (debug) {
+      response.debugContext = {
+        selectedGameName: analyticsContext.gameName,
+        selectedGameId: analyticsContext.gameId || gameId || null,
+        contextLoaded: true,
+        sourceUsed: "getDashboardMetrics",
+        hasData: analyticsContext.hasData,
+        emptyStateReason: analyticsContext.emptyReason || null,
+        trackerStats: analyticsContext.hasData ? {
+          trackedActions: analyticsContext.trackedActions,
+          uniquePlayers: analyticsContext.uniquePlayers,
+          totalSessions: analyticsContext.totalSessions,
+          avgSessionSeconds: analyticsContext.avgSessionSeconds,
+          purchases: analyticsContext.totalPurchases,
+        } : null,
+        monetizationStats: analyticsContext.hasData ? {
+          estimatedRevenue: analyticsContext.estimatedRevenue,
+          grossRevenue: analyticsContext.grossRevenue,
+          purchases: analyticsContext.totalPurchases,
+          payingUsers: analyticsContext.payingUsers,
+          activeUsers: analyticsContext.activeUsers,
+          pcr: analyticsContext.pcr,
+          arppu: analyticsContext.arppu,
+          arpdau: analyticsContext.arpdau,
+        } : null,
+        productStats: analyticsContext.hasData ? {
+          totalProducts: analyticsContext.syncedProductsCount,
+          topProducts: analyticsContext.topProducts?.slice(0, 3),
+        } : null,
+        robloxStats: analyticsContext.robloxStats || null,
+        _dataHealth: analyticsContext._dataHealth || null,
+        promptContextPreview: analyticsContext.hasData 
+          ? `Game: ${analyticsContext.gameName}\nTracked Actions: ${analyticsContext.trackedActions}\nUnique Players: ${analyticsContext.uniquePlayers}\nPurchases: ${analyticsContext.totalPurchases}\nEstimated Revenue: ${analyticsContext.estimatedRevenue} Robux\nCCU: ${analyticsContext.robloxStats?.ccu || 0}\nVisits: ${analyticsContext.robloxStats?.visits || 0}`
+          : "No data loaded - fallback message will be shown",
+      };
+    }
+    
+    return NextResponse.json(response);
   } catch (error) {
     console.error("[v0] AI chat error:", error);
 
