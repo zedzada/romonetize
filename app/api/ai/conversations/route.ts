@@ -16,20 +16,13 @@ export async function GET(request: NextRequest) {
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (authError) {
+    if (authError || !user) {
+      // Return empty conversations for unauthenticated users instead of error
       return NextResponse.json({ 
         success: false, 
-        step, 
-        error: `Auth error: ${authError.message}` 
-      }, { status: 401 });
-    }
-
-    if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        step, 
+        conversations: [],
         error: "Not authenticated" 
-      }, { status: 401 });
+      }, { status: 200 });
     }
 
     step = "parse_params";
@@ -53,12 +46,13 @@ export async function GET(request: NextRequest) {
     const { data: conversations, error: queryError } = await query;
 
     if (queryError) {
+      // Return empty conversations on query error - do not crash
+      console.error("[ai/conversations] Query error:", queryError.message);
       return NextResponse.json({ 
         success: false, 
-        step, 
-        error: queryError.message,
-        details: queryError.details || null
-      }, { status: 500 });
+        conversations: [],
+        error: "Conversations unavailable"
+      }, { status: 200 });
     }
 
     step = "return_success";
@@ -67,43 +61,30 @@ export async function GET(request: NextRequest) {
       conversations: conversations || [],
     });
   } catch (err) {
+    // Return empty conversations on any error - do not crash
     const errMsg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      {
-        success: false,
-        step,
-        error: errMsg,
-      },
-      { status: 500 }
-    );
+    console.error("[ai/conversations] Unexpected error:", errMsg);
+    return NextResponse.json({
+      success: false,
+      conversations: [],
+      error: "Conversations unavailable",
+    }, { status: 200 });
   }
 }
 
 export async function POST(request: NextRequest) {
-  let step = "start";
-  
   try {
-    step = "get_user";
     const supabase = await createClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
-    if (authError) {
+    if (authError || !user) {
       return NextResponse.json({ 
         success: false, 
-        step, 
-        error: `Auth error: ${authError.message}` 
-      }, { status: 401 });
-    }
-
-    if (!user) {
-      return NextResponse.json({ 
-        success: false, 
-        step, 
+        conversation: null,
         error: "Not authenticated" 
-      }, { status: 401 });
+      }, { status: 200 });
     }
 
-    step = "parse_body";
     const body = await request.json();
     const { title, gameId, folder } = body as {
       title?: string;
@@ -111,7 +92,6 @@ export async function POST(request: NextRequest) {
       folder?: string;
     };
 
-    step = "insert_conversation";
     const { data: conversation, error: insertError } = await supabase
       .from("ai_conversations")
       .insert({
@@ -124,28 +104,25 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError) {
+      console.error("[ai/conversations] Insert error:", insertError.message);
       return NextResponse.json({ 
         success: false, 
-        step, 
-        error: insertError.message,
-        details: insertError.details || null
-      }, { status: 500 });
+        conversation: null,
+        error: "Failed to create conversation"
+      }, { status: 200 });
     }
 
-    step = "return_success";
     return NextResponse.json({
       success: true,
       conversation,
     });
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json(
-      {
-        success: false,
-        step,
-        error: errMsg,
-      },
-      { status: 500 }
-    );
+    console.error("[ai/conversations] POST error:", errMsg);
+    return NextResponse.json({
+      success: false,
+      conversation: null,
+      error: "Failed to create conversation",
+    }, { status: 200 });
   }
 }

@@ -132,6 +132,11 @@ function AIAssistantContent() {
   // Debug state
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown>>({});
   
+  // AI Context from dashboard analytics
+  const [aiContext, setAiContext] = useState<Record<string, unknown> | null>(null);
+  const [aiContextLoading, setAiContextLoading] = useState(false);
+  const [aiContextError, setAiContextError] = useState<string | null>(null);
+  
   // Credits
   const { totalCredits, isLoading: creditsLoading, refresh: refreshCredits } = useCredits();
   
@@ -141,7 +146,104 @@ function AIAssistantContent() {
   // Fetch conversations on mount
   useEffect(() => {
     fetchConversations();
+    fetchAiContext();
   }, []);
+
+  // Fetch AI context from dashboard analytics
+  const fetchAiContext = async () => {
+    setAiContextLoading(true);
+    setAiContextError(null);
+    try {
+      const res = await fetch("/api/dashboard/analytics?hours=168");
+      const data = await res.json();
+      if (data.success) {
+        // Build aiContext from dashboard analytics response
+        const context = {
+          selectedGame: data.game?.name || null,
+          gameId: data.game?.id || null,
+          robloxStats: {
+            visits: data.game?.total_visits || 0,
+            ccu: data.game?.current_players || 0,
+            favorites: data.game?.favorites || 0,
+            likes: data.game?.likes || 0,
+            dislikes: data.game?.dislikes || 0,
+          },
+          trackerStats: {
+            trackedActions: data.metrics?.trackedActions || 0,
+            uniquePlayers: data.metrics?.uniquePlayers || 0,
+            totalSessions: data.metrics?.totalSessions || 0,
+            newPlayers: data.metrics?.newPlayers || 0,
+            avgSessionSeconds: data.metrics?.avgSessionSeconds || 0,
+          },
+          monetizationStats: {
+            purchases: data.metrics?.purchases || 0,
+            grossRevenue: data.metrics?.grossRevenue || 0,
+            estimatedRevenue: data.metrics?.estimatedRevenue || 0,
+            payingUsers: data.metrics?.payingUsers || 0,
+            activeUsers: data.metrics?.activeUsers || 0,
+            pcr: data.metrics?.pcr || 0,
+            arppu: data.metrics?.arppu || 0,
+            arpdau: data.metrics?.arpdau || 0,
+          },
+          productStats: {
+            totalProducts: data.products?.length || 0,
+            topProducts: data.products?.slice(0, 5) || [],
+          },
+          overview: {
+            hasTrackerData: (data.metrics?.trackedActions || 0) > 0,
+            hasPurchaseData: (data.metrics?.purchases || 0) > 0,
+            hasRobloxStats: (data.game?.total_visits || 0) > 0,
+          },
+          dataHealth: {
+            trackerConnected: data.trackerConnected || false,
+            lastEventAt: data.game?.last_event_at || null,
+          },
+        };
+        setAiContext(context);
+        
+        if (debug) {
+          setDebugInfo(prev => ({
+            ...prev,
+            analyticsFetchStatus: "success",
+            selectedGameName: context.selectedGame,
+            aiContextBuilt: true,
+            aiContextPreview: {
+              trackedActions: context.trackerStats.trackedActions,
+              uniquePlayers: context.trackerStats.uniquePlayers,
+              purchases: context.monetizationStats.purchases,
+              estimatedRevenue: context.monetizationStats.estimatedRevenue,
+              robloxVisits: context.robloxStats.visits,
+              robloxCcu: context.robloxStats.ccu,
+              totalProducts: context.productStats.totalProducts,
+            },
+          }));
+        }
+      } else {
+        setAiContextError(data.error || "Failed to fetch analytics");
+        if (debug) {
+          setDebugInfo(prev => ({
+            ...prev,
+            analyticsFetchStatus: "error",
+            aiContextBuilt: false,
+            aiContextError: data.error,
+          }));
+        }
+      }
+    } catch (error) {
+      const errMsg = error instanceof Error ? error.message : "Network error";
+      setAiContextError(errMsg);
+      if (debug) {
+        setDebugInfo(prev => ({
+          ...prev,
+          analyticsFetchStatus: "error",
+          aiContextBuilt: false,
+          aiContextError: errMsg,
+        }));
+      }
+    } finally {
+      setAiContextLoading(false);
+    }
+  };
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
@@ -156,12 +258,17 @@ function AIAssistantContent() {
       const data = await res.json();
       if (data.success) {
         setConversations(data.conversations || []);
+        setConversationsError(null);
       } else {
-        setConversationsError(data.error || data.step ? `Error at ${data.step}: ${data.error}` : "Failed to load conversations");
+        // Non-blocking: show error but don't prevent chat from working
+        setConversations([]);
+        setConversationsError(data.error || "Conversations unavailable");
       }
     } catch (error) {
+      // Non-blocking: conversations failing shouldn't break chat
       console.error("Failed to fetch conversations:", error);
-      setConversationsError(error instanceof Error ? error.message : "Network error");
+      setConversations([]);
+      setConversationsError("Conversations unavailable");
     } finally {
       setLoadingConversations(false);
     }
@@ -297,7 +404,7 @@ function AIAssistantContent() {
     // Set loading
     setIsLoading(true);
 
-    // Ensure we have a conversation
+    // Try to create/get a conversation, but don't block chat if it fails
     let conversationId = activeConversationId;
     if (!conversationId) {
       // Auto-generate title from first message
@@ -306,10 +413,11 @@ function AIAssistantContent() {
       if (conversationId) {
         setActiveConversationId(conversationId);
       }
+      // If conversation creation fails, continue anyway - chat will work without persistence
     }
 
     try {
-      // Build request body
+      // Build request body with aiContext from dashboard analytics
       const requestBody: {
         message: string;
         imageDataUrl?: string;
@@ -317,10 +425,12 @@ function AIAssistantContent() {
         imageMimeType?: string;
         conversationId?: string;
         debug?: boolean;
+        aiContext?: Record<string, unknown>;
       } = {
         message: text || "Please analyze this screenshot.",
         conversationId: conversationId || undefined,
         debug: debug || undefined,
+        aiContext: aiContext || undefined,
       };
       
       // Include image data if present
@@ -338,6 +448,13 @@ function AIAssistantContent() {
             hasImage: Boolean(currentImageDataUrl),
             conversationId,
             messageLength: text.length,
+            aiContextSent: Boolean(aiContext),
+            aiContextPreview: aiContext ? {
+              selectedGame: (aiContext as Record<string, unknown>).selectedGame,
+              trackedActions: ((aiContext as Record<string, Record<string, unknown>>).trackerStats)?.trackedActions,
+              purchases: ((aiContext as Record<string, Record<string, unknown>>).monetizationStats)?.purchases,
+              robloxVisits: ((aiContext as Record<string, Record<string, unknown>>).robloxStats)?.visits,
+            } : null,
           },
         }));
       }
@@ -404,7 +521,7 @@ function AIAssistantContent() {
     } finally {
       setIsLoading(false);
     }
-  }, [input, imagePreview, isLoading, activeConversationId, selectedImage, debug, refreshCredits]);
+  }, [input, imagePreview, isLoading, activeConversationId, selectedImage, debug, refreshCredits, aiContext]);
 
   // New chat
   const handleNewChat = () => {
@@ -709,41 +826,50 @@ function AIAssistantContent() {
         {debug && (
           <Card className="mt-4 p-4 border-yellow-500/30 bg-yellow-500/5">
             <h3 className="font-semibold text-sm mb-2 text-yellow-600">Debug Panel (AI Context)</h3>
+            
+            {/* Frontend AI Context (from /api/dashboard/analytics) */}
+            <div className="mb-4 p-3 bg-blue-500/10 rounded-lg border border-blue-500/30">
+              <h4 className="text-xs font-semibold text-blue-600 mb-2">Frontend aiContext (from /api/dashboard/analytics)</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div><strong>analyticsFetchStatus:</strong> {aiContextLoading ? "loading" : aiContextError ? "error" : aiContext ? "success" : "pending"}</div>
+                <div><strong>selectedGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>aiContextBuilt:</strong> {String(Boolean(aiContext))}</div>
+                <div><strong>conversationsStatus:</strong> {loadingConversations ? "loading" : conversationsError ? "error" : "success"}</div>
+                {conversationsError && <div className="col-span-2 text-red-500"><strong>conversationsError:</strong> {conversationsError}</div>}
+              </div>
+              {aiContext && (
+                <div className="mt-2">
+                  <strong className="text-xs">aiContextPreview:</strong>
+                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto text-xs">
+{JSON.stringify({
+  trackedActions: (aiContext.trackerStats as Record<string, unknown>)?.trackedActions,
+  uniquePlayers: (aiContext.trackerStats as Record<string, unknown>)?.uniquePlayers,
+  totalSessions: (aiContext.trackerStats as Record<string, unknown>)?.totalSessions,
+  purchases: (aiContext.monetizationStats as Record<string, unknown>)?.purchases,
+  estimatedRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.estimatedRevenue,
+  payingUsers: (aiContext.monetizationStats as Record<string, unknown>)?.payingUsers,
+  robloxVisits: (aiContext.robloxStats as Record<string, unknown>)?.visits,
+  robloxCcu: (aiContext.robloxStats as Record<string, unknown>)?.ccu,
+  totalProducts: (aiContext.productStats as Record<string, unknown>)?.totalProducts,
+}, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+            
+            {/* API Response Context */}
             {debugInfo.apiDebugContext ? (
               <div className="space-y-3">
+                <h4 className="text-xs font-semibold text-green-600">API Response (from /api/ai/chat)</h4>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div><strong>Game:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).selectedGameName as string || "N/A"}</div>
                   <div><strong>Game ID:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).selectedGameId as string || "N/A"}</div>
                   <div><strong>Has Data:</strong> {String((debugInfo.apiDebugContext as Record<string, unknown>).hasData)}</div>
                   <div><strong>Source:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).sourceUsed as string || "N/A"}</div>
                 </div>
-                {(debugInfo.apiDebugContext as Record<string, unknown>).trackerStats && (
-                  <div className="text-xs">
-                    <strong>Tracker Stats:</strong>
-                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
-                      {JSON.stringify((debugInfo.apiDebugContext as Record<string, unknown>).trackerStats, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {(debugInfo.apiDebugContext as Record<string, unknown>).monetizationStats && (
-                  <div className="text-xs">
-                    <strong>Monetization Stats:</strong>
-                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
-                      {JSON.stringify((debugInfo.apiDebugContext as Record<string, unknown>).monetizationStats, null, 2)}
-                    </pre>
-                  </div>
-                )}
-                {(debugInfo.apiDebugContext as Record<string, unknown>).robloxStats && (
-                  <div className="text-xs">
-                    <strong>Roblox Stats:</strong>
-                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
-                      {JSON.stringify((debugInfo.apiDebugContext as Record<string, unknown>).robloxStats, null, 2)}
-                    </pre>
-                  </div>
-                )}
                 <div className="text-xs">
-                  <strong>Prompt Context Preview:</strong>
-                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto whitespace-pre-wrap">
+                  <strong>promptContextPreview:</strong>
+                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto whitespace-pre-wrap max-h-40">
                     {(debugInfo.apiDebugContext as Record<string, unknown>).promptContextPreview as string || "N/A"}
                   </pre>
                 </div>
@@ -754,7 +880,7 @@ function AIAssistantContent() {
                 )}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Send a message to see debug context from the API.</p>
+              <p className="text-xs text-muted-foreground">Send a message to see API response context.</p>
             )}
             <details className="mt-3">
               <summary className="text-xs cursor-pointer text-muted-foreground">Raw Debug Info</summary>
