@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+
+// Admin client for bypassing RLS
+function getSupabaseAdmin() {
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
 
 /**
  * GET /api/ai/conversations/[id] - Get a conversation with its messages
@@ -20,11 +29,12 @@ export async function GET(
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
   const { id } = await params;
 
   try {
-    // Get conversation
-    const { data: conversation, error: convError } = await supabase
+    // Get conversation (using admin, but filter by user_id for security)
+    const { data: conversation, error: convError } = await supabaseAdmin
       .from("ai_conversations")
       .select("id, title, folder, game_id, created_at, updated_at")
       .eq("id", id)
@@ -36,7 +46,7 @@ export async function GET(
     }
 
     // Get messages
-    const { data: messages, error: msgError } = await supabase
+    const { data: messages, error: msgError } = await supabaseAdmin
       .from("ai_messages")
       .select("id, role, content, has_image, image_url, metadata, created_at")
       .eq("conversation_id", id)
@@ -70,6 +80,7 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
   const { id } = await params;
 
   try {
@@ -87,7 +98,7 @@ export async function PATCH(
       return NextResponse.json({ success: false, error: "No updates provided" }, { status: 400 });
     }
 
-    const { data: conversation, error } = await supabase
+    const { data: conversation, error } = await supabaseAdmin
       .from("ai_conversations")
       .update(updates)
       .eq("id", id)
@@ -121,10 +132,11 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
   const { id } = await params;
 
   try {
-    const { error } = await supabase
+    const { error } = await supabaseAdmin
       .from("ai_conversations")
       .delete()
       .eq("id", id)
