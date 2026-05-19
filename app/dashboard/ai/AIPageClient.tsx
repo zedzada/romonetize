@@ -156,6 +156,15 @@ function AIAssistantContent() {
     try {
       const res = await fetch("/api/dashboard/analytics?hours=168");
       const data = await res.json();
+      
+      if (debug) {
+        setDebugInfo(prev => ({
+          ...prev,
+          analyticsHttpStatus: res.status,
+          analyticsResponseKeys: Object.keys(data),
+        }));
+      }
+      
       if (data.success) {
         // Build aiContext from dashboard analytics response
         const context = {
@@ -205,17 +214,27 @@ function AIAssistantContent() {
           setDebugInfo(prev => ({
             ...prev,
             analyticsFetchStatus: "success",
-            selectedGameName: context.selectedGame,
+            selectedGameNameFromAnalytics: context.selectedGame,
+            selectedGameIdFromAnalytics: context.gameId,
             aiContextBuilt: true,
             aiContextPreview: {
               trackedActions: context.trackerStats.trackedActions,
               uniquePlayers: context.trackerStats.uniquePlayers,
+              totalSessions: context.trackerStats.totalSessions,
+              newPlayers: context.trackerStats.newPlayers,
               purchases: context.monetizationStats.purchases,
               estimatedRevenue: context.monetizationStats.estimatedRevenue,
+              grossRevenue: context.monetizationStats.grossRevenue,
+              payingUsers: context.monetizationStats.payingUsers,
               robloxVisits: context.robloxStats.visits,
               robloxCcu: context.robloxStats.ccu,
+              robloxFavorites: context.robloxStats.favorites,
               totalProducts: context.productStats.totalProducts,
+              hasTrackerData: context.overview.hasTrackerData,
+              hasPurchaseData: context.overview.hasPurchaseData,
+              hasRobloxStats: context.overview.hasRobloxStats,
             },
+            emptyStateReason: null,
           }));
         }
       } else {
@@ -226,6 +245,7 @@ function AIAssistantContent() {
             analyticsFetchStatus: "error",
             aiContextBuilt: false,
             aiContextError: data.error,
+            emptyStateReason: "analytics_fetch_failed",
           }));
         }
       }
@@ -238,6 +258,7 @@ function AIAssistantContent() {
           analyticsFetchStatus: "error",
           aiContextBuilt: false,
           aiContextError: errMsg,
+          emptyStateReason: "network_error",
         }));
       }
     } finally {
@@ -256,19 +277,32 @@ function AIAssistantContent() {
     try {
       const res = await fetch("/api/ai/conversations?limit=50");
       const data = await res.json();
+      
+      if (debug) {
+        setDebugInfo(prev => ({
+          ...prev,
+          conversationsHttpStatus: res.status,
+          conversationsSuccess: data.success,
+          conversationsAuthenticated: data.authenticated,
+          conversationsTableCheck: data.tableCheck,
+          conversationsCount: data.conversations?.length || 0,
+        }));
+      }
+      
       if (data.success) {
+        // Success - set conversations (may be empty array)
         setConversations(data.conversations || []);
         setConversationsError(null);
       } else {
-        // Non-blocking: show error but don't prevent chat from working
+        // API returned success:false - show error but don't block chat
         setConversations([]);
-        setConversationsError(data.error || "Conversations unavailable");
+        setConversationsError(data.error || "Failed to load conversations");
       }
     } catch (error) {
-      // Non-blocking: conversations failing shouldn't break chat
+      // Network error - conversations failing shouldn't break chat
       console.error("Failed to fetch conversations:", error);
       setConversations([]);
-      setConversationsError("Conversations unavailable");
+      setConversationsError("Network error");
     } finally {
       setLoadingConversations(false);
     }
@@ -579,7 +613,7 @@ function AIAssistantContent() {
               </div>
             ) : conversationsError ? (
               <div className="text-center py-4 px-2">
-                <p className="text-xs text-muted-foreground">Conversation history unavailable</p>
+                <p className="text-xs text-muted-foreground">{conversationsError === "Not authenticated" ? "Sign in to save conversations" : "Conversation history unavailable"}</p>
               </div>
             ) : conversations.length === 0 ? (
               <div className="text-center py-8 px-4">
@@ -828,56 +862,79 @@ function AIAssistantContent() {
               <h4 className="text-xs font-semibold text-blue-600 mb-2">Frontend aiContext (from /api/dashboard/analytics)</h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><strong>analyticsFetchStatus:</strong> {aiContextLoading ? "loading" : aiContextError ? "error" : aiContext ? "success" : "pending"}</div>
-                <div><strong>selectedGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>analyticsHttpStatus:</strong> {debugInfo.analyticsHttpStatus as number || "N/A"}</div>
+                <div><strong>analyticsResponseKeys:</strong> {(debugInfo.analyticsResponseKeys as string[])?.join(", ") || "N/A"}</div>
+                <div><strong>selectedGameNameFromAnalytics:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>selectedGameIdFromAnalytics:</strong> {(aiContext?.gameId as string) || "N/A"}</div>
                 <div><strong>aiContextBuilt:</strong> {String(Boolean(aiContext))}</div>
-                <div><strong>conversationsStatus:</strong> {loadingConversations ? "loading" : conversationsError ? "error" : "success"}</div>
-                <div><strong>conversationsCount:</strong> {conversations.length}</div>
-                {conversationsError && <div className="col-span-2 text-red-500"><strong>conversationsError:</strong> {conversationsError}</div>}
+                <div><strong>emptyStateReason:</strong> {(debugInfo.emptyStateReason as string) || "none"}</div>
               </div>
               {aiContext && (
                 <div className="mt-2">
-                  <strong className="text-xs">aiContextPreview:</strong>
-                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto text-xs">
+                  <strong className="text-xs">aiContextPreview (actual values from /api/dashboard/analytics):</strong>
+                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto text-xs max-h-60">
 {JSON.stringify({
-  trackedActions: (aiContext.trackerStats as Record<string, unknown>)?.trackedActions,
-  uniquePlayers: (aiContext.trackerStats as Record<string, unknown>)?.uniquePlayers,
-  totalSessions: (aiContext.trackerStats as Record<string, unknown>)?.totalSessions,
-  purchases: (aiContext.monetizationStats as Record<string, unknown>)?.purchases,
-  estimatedRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.estimatedRevenue,
-  payingUsers: (aiContext.monetizationStats as Record<string, unknown>)?.payingUsers,
-  robloxVisits: (aiContext.robloxStats as Record<string, unknown>)?.visits,
-  robloxCcu: (aiContext.robloxStats as Record<string, unknown>)?.ccu,
-  totalProducts: (aiContext.productStats as Record<string, unknown>)?.totalProducts,
+  selectedGame: aiContext.selectedGame,
+  gameId: aiContext.gameId,
+  trackerStats: aiContext.trackerStats,
+  monetizationStats: aiContext.monetizationStats,
+  robloxStats: aiContext.robloxStats,
+  productStats: {
+    totalProducts: (aiContext.productStats as Record<string, unknown>)?.totalProducts,
+  },
+  overview: aiContext.overview,
 }, null, 2)}
                   </pre>
                 </div>
               )}
             </div>
             
+            {/* Conversations Debug */}
+            <div className="mb-4 p-3 bg-purple-500/10 rounded-lg border border-purple-500/30">
+              <h4 className="text-xs font-semibold text-purple-600 mb-2">Conversations (from /api/ai/conversations)</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div><strong>conversationsStatus:</strong> {loadingConversations ? "loading" : conversationsError ? "error" : "success"}</div>
+                <div><strong>conversationsHttpStatus:</strong> {debugInfo.conversationsHttpStatus as number || "N/A"}</div>
+                <div><strong>conversationsSuccess:</strong> {String(debugInfo.conversationsSuccess ?? "N/A")}</div>
+                <div><strong>conversationsCount:</strong> {conversations.length}</div>
+                <div><strong>authenticated:</strong> {String(debugInfo.conversationsAuthenticated ?? "N/A")}</div>
+                <div><strong>activeConversationId:</strong> {activeConversationId || "none"}</div>
+              </div>
+              {debugInfo.conversationsTableCheck && (
+                <div className="mt-2 text-xs">
+                  <strong>tableCheck:</strong>
+                  <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
+{JSON.stringify(debugInfo.conversationsTableCheck, null, 2)}
+                  </pre>
+                </div>
+              )}
+              {conversationsError && <div className="mt-2 text-xs text-red-500"><strong>conversationsError:</strong> {conversationsError}</div>}
+            </div>
+            
             {/* API Response Context */}
             {debugInfo.apiDebugContext ? (
-              <div className="space-y-3">
-                <h4 className="text-xs font-semibold text-green-600">API Response (from /api/ai/chat)</h4>
+              <div className="p-3 bg-green-500/10 rounded-lg border border-green-500/30">
+                <h4 className="text-xs font-semibold text-green-600 mb-2">API Response (from /api/ai/chat)</h4>
                 <div className="grid grid-cols-2 gap-2 text-xs">
                   <div><strong>Game:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).selectedGameName as string || "N/A"}</div>
                   <div><strong>Game ID:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).selectedGameId as string || "N/A"}</div>
                   <div><strong>Has Data:</strong> {String((debugInfo.apiDebugContext as Record<string, unknown>).hasData)}</div>
                   <div><strong>Source:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).sourceUsed as string || "N/A"}</div>
                 </div>
-                <div className="text-xs">
+                <div className="mt-2 text-xs">
                   <strong>promptContextPreview:</strong>
                   <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto whitespace-pre-wrap max-h-40">
                     {(debugInfo.apiDebugContext as Record<string, unknown>).promptContextPreview as string || "N/A"}
                   </pre>
                 </div>
                 {(debugInfo.apiDebugContext as Record<string, unknown>).emptyStateReason && (
-                  <div className="text-xs text-red-500">
+                  <div className="mt-2 text-xs text-red-500">
                     <strong>Empty State Reason:</strong> {(debugInfo.apiDebugContext as Record<string, unknown>).emptyStateReason as string}
                   </div>
                 )}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">Send a message to see API response context.</p>
+              <p className="text-xs text-muted-foreground p-3 bg-secondary/10 rounded-lg">Send a message to see API response context.</p>
             )}
             <details className="mt-3">
               <summary className="text-xs cursor-pointer text-muted-foreground">Raw Debug Info</summary>
