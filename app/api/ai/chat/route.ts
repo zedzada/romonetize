@@ -4,6 +4,20 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
+import { Pool } from "pg";
+
+// Direct PostgreSQL connection for conversations/messages (bypasses PostgREST schema cache)
+function getPool() {
+  const connectionString = process.env.POSTGRES_URL;
+  if (!connectionString) {
+    throw new Error("Missing POSTGRES_URL");
+  }
+  return new Pool({ 
+    connectionString,
+    ssl: { rejectUnauthorized: false },
+    max: 1,
+  });
+}
 
 // Lazy init for service role client - with schema cache disabled
 function getSupabaseAdmin() {
@@ -653,61 +667,67 @@ You can still answer general Roblox monetization questions without the data.`;
       temperature: 0.7,
     });
 
-    // Save messages to conversation
+    // Save messages to conversation using direct PostgreSQL (bypasses PostgREST schema cache)
     // If no conversationId provided, create a new conversation
     let savedConversationId = conversationId;
+    let pool: Pool | null = null;
     try {
+      pool = getPool();
+      
       if (!conversationId) {
         // Create a new conversation with first message as title
         const title = userMessageText.substring(0, 50).trim() + (userMessageText.length > 50 ? "..." : "");
-        const { data: newConv, error: createError } = await supabaseAdmin
-          .from("ai_conversations")
-          .insert({
-            user_id: user.id,
-            title,
-            game_id: gameId || null,
-          })
-          .select("id")
-          .single();
+        const convResult = await pool.query(`
+          INSERT INTO public.ai_conversations (user_id, title, game_id)
+          VALUES ($1, $2, $3)
+          RETURNING id
+        `, [user.id, title, gameId || null]);
         
-        if (createError) {
-          console.error("[v0] Failed to create conversation:", createError);
-        } else if (newConv) {
-          savedConversationId = newConv.id;
+        if (convResult.rows.length > 0) {
+          savedConversationId = convResult.rows[0].id;
         }
       }
       
       if (savedConversationId) {
         // Save user message
-        await supabaseAdmin.from("ai_messages").insert({
-          conversation_id: savedConversationId,
-          user_id: user.id,
-          role: "user",
-          content: userMessageText,
-          has_image: hasImage,
-          image_url: null, // We don't persist image data URLs for privacy/storage
-          metadata: hasImage ? { imageName, imageMimeType } : {},
-        });
+        await pool.query(`
+          INSERT INTO public.ai_messages (conversation_id, user_id, role, content, has_image, image_url, metadata)
+          VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `, [
+          savedConversationId,
+          user.id,
+          "user",
+          userMessageText,
+          hasImage,
+          null,
+          hasImage ? JSON.stringify({ imageName, imageMimeType }) : "{}",
+        ]);
         
         // Save assistant message
-        await supabaseAdmin.from("ai_messages").insert({
-          conversation_id: savedConversationId,
-          user_id: user.id,
-          role: "assistant",
-          content: result.text,
-          has_image: false,
-          metadata: {},
-        });
+        await pool.query(`
+          INSERT INTO public.ai_messages (conversation_id, user_id, role, content, has_image, metadata)
+          VALUES ($1, $2, $3, $4, $5, $6)
+        `, [
+          savedConversationId,
+          user.id,
+          "assistant",
+          result.text,
+          false,
+          "{}",
+        ]);
         
         // Update conversation's updated_at
-        await supabaseAdmin
-          .from("ai_conversations")
-          .update({ updated_at: new Date().toISOString() })
-          .eq("id", savedConversationId);
+        await pool.query(`
+          UPDATE public.ai_conversations
+          SET updated_at = NOW()
+          WHERE id = $1
+        `, [savedConversationId]);
       }
     } catch (msgError) {
       console.error("[v0] Failed to save messages:", msgError);
       // Don't fail the request if message saving fails
+    } finally {
+      if (pool) await pool.end();
     }
 
     // Return success response
