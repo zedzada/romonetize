@@ -133,17 +133,17 @@ async function refundCredits(
 // Get analytics context for the AI using SHARED dashboard metrics
 // This ensures AI sees the SAME data as Overview, Monetization, Products pages
 async function getAnalyticsContext(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
   userId: string,
   gameId?: string
 ) {
-  // Get user's selected game (is_selected = true)
+  // Get user's selected game (is_selected = true) using ADMIN client to bypass RLS
   let targetGameId = gameId;
   let game = null;
 
   if (!targetGameId) {
     // First try to get the selected game
-    const { data: selectedGame } = await supabase
+    const { data: selectedGame } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", userId)
@@ -156,7 +156,7 @@ async function getAnalyticsContext(
       game = selectedGame;
     } else {
       // Fallback: auto-select the first active game
-      const { data: games } = await supabase
+      const { data: games } = await supabaseAdmin
         .from("games")
         .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
         .eq("user_id", userId)
@@ -171,7 +171,7 @@ async function getAnalyticsContext(
     }
   } else {
     // Verify ownership and get Roblox stats
-    const { data: gameData } = await supabase
+    const { data: gameData } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("id", targetGameId)
@@ -187,8 +187,8 @@ async function getAnalyticsContext(
   // Use SHARED dashboard metrics - same source as Overview, Monetization, Products
   const metrics = await getDashboardMetrics(userId, targetGameId, "7d");
 
-  // Get top products from events
-  const { data: topProductsData } = await supabase
+  // Get top products from events using admin client
+  const { data: topProductsData } = await supabaseAdmin
     .from("events")
     .select("product_name, product_id, product_type, robux, metadata")
     .eq("game_id", targetGameId)
@@ -215,8 +215,8 @@ async function getAnalyticsContext(
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // Get synced Roblox products
-  const { data: robloxProducts } = await supabase
+  // Get synced Roblox products using admin client
+  const { data: robloxProducts } = await supabaseAdmin
     .from("roblox_products")
     .select("name, product_type, price_robux, is_for_sale")
     .eq("game_id", targetGameId)
@@ -368,9 +368,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get analytics context
+    // Get analytics context using admin client (bypasses RLS for reliable data access)
     const analyticsContext = await getAnalyticsContext(
-      supabase,
+      supabaseAdmin,
       user.id,
       gameId
     );
