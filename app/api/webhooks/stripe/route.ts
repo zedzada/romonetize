@@ -94,8 +94,11 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
   const sessionId = session.id;
   const supabaseAdmin = getSupabaseAdmin();
 
-  // Check if this is a credit purchase
-  const purchaseType = session.metadata?.purchaseType;
+  // Check if this is a credit purchase using both formats
+  const purchaseType = 
+    session.metadata?.purchaseType ||
+    session.metadata?.purchase_type;
+    
   if (purchaseType === "ai_credits") {
     await handleCreditPurchase(session);
     return;
@@ -147,9 +150,18 @@ async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
 // Handle AI credit purchases
 async function handleCreditPurchase(session: Stripe.Checkout.Session) {
   const supabaseAdmin = getSupabaseAdmin();
-  const userId = session.metadata?.userId;
-  const credits = parseInt(session.metadata?.credits || "0", 10);
-  const packageId = session.metadata?.packageId;
+  
+  // Support both snake_case and camelCase metadata
+  const userId = 
+    session.metadata?.userId ||
+    session.metadata?.user_id;
+  const credits = parseInt(
+    session.metadata?.credits || "0", 
+    10
+  );
+  const packageId = 
+    session.metadata?.packageId ||
+    session.metadata?.package_id;
   const sessionId = session.id;
 
   if (!userId || !credits || credits <= 0) {

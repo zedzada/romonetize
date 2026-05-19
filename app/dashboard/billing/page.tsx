@@ -116,26 +116,30 @@ function BillingContent() {
   const syncAiCredits = async (checkoutSessionId: string) => {
     setCreditSyncState({ syncing: true, synced: false, error: null, creditsGranted: null });
     try {
-      const res = await fetch(`/api/billing/sync?session_id=${checkoutSessionId}`, { method: "POST" });
+      const params = new URLSearchParams();
+      params.set("session_id", checkoutSessionId);
+      if (debugMode) params.set("debug", "true");
+      
+      const res = await fetch(`/api/billing/sync?${params.toString()}`, { method: "POST" });
       const data = await res.json();
       
       if (debugMode) {
         setDebugInfo(prev => ({ ...prev, creditSync: data }));
       }
 
-      if (data.type === "ai_credits" && data.synced) {
+      // Handle the new response format from billing/sync
+      if (data.type === "ai_credits" && data.success) {
         // Credits synced successfully - refresh and dispatch event
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
         
-        const granted = data.creditSync?.granted || data.credits;
         setCreditSyncState({ 
           syncing: false, 
           synced: true, 
           error: null, 
-          creditsGranted: granted 
+          creditsGranted: data.creditsGranted || 0
         });
-      } else if (data.creditSync?.alreadyProcessed) {
+      } else if (data.type === "ai_credits" && data.alreadyProcessed) {
         // Already processed - just refresh
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
@@ -152,12 +156,21 @@ function BillingContent() {
           error: data.error, 
           creditsGranted: null 
         });
+      } else {
+        // Unknown response - try refreshing anyway
+        await refreshCredits();
+        setCreditSyncState({ 
+          syncing: false, 
+          synced: false, 
+          error: "Unexpected response from sync", 
+          creditsGranted: null 
+        });
       }
     } catch (err) {
       setCreditSyncState({ 
         syncing: false, 
         synced: false, 
-        error: "Failed to sync credits", 
+        error: err instanceof Error ? err.message : "Failed to sync credits", 
         creditsGranted: null 
       });
     }
