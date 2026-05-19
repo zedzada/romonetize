@@ -614,6 +614,16 @@ function AIAssistantContent() {
             apiDebugContext: data.debugContext,
           }));
         }
+        
+        // Capture OpenAI debug info from response (always present, not just in debug mode)
+        if (data.openai) {
+          setDebugInfo(prev => ({
+            ...prev,
+            openaiDebug: data.openai,
+            fallbackUsed: data.fallbackUsed,
+            fallbackReason: data.fallbackReason,
+          }));
+        }
 
         // Update credits
         refreshCredits();
@@ -997,6 +1007,36 @@ function AIAssistantContent() {
                 <div><strong>source:</strong> {(debugInfo.conversationsSource as string) || "N/A"}</div>
               </div>
               {conversationsError && <div className="mt-2 text-xs text-red-500"><strong>error:</strong> {conversationsError}</div>}
+            </div>
+            
+            {/* OpenAI Debug - CRITICAL for verifying AI is actually being called */}
+            <div className="mb-4 p-3 bg-red-500/10 rounded-lg border border-red-500/30">
+              <h4 className="text-xs font-semibold text-red-600 mb-2">OpenAI Debug (from /api/ai/chat response)</h4>
+              {debugInfo.openaiDebug ? (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div><strong>apiKeyPresent:</strong> {String((debugInfo.openaiDebug as Record<string, unknown>).apiKeyPresent)}</div>
+                    <div><strong>apiKeyPrefix:</strong> {(debugInfo.openaiDebug as Record<string, unknown>).apiKeyPrefix as string || "N/A"}</div>
+                    <div><strong>model:</strong> {(debugInfo.openaiDebug as Record<string, unknown>).model as string || "N/A"}</div>
+                    <div><strong>openaiCalled:</strong> <span className={(debugInfo.openaiDebug as Record<string, unknown>).openaiCalled ? "text-green-600 font-bold" : "text-red-600 font-bold"}>{String((debugInfo.openaiDebug as Record<string, unknown>).openaiCalled)}</span></div>
+                    <div><strong>responseId:</strong> {(debugInfo.openaiDebug as Record<string, unknown>).responseId as string || "N/A"}</div>
+                  </div>
+                  <div className="mt-2 text-xs">
+                    <strong>usage:</strong>
+                    <pre className="bg-secondary/30 p-2 rounded mt-1 overflow-auto">
+{JSON.stringify((debugInfo.openaiDebug as Record<string, unknown>).usage, null, 2)}
+                    </pre>
+                  </div>
+                  {debugInfo.fallbackUsed && (
+                    <div className="mt-2 text-xs text-red-500">
+                      <strong>fallbackUsed:</strong> {String(debugInfo.fallbackUsed)}<br/>
+                      <strong>fallbackReason:</strong> {debugInfo.fallbackReason as string || "unknown"}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">Send a message to see OpenAI debug info.</p>
+              )}
             </div>
             
             {/* API Response Context */}
