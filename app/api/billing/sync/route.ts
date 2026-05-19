@@ -531,7 +531,8 @@ export async function POST(request: NextRequest) {
     debug.planUpdateResult = planUpdateResult;
     
     // Update subscriptions table with safe date handling
-    const subscriptionUpsertPayload: Record<string, unknown> = {
+    // Note: Use insert/update pattern since stripe_subscription_id may not have unique constraint
+    const subscriptionPayload: Record<string, unknown> = {
       user_id: userId,
       stripe_customer_id: stripeCustomerId,
       stripe_subscription_id: subscription.id,
@@ -544,26 +545,48 @@ export async function POST(request: NextRequest) {
     
     // Only add date fields if valid
     if (currentPeriodStartIso) {
-      subscriptionUpsertPayload.current_period_start = currentPeriodStartIso;
+      subscriptionPayload.current_period_start = currentPeriodStartIso;
     }
     if (currentPeriodEndIso) {
-      subscriptionUpsertPayload.current_period_end = currentPeriodEndIso;
+      subscriptionPayload.current_period_end = currentPeriodEndIso;
     }
     
     debug.updatePayload = { 
       ...debug.updatePayload as Record<string, unknown>, 
-      subscriptions: subscriptionUpsertPayload 
+      subscriptions: subscriptionPayload 
     };
     
-    const { error: subUpdateError } = await supabaseAdmin
-      .from("subscriptions")
-      .upsert(subscriptionUpsertPayload, {
-        onConflict: "stripe_subscription_id",
-      });
+    // Try to find existing subscription record
+    let subUpdateError: Error | null = null;
+    try {
+      const { data: existingSub } = await supabaseAdmin
+        .from("subscriptions")
+        .select("id")
+        .eq("stripe_subscription_id", subscription.id)
+        .single();
+      
+      if (existingSub) {
+        // Update existing
+        const { error } = await supabaseAdmin
+          .from("subscriptions")
+          .update(subscriptionPayload)
+          .eq("stripe_subscription_id", subscription.id);
+        if (error) subUpdateError = new Error(error.message);
+      } else {
+        // Insert new - add created_at
+        const { error } = await supabaseAdmin
+          .from("subscriptions")
+          .insert({ ...subscriptionPayload, created_at: new Date().toISOString() });
+        if (error) subUpdateError = new Error(error.message);
+      }
+    } catch (e) {
+      subUpdateError = e instanceof Error ? e : new Error("Unknown subscription table error");
+    }
     
     let optionalFieldsUpdateResult = subUpdateError ? `failed: ${subUpdateError.message}` : "success";
     
     if (subUpdateError) {
+      // Don't fail the whole sync - subscription table is optional
       updateWarnings.push(`Subscriptions table update failed: ${subUpdateError.message}`);
     }
     
