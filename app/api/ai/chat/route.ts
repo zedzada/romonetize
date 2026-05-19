@@ -508,7 +508,8 @@ export async function POST(request: NextRequest) {
     let analyticsContext: Record<string, unknown>;
     let sourceUsed = "backend";
     
-    if (aiContext && aiContext.selectedGame) {
+    // Accept aiContext if it exists (even if selectedGame is null - we can still have Roblox stats or other data)
+    if (aiContext) {
       // Use frontend-provided context (from /api/dashboard/analytics)
       sourceUsed = "frontend_aiContext";
       
@@ -531,8 +532,8 @@ export async function POST(request: NextRequest) {
       
       analyticsContext = {
         hasData,
-        gameName: aiContext.selectedGame,
-        gameId: aiContext.gameId || gameId,
+        gameName: aiContext.selectedGame || null,
+        gameId: aiContext.gameId || gameId || null,
         robloxStats: robloxStats,
         trackedActions: trackerStats.trackedActions || 0,
         uniquePlayers: trackerStats.uniquePlayers || 0,
@@ -549,6 +550,7 @@ export async function POST(request: NextRequest) {
         arpdau: monetizationStats.arpdau || 0,
         syncedProductsCount: productStats.totalProducts || 0,
         topProducts: productStats.topProducts || [],
+        emptyReason: hasData ? null : "no_data_in_aiContext",
         _dataHealth: {
           hasTrackerData,
           hasPurchaseData,
