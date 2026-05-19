@@ -578,12 +578,8 @@ function AIAssistantContent() {
                 <RefreshCw className="w-4 h-4 animate-spin text-muted-foreground" />
               </div>
             ) : conversationsError ? (
-              <div className="text-center py-8 px-4">
-                <AlertCircle className="w-8 h-8 mx-auto mb-2 text-destructive/50" />
-                <p className="text-xs text-destructive">{conversationsError}</p>
-                <Button variant="ghost" size="sm" className="mt-2" onClick={fetchConversations}>
-                  Retry
-                </Button>
+              <div className="text-center py-4 px-2">
+                <p className="text-xs text-muted-foreground">Conversation history unavailable</p>
               </div>
             ) : conversations.length === 0 ? (
               <div className="text-center py-8 px-4">
