@@ -303,11 +303,161 @@ export async function POST(request: NextRequest) {
         };
         
         // Check if this is a credit purchase (not subscription)
-        if (checkoutSession.metadata?.purchaseType === "ai_credits") {
+        const purchaseType = 
+          checkoutSession.metadata?.purchaseType ||
+          checkoutSession.metadata?.purchase_type;
+        
+        if (purchaseType === "ai_credits" && checkoutSession.mode === "payment") {
+          // Handle AI credits purchase directly
+          step = "process_ai_credits";
+          
+          const creditsUserId = 
+            checkoutSession.metadata?.userId ||
+            checkoutSession.metadata?.user_id ||
+            userId;
+          const creditsAmount = Number(checkoutSession.metadata?.credits || 0);
+          const paymentStatus = checkoutSession.payment_status;
+          const paymentIntentId = typeof checkoutSession.payment_intent === "string" 
+            ? checkoutSession.payment_intent 
+            : checkoutSession.payment_intent?.id;
+          
+          debug.aiCreditSync = {
+            detectedAiCreditPurchase: true,
+            userIdResolved: creditsUserId,
+            creditsResolved: creditsAmount,
+            paymentStatus,
+            paymentIntentId,
+          };
+          
+          // Check if payment is complete
+          if (paymentStatus !== "paid") {
+            return NextResponse.json({
+              success: false,
+              type: "ai_credits",
+              error: `Payment not complete. Status: ${paymentStatus}`,
+              sessionId,
+              paymentStatus,
+              debug: debugMode ? debug : undefined,
+            });
+          }
+          
+          if (!creditsUserId || creditsAmount <= 0) {
+            return NextResponse.json({
+              success: false,
+              type: "ai_credits",
+              error: "Invalid credit purchase metadata",
+              sessionId,
+              metadata: checkoutSession.metadata,
+              debug: debugMode ? debug : undefined,
+            });
+          }
+          
+          // Check idempotency - was this session already processed?
+          const { data: existingTx } = await supabaseAdmin
+            .from("ai_credit_transactions")
+            .select("id, amount, balance_after")
+            .eq("user_id", creditsUserId)
+            .contains("metadata", { stripe_session_id: sessionId })
+            .limit(1);
+          
+          const alreadyProcessed = (existingTx?.length || 0) > 0;
+          
+          // Get current balance
+          const { data: currentBalance } = await supabaseAdmin
+            .from("ai_credit_balances")
+            .select("monthly_credits, extra_credits")
+            .eq("user_id", creditsUserId)
+            .single();
+          
+          const beforeMonthlyCredits = currentBalance?.monthly_credits || 0;
+          const beforeExtraCredits = currentBalance?.extra_credits || 0;
+          
+          debug.aiCreditSync = {
+            ...debug.aiCreditSync as Record<string, unknown>,
+            alreadyProcessed,
+            beforeMonthlyCredits,
+            beforeExtraCredits,
+          };
+          
+          if (alreadyProcessed) {
+            // Return current balance without granting again
+            const totalCredits = beforeMonthlyCredits + beforeExtraCredits;
+            
+            return NextResponse.json({
+              success: true,
+              type: "ai_credits",
+              creditsGranted: 0,
+              alreadyProcessed: true,
+              monthlyCredits: beforeMonthlyCredits,
+              extraCredits: beforeExtraCredits,
+              totalCredits,
+              sessionId,
+              debug: debugMode ? debug : undefined,
+            });
+          }
+          
+          // Grant credits
+          const newExtraCredits = beforeExtraCredits + creditsAmount;
+          const totalCredits = beforeMonthlyCredits + newExtraCredits;
+          
+          const { error: updateError } = await supabaseAdmin
+            .from("ai_credit_balances")
+            .upsert({
+              user_id: creditsUserId,
+              monthly_credits: beforeMonthlyCredits,
+              extra_credits: newExtraCredits,
+              updated_at: new Date().toISOString(),
+            }, {
+              onConflict: "user_id",
+            });
+          
+          if (updateError) {
+            debug.aiCreditSync = {
+              ...debug.aiCreditSync as Record<string, unknown>,
+              error: updateError.message,
+            };
+            
+            return NextResponse.json({
+              success: false,
+              type: "ai_credits",
+              error: `Failed to grant credits: ${updateError.message}`,
+              sessionId,
+              debug: debugMode ? debug : undefined,
+            }, { status: 500 });
+          }
+          
+          // Record transaction for idempotency
+          await supabaseAdmin
+            .from("ai_credit_transactions")
+            .insert({
+              user_id: creditsUserId,
+              type: `purchase_${creditsAmount}`,
+              amount: creditsAmount,
+              balance_after: totalCredits,
+              metadata: {
+                stripe_session_id: sessionId,
+                stripe_payment_intent: paymentIntentId,
+                source: "billing_sync",
+                packageId: checkoutSession.metadata?.packageId || checkoutSession.metadata?.package_id,
+              },
+              created_at: new Date().toISOString(),
+            });
+          
+          debug.aiCreditSync = {
+            ...debug.aiCreditSync as Record<string, unknown>,
+            afterMonthlyCredits: beforeMonthlyCredits,
+            afterExtraCredits: newExtraCredits,
+            totalCredits,
+          };
+          
           return NextResponse.json({
             success: true,
-            type: "ai_credits_session",
-            message: "This is an AI credits session, use credit sync endpoint",
+            type: "ai_credits",
+            creditsGranted: creditsAmount,
+            alreadyProcessed: false,
+            monthlyCredits: beforeMonthlyCredits,
+            extraCredits: newExtraCredits,
+            totalCredits,
             sessionId,
             debug: debugMode ? debug : undefined,
           });

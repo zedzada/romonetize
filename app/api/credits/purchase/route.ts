@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
     const headersList = await headers();
     const origin = headersList.get("origin") || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
 
-    // Create checkout session
+    // Create checkout session with both snake_case and camelCase metadata for compatibility
     const sessionConfig: Parameters<typeof stripe.checkout.sessions.create>[0] = {
       customer: customerId,
       mode: "payment",
@@ -64,17 +64,25 @@ export async function POST(request: NextRequest) {
       success_url: `${origin}/dashboard/billing?credits_success=true&credits=${creditPackage.credits}&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/dashboard/billing?credits_canceled=true`,
       metadata: {
+        // Both formats for compatibility
         purchaseType: "ai_credits",
+        purchase_type: "ai_credits",
         userId: user.id,
+        user_id: user.id,
         credits: creditPackage.credits.toString(),
         packageId: creditPackage.id,
+        package_id: creditPackage.id,
       },
       payment_intent_data: {
         metadata: {
+          // Both formats for compatibility
           purchaseType: "ai_credits",
+          purchase_type: "ai_credits",
           userId: user.id,
+          user_id: user.id,
           credits: creditPackage.credits.toString(),
           packageId: creditPackage.id,
+          package_id: creditPackage.id,
         },
       },
     };
