@@ -5,6 +5,32 @@ import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
 
+// Safe formatting helpers to prevent "Cannot read properties of undefined" crashes
+function safeNumber(value: unknown, fallback = 0): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function formatNum(value: unknown, fallback = "0"): string {
+  const n = safeNumber(value);
+  return n.toLocaleString();
+}
+
+function formatRobux(value: unknown): string {
+  return `${formatNum(value)} Robux`;
+}
+
+function formatPercent(value: unknown, decimals = 1): string {
+  const n = safeNumber(value);
+  return n === 0 ? "N/A" : `${n.toFixed(decimals)}%`;
+}
+
+function formatMinutes(seconds: unknown): string {
+  const n = safeNumber(seconds);
+  return n > 0 ? `${Math.round(n / 60)} minutes` : "unknown";
+}
+
 // Lazy init for service role client
 function getSupabaseAdmin() {
   const supabaseUrl =
@@ -631,11 +657,11 @@ Metric formulas (all use period totals, not daily averages):
       // Include Roblox synced stats if available
       const robloxSection = analyticsContext.robloxStats?.lastSynced ? `
 ROBLOX SYNCED STATS (from Roblox API):
-- Current CCU (Players Online): ${analyticsContext.robloxStats?.ccu?.toLocaleString() || "N/A"}
-- Total Visits: ${analyticsContext.robloxStats?.visits?.toLocaleString() || "N/A"}
-- Favorites: ${analyticsContext.robloxStats?.favorites?.toLocaleString() || "N/A"}
-- Likes: ${analyticsContext.robloxStats?.likes?.toLocaleString() || "N/A"}
-- Dislikes: ${analyticsContext.robloxStats?.dislikes?.toLocaleString() || "N/A"}
+- Current CCU (Players Online): ${formatNum(analyticsContext.robloxStats?.ccu)}
+- Total Visits: ${formatNum(analyticsContext.robloxStats?.visits)}
+- Favorites: ${formatNum(analyticsContext.robloxStats?.favorites)}
+- Likes: ${formatNum(analyticsContext.robloxStats?.likes)}
+- Dislikes: ${formatNum(analyticsContext.robloxStats?.dislikes)}
 - Last Synced: ${analyticsContext.robloxStats?.lastSynced || "Never"}
 ` : "";
 
@@ -643,7 +669,7 @@ ROBLOX SYNCED STATS (from Roblox API):
       const productsSection = analyticsContext.syncedProductsCount > 0 ? `
 ROBLOX PRODUCTS (synced from Roblox):
 ${analyticsContext.syncedProducts?.slice(0, 10).map((p: { name: string; type: string; price: number; isForSale: boolean }) => 
-  `- ${p.name} (${p.type}) - ${p.price} Robux${p.isForSale ? "" : " [Not for sale]"}`
+  `- ${p.name} (${p.type}) - ${safeNumber(p.price)} Robux${p.isForSale ? "" : " [Not for sale]"}`
 ).join("\n") || "No products synced"}
 ${analyticsContext.syncedProductsCount > 10 ? `... and ${analyticsContext.syncedProductsCount - 10} more products` : ""}
 ` : "";
@@ -652,29 +678,29 @@ ${analyticsContext.syncedProductsCount > 10 ? `... and ${analyticsContext.synced
 ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"} (7-day period):
 ${robloxSection}
 TRACKER ANALYTICS (from RoMonetize tracking script):
-- Tracked Actions: ${analyticsContext.trackedActions?.toLocaleString() || 0}
-- Unique Players: ${analyticsContext.uniquePlayers?.toLocaleString() || 0}
-- Total Sessions: ${analyticsContext.totalSessions?.toLocaleString() || 0}
-- Avg Session Duration: ${analyticsContext.avgSessionSeconds ? Math.round(analyticsContext.avgSessionSeconds / 60) + " minutes" : "unknown"}
+- Tracked Actions: ${formatNum(analyticsContext.trackedActions)}
+- Unique Players: ${formatNum(analyticsContext.uniquePlayers)}
+- Total Sessions: ${formatNum(analyticsContext.totalSessions)}
+- Avg Session Duration: ${formatMinutes(analyticsContext.avgSessionSeconds)}
 
 MONETIZATION METRICS:
-- Purchases: ${analyticsContext.totalPurchases?.toLocaleString() || 0}
-- Estimated Revenue: ${analyticsContext.estimatedRevenue?.toLocaleString() || 0} Robux (creator payout after 30% Roblox cut)
-- Gross Revenue: ${analyticsContext.grossRevenue?.toLocaleString() || 0} Robux (before Roblox cut)
-- Paying Users: ${analyticsContext.payingUsers?.toLocaleString() || 0}
-- Active Users: ${analyticsContext.activeUsers?.toLocaleString() || 0}
-- PCR (Payer Conversion Rate): ${analyticsContext.pcr ? analyticsContext.pcr.toFixed(2) + "%" : "N/A"}
-- ARPPU (Avg Revenue Per Paying User): ${analyticsContext.arppu ? analyticsContext.arppu.toFixed(0) + " Robux" : "N/A"}
-- ARPDAU (Avg Revenue Per DAU): ${analyticsContext.arpdau ? analyticsContext.arpdau.toFixed(2) + " Robux" : "N/A"}
-- Gamepass Revenue: ${analyticsContext.gamepassRevenue?.toLocaleString() || 0} Robux
-- Dev Product Revenue: ${analyticsContext.devproductRevenue?.toLocaleString() || 0} Robux
+- Purchases: ${formatNum(analyticsContext.totalPurchases)}
+- Estimated Revenue: ${formatRobux(analyticsContext.estimatedRevenue)} (creator payout after 30% Roblox cut)
+- Gross Revenue: ${formatRobux(analyticsContext.grossRevenue)} (before Roblox cut)
+- Paying Users: ${formatNum(analyticsContext.payingUsers)}
+- Active Users: ${formatNum(analyticsContext.activeUsers)}
+- PCR (Payer Conversion Rate): ${formatPercent(analyticsContext.pcr, 2)}
+- ARPPU (Avg Revenue Per Paying User): ${safeNumber(analyticsContext.arppu) > 0 ? `${safeNumber(analyticsContext.arppu).toFixed(0)} Robux` : "N/A"}
+- ARPDAU (Avg Revenue Per DAU): ${safeNumber(analyticsContext.arpdau) > 0 ? `${safeNumber(analyticsContext.arpdau).toFixed(2)} Robux` : "N/A"}
+- Gamepass Revenue: ${formatRobux(analyticsContext.gamepassRevenue)}
+- Dev Product Revenue: ${formatRobux(analyticsContext.devproductRevenue)}
 
 TOP PRODUCTS BY REVENUE:
 ${
   analyticsContext.topProducts
     ?.map(
       (p: { name: string; revenue: number; purchases: number; productType: string }, i: number) =>
-        `${i + 1}. ${p.name} - ${p.revenue.toLocaleString()} Robux (${p.purchases} purchases, ${p.productType})`
+        `${i + 1}. ${p.name || "Unknown"} - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases, ${p.productType || "unknown"})`
     )
     .join("\n") || "No product data"
 }
@@ -684,16 +710,16 @@ Use this real data when answering questions. Reference specific numbers and prod
       // PART 5: Only show this when truly ALL data is zero
       // Check the _dataHealth flags to be specific about what's missing
       const dataHealth = analyticsContext._dataHealth as Record<string, boolean> | undefined;
-      const hasRobloxStats = dataHealth?.hasRobloxStats || (analyticsContext.robloxStats as Record<string, number> | undefined)?.visits > 0;
+      const hasRobloxStats = dataHealth?.hasRobloxStats || safeNumber((analyticsContext.robloxStats as Record<string, number> | undefined)?.visits) > 0;
       
       if (hasRobloxStats) {
         // User has Roblox stats but no tracker data - suggest installing tracker
         const robloxStats = analyticsContext.robloxStats as Record<string, number> | undefined;
         systemPrompt += `
 NOTE: This user has a game called "${analyticsContext.gameName}" with Roblox public stats:
-- Total Visits: ${robloxStats?.visits?.toLocaleString() || 0}
-- Current Players: ${robloxStats?.ccu || 0}
-- Favorites: ${robloxStats?.favorites?.toLocaleString() || 0}
+- Total Visits: ${formatNum(robloxStats?.visits)}
+- Current Players: ${formatNum(robloxStats?.ccu)}
+- Favorites: ${formatNum(robloxStats?.favorites)}
 
 However, deep monetization tracking data is not yet available. To get purchase analytics, conversion rates, and revenue tracking, they need to install the RoMonetize tracking script.
 
