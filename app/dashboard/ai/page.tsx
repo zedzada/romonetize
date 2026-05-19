@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, Component, type ReactNode, useCallback } from "react";
+import { useState, useRef, useEffect, Component, type ReactNode, useCallback, Suspense } from "react";
 import Image from "next/image";
 import { useSearchParams } from "next/navigation";
 import {
@@ -778,11 +778,25 @@ function AIAssistantContent() {
   );
 }
 
-// Export wrapped with error boundary
+// Export wrapped with error boundary and Suspense for useSearchParams
 export default function AIAssistantPage() {
   return (
     <AIErrorBoundary>
-      <AIAssistantContent />
+      <Suspense fallback={
+        <div className="space-y-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary to-blue-400 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-primary-foreground" />
+              </div>
+              AI Assistant
+            </h1>
+            <p className="text-muted-foreground mt-1">Loading AI Assistant...</p>
+          </div>
+        </div>
+      }>
+        <AIAssistantContent />
+      </Suspense>
     </AIErrorBoundary>
   );
 }
