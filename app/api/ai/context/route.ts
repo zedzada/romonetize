@@ -2,6 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getDashboardMetrics } from "@/lib/server/dashboard-metrics";
 
+// Safe formatting helpers
+function safeNum(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function fmtNum(value: unknown): string {
+  return safeNum(value).toLocaleString();
+}
+
 export const dynamic = "force-dynamic";
 
 /**
@@ -173,33 +184,33 @@ export async function GET(request: NextRequest) {
   promptLines.push(`Selected game: ${game.name}`);
   
   if (hasTrackerEvents) {
-    promptLines.push(`Tracked actions: ${metrics.trackedActions?.toLocaleString() ?? "unknown"}`);
-    promptLines.push(`Unique players: ${metrics.uniquePlayers?.toLocaleString() ?? "unknown"}`);
-    promptLines.push(`Total sessions: ${metrics.totalSessions?.toLocaleString() ?? "unknown"}`);
+    promptLines.push(`Tracked actions: ${fmtNum(metrics.trackedActions)}`);
+    promptLines.push(`Unique players: ${fmtNum(metrics.uniquePlayers)}`);
+    promptLines.push(`Total sessions: ${fmtNum(metrics.totalSessions)}`);
   }
   
   if (hasPurchaseEvents) {
-    promptLines.push(`Purchases: ${metrics.purchases?.toLocaleString() ?? "unknown"}`);
-    promptLines.push(`Estimated revenue: ${metrics.estimatedRevenue?.toLocaleString() ?? "unknown"} Robux`);
-    promptLines.push(`Paying users: ${metrics.payingUsers?.toLocaleString() ?? "unknown"}`);
-    if (metrics.pcr !== null && metrics.pcr > 0) {
-      promptLines.push(`PCR: ${metrics.pcr.toFixed(2)}%`);
+    promptLines.push(`Purchases: ${fmtNum(metrics.purchases)}`);
+    promptLines.push(`Estimated revenue: ${fmtNum(metrics.estimatedRevenue)} Robux`);
+    promptLines.push(`Paying users: ${fmtNum(metrics.payingUsers)}`);
+    if (safeNum(metrics.pcr) > 0) {
+      promptLines.push(`PCR: ${safeNum(metrics.pcr).toFixed(2)}%`);
     }
-    if (metrics.arppu !== null && metrics.arppu > 0) {
-      promptLines.push(`ARPPU: ${metrics.arppu.toFixed(0)} Robux`);
+    if (safeNum(metrics.arppu) > 0) {
+      promptLines.push(`ARPPU: ${safeNum(metrics.arppu).toFixed(0)} Robux`);
     }
-    if (metrics.arpdau !== null && metrics.arpdau > 0) {
-      promptLines.push(`ARPDAU: ${metrics.arpdau.toFixed(2)} Robux`);
+    if (safeNum(metrics.arpdau) > 0) {
+      promptLines.push(`ARPDAU: ${safeNum(metrics.arpdau).toFixed(2)} Robux`);
     }
   }
   
   if (topProducts.length > 0) {
-    promptLines.push(`Top products: ${topProducts.map(p => `${p.name} (${p.revenue.toLocaleString()} Robux)`).join(", ")}`);
+    promptLines.push(`Top products: ${topProducts.map(p => `${p.name} (${fmtNum(p.revenue)} Robux)`).join(", ")}`);
   }
   
   if (hasRobloxStats) {
-    if (game.current_players) promptLines.push(`Current CCU: ${game.current_players.toLocaleString()}`);
-    if (game.total_visits) promptLines.push(`Visits: ${game.total_visits.toLocaleString()}`);
+    if (safeNum(game.current_players) > 0) promptLines.push(`Current CCU: ${fmtNum(game.current_players)}`);
+    if (safeNum(game.total_visits) > 0) promptLines.push(`Visits: ${fmtNum(game.total_visits)}`);
   }
   
   if (!hasTrackerEvents && !hasPurchaseEvents) {

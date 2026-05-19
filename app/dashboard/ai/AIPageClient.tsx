@@ -1098,16 +1098,16 @@ function AIAssistantContent() {
                 <div className="mt-2 p-2 bg-yellow-500/10 border border-yellow-500/30 rounded">
                   <strong className="text-xs text-yellow-600">Dashboard Stats Preview (should match dashboard cards):</strong>
                   <div className="grid grid-cols-3 gap-1 text-xs mt-1">
-                    <div>Tracked: {(debugInfo.dashboardStatsPreview as Record<string, number>).trackedActions?.toLocaleString()}</div>
-                    <div>Players: {(debugInfo.dashboardStatsPreview as Record<string, number>).uniquePlayers?.toLocaleString()}</div>
-                    <div>Sessions: {(debugInfo.dashboardStatsPreview as Record<string, number>).totalSessions?.toLocaleString()}</div>
-                    <div>Purchases: {(debugInfo.dashboardStatsPreview as Record<string, number>).purchases?.toLocaleString()}</div>
-                    <div>Est Rev: R${(debugInfo.dashboardStatsPreview as Record<string, number>).estimatedRevenue?.toLocaleString()}</div>
-                    <div>Paying: {(debugInfo.dashboardStatsPreview as Record<string, number>).payingUsers?.toLocaleString()}</div>
-                    <div>PCR: {((debugInfo.dashboardStatsPreview as Record<string, number>).pcr || 0).toFixed(1)}%</div>
-                    <div>ARPPU: R${(debugInfo.dashboardStatsPreview as Record<string, number>).arppu?.toLocaleString()}</div>
-                    <div>CCU: {(debugInfo.dashboardStatsPreview as Record<string, number>).ccu?.toLocaleString()}</div>
-                    <div>Visits: {(debugInfo.dashboardStatsPreview as Record<string, number>).visits?.toLocaleString()}</div>
+                    <div>Tracked: {((debugInfo.dashboardStatsPreview as Record<string, number>).trackedActions ?? 0).toLocaleString()}</div>
+                    <div>Players: {((debugInfo.dashboardStatsPreview as Record<string, number>).uniquePlayers ?? 0).toLocaleString()}</div>
+                    <div>Sessions: {((debugInfo.dashboardStatsPreview as Record<string, number>).totalSessions ?? 0).toLocaleString()}</div>
+                    <div>Purchases: {((debugInfo.dashboardStatsPreview as Record<string, number>).purchases ?? 0).toLocaleString()}</div>
+                    <div>Est Rev: R${((debugInfo.dashboardStatsPreview as Record<string, number>).estimatedRevenue ?? 0).toLocaleString()}</div>
+                    <div>Paying: {((debugInfo.dashboardStatsPreview as Record<string, number>).payingUsers ?? 0).toLocaleString()}</div>
+                    <div>PCR: {((debugInfo.dashboardStatsPreview as Record<string, number>).pcr ?? 0).toFixed(1)}%</div>
+                    <div>ARPPU: R${((debugInfo.dashboardStatsPreview as Record<string, number>).arppu ?? 0).toLocaleString()}</div>
+                    <div>CCU: {((debugInfo.dashboardStatsPreview as Record<string, number>).ccu ?? 0).toLocaleString()}</div>
+                    <div>Visits: {((debugInfo.dashboardStatsPreview as Record<string, number>).visits ?? 0).toLocaleString()}</div>
                   </div>
                 </div>
               )}
