@@ -72,6 +72,7 @@ function SettingsPageContent() {
   const [robloxSuccess, setRobloxSuccess] = useState(false);
   const [sendingTestEmail, setSendingTestEmail] = useState(false);
   const [testEmailSent, setTestEmailSent] = useState(false);
+  const [testEmailError, setTestEmailError] = useState<string | null>(null);
   const [passwordResetSent, setPasswordResetSent] = useState(false);
   const [sendingPasswordReset, setSendingPasswordReset] = useState(false);
   const [isOAuthUser, setIsOAuthUser] = useState(false);
@@ -299,6 +300,9 @@ function SettingsPageContent() {
     if (!user?.email) return;
     
     setSendingTestEmail(true);
+    setTestEmailError(null);
+    setTestEmailSent(false);
+    
     try {
       const res = await fetch("/api/email/test", {
         method: "POST",
@@ -306,12 +310,19 @@ function SettingsPageContent() {
         body: JSON.stringify({ email: user.email }),
       });
       
-      if (res.ok) {
+      const data = await res.json();
+      
+      if (data.success) {
         setTestEmailSent(true);
         setTimeout(() => setTestEmailSent(false), 5000);
+      } else {
+        setTestEmailError(data.error || "Failed to send test email");
+        setTimeout(() => setTestEmailError(null), 10000);
       }
     } catch (error) {
-      console.error("[v0] Error sending test email:", error);
+      console.error("[Settings] Error sending test email:", error);
+      setTestEmailError("Network error - please try again");
+      setTimeout(() => setTestEmailError(null), 10000);
     } finally {
       setSendingTestEmail(false);
     }
@@ -730,7 +741,7 @@ function SettingsPageContent() {
                   ))}
                   
                   {/* Test email button */}
-                  <div className="pt-2">
+                  <div className="pt-2 space-y-2">
                     <Button
                       variant="outline"
                       size="sm"
@@ -755,6 +766,24 @@ function SettingsPageContent() {
                         </>
                       )}
                     </Button>
+                    
+                    {testEmailError && (
+                      <Alert variant="destructive" className="py-2">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription className="text-sm">
+                          {testEmailError}
+                        </AlertDescription>
+                      </Alert>
+                    )}
+                    
+                    {testEmailSent && (
+                      <Alert className="border-green-500/50 bg-green-500/10 py-2">
+                        <CheckCircle className="h-4 w-4 text-green-500" />
+                        <AlertDescription className="text-green-700 dark:text-green-400 text-sm">
+                          Test email sent! Check your inbox.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
                 </>
               )}
