@@ -151,20 +151,58 @@ export async function POST(request: NextRequest) {
 
     // Step 2: Get authenticated user
     step = "get_user";
-    const supabase = await createClient();
-    const { data: { user }, error: userError } = await supabase.auth.getUser();
+    let supabase;
+    try {
+      supabase = await createClient();
+    } catch (e) {
+      return NextResponse.json({
+        success: false,
+        error: "Failed to create Supabase client",
+        step,
+        authDebug: {
+          hasSession: false,
+          authError: e instanceof Error ? e.message : "Unknown error creating client",
+        },
+        debug,
+      }, { status: 500 });
+    }
+    
+    let user = null;
+    let userError = null;
+    
+    try {
+      const result = await supabase.auth.getUser();
+      user = result.data?.user || null;
+      userError = result.error;
+    } catch (e) {
+      return NextResponse.json({
+        success: false,
+        error: "Unable to get authenticated user",
+        step,
+        authDebug: {
+          hasSession: false,
+          authError: e instanceof Error ? e.message : "Exception calling getUser",
+        },
+        debug,
+      }, { status: 500 });
+    }
 
     if (userError || !user) {
       return NextResponse.json({
         success: false,
-        error: userError?.message || "Not authenticated",
+        error: "Unable to get authenticated user",
         step,
+        authDebug: {
+          hasSession: false,
+          authError: userError?.message || "No user returned from auth",
+        },
         debug,
       }, { status: 401 });
     }
     
     debug.userId = user.id;
     debug.email = user.email;
+    debug.authDebug = { hasSession: true };
 
     // Step 3: Get URL params
     step = "parse_params";
