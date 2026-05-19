@@ -831,6 +831,7 @@ function AIAssistantContent() {
                 <div><strong>selectedGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
                 <div><strong>aiContextBuilt:</strong> {String(Boolean(aiContext))}</div>
                 <div><strong>conversationsStatus:</strong> {loadingConversations ? "loading" : conversationsError ? "error" : "success"}</div>
+                <div><strong>conversationsCount:</strong> {conversations.length}</div>
                 {conversationsError && <div className="col-span-2 text-red-500"><strong>conversationsError:</strong> {conversationsError}</div>}
               </div>
               {aiContext && (
