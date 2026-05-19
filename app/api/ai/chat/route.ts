@@ -557,12 +557,23 @@ export async function POST(request: NextRequest) {
         },
       };
     } else {
-      // Fallback: Get analytics context using admin client (bypasses RLS for reliable data access)
-      analyticsContext = await getAnalyticsContext(
-        supabaseAdmin,
-        user.id,
-        gameId
-      );
+      // Fallback: Try to get analytics context, but don't block chat if it fails
+      try {
+        analyticsContext = await getAnalyticsContext(
+          supabaseAdmin,
+          user.id,
+          gameId
+        );
+      } catch (contextError) {
+        console.error("[v0] Failed to get analytics context:", contextError);
+        // Use empty context - chat can still work without stats
+        analyticsContext = {
+          hasData: false,
+          gameName: null,
+          gameId: null,
+          emptyReason: "context_fetch_failed",
+        };
+      }
     }
 
     // Build system prompt with analytics context

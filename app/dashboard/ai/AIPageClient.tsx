@@ -258,12 +258,17 @@ function AIAssistantContent() {
       const data = await res.json();
       if (data.success) {
         setConversations(data.conversations || []);
+        setConversationsError(null);
       } else {
-        setConversationsError(data.error || data.step ? `Error at ${data.step}: ${data.error}` : "Failed to load conversations");
+        // Non-blocking: show error but don't prevent chat from working
+        setConversations([]);
+        setConversationsError(data.error || "Conversations unavailable");
       }
     } catch (error) {
+      // Non-blocking: conversations failing shouldn't break chat
       console.error("Failed to fetch conversations:", error);
-      setConversationsError(error instanceof Error ? error.message : "Network error");
+      setConversations([]);
+      setConversationsError("Conversations unavailable");
     } finally {
       setLoadingConversations(false);
     }
@@ -399,7 +404,7 @@ function AIAssistantContent() {
     // Set loading
     setIsLoading(true);
 
-    // Ensure we have a conversation
+    // Try to create/get a conversation, but don't block chat if it fails
     let conversationId = activeConversationId;
     if (!conversationId) {
       // Auto-generate title from first message
@@ -408,6 +413,7 @@ function AIAssistantContent() {
       if (conversationId) {
         setActiveConversationId(conversationId);
       }
+      // If conversation creation fails, continue anyway - chat will work without persistence
     }
 
     try {
