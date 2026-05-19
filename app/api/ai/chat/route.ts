@@ -149,37 +149,23 @@ async function getAnalyticsContext(
   userId: string,
   gameId?: string
 ) {
-  // Get user's selected game (is_selected = true) using ADMIN client to bypass RLS
+  // Get user's game - either specified, or the most recently updated one
   let targetGameId = gameId;
   let game = null;
 
   if (!targetGameId) {
-    // First try to get the selected game
-    const { data: selectedGame } = await supabaseAdmin
+    // Get the most recently updated active game (fallback if is_selected column doesn't exist)
+    const { data: games } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", userId)
-      .eq("is_selected", true)
       .neq("status", "deleted")
-      .single();
+      .order("updated_at", { ascending: false })
+      .limit(1);
 
-    if (selectedGame) {
-      targetGameId = selectedGame.id;
-      game = selectedGame;
-    } else {
-      // Fallback: auto-select the first active game
-      const { data: games } = await supabaseAdmin
-        .from("games")
-        .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
-        .eq("user_id", userId)
-        .neq("status", "deleted")
-        .order("created_at", { ascending: false })
-        .limit(1);
-
-      if (games && games.length > 0) {
-        targetGameId = games[0].id;
-        game = games[0];
-      }
+    if (games && games.length > 0) {
+      targetGameId = games[0].id;
+      game = games[0];
     }
   } else {
     // Verify ownership and get Roblox stats
