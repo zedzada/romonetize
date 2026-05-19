@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { createClient as createAdminClient } from "@supabase/supabase-js";
 
 export const dynamic = "force-dynamic";
+
+// Admin client for bypassing RLS
+function getSupabaseAdmin() {
+  const supabaseUrl =
+    process.env.NEXT_PUBLIC_SUPABASE_CUSTOM_URL ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL;
+  return createAdminClient(supabaseUrl!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+}
 
 /**
  * GET /api/ai/conversations - List user's conversations
@@ -16,13 +25,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
   const url = new URL(request.url);
   const limit = parseInt(url.searchParams.get("limit") || "20", 10);
   const offset = parseInt(url.searchParams.get("offset") || "0", 10);
   const gameId = url.searchParams.get("gameId") || undefined;
 
   try {
-    let query = supabase
+    let query = supabaseAdmin
       .from("ai_conversations")
       .select("id, title, folder, game_id, created_at, updated_at")
       .eq("user_id", user.id)
@@ -58,6 +68,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: "Not authenticated" }, { status: 401 });
   }
 
+  const supabaseAdmin = getSupabaseAdmin();
+
   try {
     const body = await request.json();
     const { title, gameId, folder } = body as {
@@ -66,7 +78,7 @@ export async function POST(request: NextRequest) {
       folder?: string;
     };
 
-    const { data: conversation, error } = await supabase
+    const { data: conversation, error } = await supabaseAdmin
       .from("ai_conversations")
       .insert({
         user_id: user.id,
