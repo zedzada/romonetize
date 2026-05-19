@@ -329,12 +329,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, imageDataUrl, imageName, imageMimeType } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId } = body as {
       message: string;
       gameId?: string;
       imageDataUrl?: string;
       imageName?: string;
       imageMimeType?: string;
+      conversationId?: string;
     };
 
     if (!message && !imageDataUrl) {
@@ -346,15 +347,6 @@ export async function POST(request: NextRequest) {
 
     // Detect if we have an image
     const hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
-    
-    // Debug: Log image detection
-    console.log("[v0] AI Chat - Image detection:", {
-      hasImageDataUrl: Boolean(imageDataUrl),
-      imageDataUrlLength: imageDataUrl?.length || 0,
-      startsWithDataImage: imageDataUrl?.startsWith("data:image") || false,
-      hasImage,
-      imageMimeType,
-    });
     
     // Determine credit type based on image
     const creditType = hasImage ? "image" : "text";
@@ -487,7 +479,6 @@ You can still answer general Roblox monetization questions without the data.`;
     if (hasImage && imageDataUrl) {
       // Vision request - content must be array of parts
       // AI SDK ImagePart uses 'image' not 'image_url'
-      console.log("[v0] Building vision message with image part");
       userContent = [
         {
           type: "text" as const,
@@ -501,7 +492,6 @@ You can still answer general Roblox monetization questions without the data.`;
       ];
     } else {
       // Text-only request
-      console.log("[v0] Building text-only message");
       userContent = userMessageText;
     }
 
@@ -523,11 +513,48 @@ You can still answer general Roblox monetization questions without the data.`;
       temperature: 0.7,
     });
 
+    // Save messages to conversation if conversationId provided
+    let savedConversationId = conversationId;
+    if (conversationId) {
+      try {
+        // Save user message
+        await supabaseAdmin.from("ai_messages").insert({
+          conversation_id: conversationId,
+          user_id: user.id,
+          role: "user",
+          content: userMessageText,
+          has_image: hasImage,
+          image_url: null, // We don't persist image data URLs for privacy/storage
+          metadata: hasImage ? { imageName, imageMimeType } : {},
+        });
+        
+        // Save assistant message
+        await supabaseAdmin.from("ai_messages").insert({
+          conversation_id: conversationId,
+          user_id: user.id,
+          role: "assistant",
+          content: result.text,
+          has_image: false,
+          metadata: {},
+        });
+        
+        // Update conversation's updated_at
+        await supabaseAdmin
+          .from("ai_conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", conversationId);
+      } catch (msgError) {
+        console.error("[v0] Failed to save messages:", msgError);
+        // Don't fail the request if message saving fails
+      }
+    }
+
     // Return success response
     return NextResponse.json({
       success: true,
       message: result.text,
       credits: creditResult.remaining,
+      conversationId: savedConversationId,
     });
   } catch (error) {
     console.error("[v0] AI chat error:", error);
