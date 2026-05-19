@@ -10,7 +10,6 @@ import {
   TrendingUp,
   DollarSign,
   BarChart3,
-  CreditCard,
   ImageIcon,
   X,
   Trash2,
@@ -19,10 +18,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { useCredits, useCreditPackages } from "@/hooks/use-credits";
-import { AI_CREDIT_COSTS, CREDIT_PACKAGES } from "@/lib/products";
+import { useCredits } from "@/hooks/use-credits";
+import { AI_CREDIT_COSTS } from "@/lib/products";
 import ReactMarkdown from "react-markdown";
+import { BuyCreditsModal } from "@/components/billing/BuyCreditsModal";
 
 // Error boundary for the AI page
 class AIErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error?: Error }> {
@@ -101,13 +100,11 @@ function AIAssistantContent() {
   const [showBuyCreditsModal, setShowBuyCreditsModal] = useState(false);
   const [selectedImage, setSelectedImage] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [purchasingPackage, setPurchasingPackage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   // Credits
   const { totalCredits, isLoading: creditsLoading, refresh: refreshCredits } = useCredits();
-  const { purchaseCredits } = useCreditPackages();
   
   // Credit cost based on image
   const creditCost = selectedImage ? AI_CREDIT_COSTS.image : AI_CREDIT_COSTS.text;
@@ -138,13 +135,6 @@ function AIAssistantContent() {
     }
   };
 
-  // Purchase credits
-  const handlePurchase = async (packageId: string) => {
-    setPurchasingPackage(packageId);
-    await purchaseCredits(packageId);
-    setPurchasingPackage(null);
-  };
-
   // SINGLE SEND FUNCTION - used by all send methods
   const handleSend = async (messageOverride?: string) => {
     const text = messageOverride ?? input.trim();
@@ -161,15 +151,15 @@ function AIAssistantContent() {
 
     // Do NOT block on credits client-side - let server handle it
 
-    // Build user message content
+    // Build user message content for display
     let userContent = text;
     if (imagePreview && !text) {
-      userContent = "Please analyze this screenshot.";
+      userContent = "[Image attached]\n\nPlease analyze this screenshot.";
     } else if (imagePreview && text) {
       userContent = `[Image attached]\n\n${text}`;
     }
 
-    // Add user message
+    // Add user message to UI
     const userMessageId = `user-${Date.now()}`;
     const userMessage: Message = {
       id: userMessageId,
@@ -178,20 +168,38 @@ function AIAssistantContent() {
     };
     setMessages(prev => [...prev, userMessage]);
 
-    // Clear input and image
+    // Clear input and capture image before clearing
     setInput("");
-    const currentImage = imagePreview;
+    const currentImageDataUrl = imagePreview;
+    const currentImageFile = selectedImage;
     handleRemoveImage();
 
     // Set loading
     setIsLoading(true);
 
     try {
-      // Build request body
-      const requestBody = {
+      // Build request body - send actual image data URL to API
+      const requestBody: {
+        message: string;
+        imageDataUrl?: string;
+        imageName?: string;
+        imageMimeType?: string;
+      } = {
         message: text || "Please analyze this screenshot.",
-        image: currentImage || null,
       };
+      
+      // Include image data if present
+      if (currentImageDataUrl && currentImageFile) {
+        requestBody.imageDataUrl = currentImageDataUrl;
+        requestBody.imageName = currentImageFile.name;
+        requestBody.imageMimeType = currentImageFile.type || "image/png";
+        console.log("[v0] Sending image to API:", {
+          hasDataUrl: Boolean(currentImageDataUrl),
+          dataUrlLength: currentImageDataUrl.length,
+          mimeType: currentImageFile.type,
+          fileName: currentImageFile.name,
+        });
+      }
 
       // Call API
       const res = await fetch("/api/ai/chat", {
@@ -455,73 +463,7 @@ function AIAssistantContent() {
       </Card>
 
       {/* Buy Credits Modal */}
-      <Dialog open={showBuyCreditsModal} onOpenChange={setShowBuyCreditsModal}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-purple-500" />
-              Buy Extra AI Credits
-            </DialogTitle>
-            <DialogDescription>
-              Purchase additional credits for AI Assistant features. Extra credits never expire.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 py-4">
-            {CREDIT_PACKAGES.map((pkg) => {
-              const badge = pkg.credits === 250 
-                ? { text: "Best Value - Save 10%", color: "text-green-600 bg-green-500/10" }
-                : pkg.credits === 500
-                  ? { text: "Save 25%", color: "text-blue-600 bg-blue-500/10" }
-                  : null;
-              
-              return (
-                <button
-                  key={pkg.id}
-                  onClick={() => handlePurchase(pkg.id)}
-                  disabled={purchasingPackage !== null}
-                  className={`w-full p-4 rounded-lg border transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed ${
-                    pkg.credits === 250
-                      ? "border-green-500/30 bg-green-500/5 hover:bg-green-500/10"
-                      : "border-border bg-card hover:bg-secondary/50"
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      pkg.credits === 250 ? "bg-green-500/10" : "bg-purple-500/10"
-                    }`}>
-                      <Sparkles className={`w-5 h-5 ${pkg.credits === 250 ? "text-green-500" : "text-purple-500"}`} />
-                    </div>
-                    <div className="text-left">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold">{pkg.credits} Credits</span>
-                        {badge && (
-                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.color}`}>
-                            {badge.text}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-sm text-muted-foreground">
-                        ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-lg">${(pkg.priceInCents / 100).toFixed(2)}</span>
-                    {purchasingPackage === pkg.id ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <CreditCard className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-          <div className="text-xs text-muted-foreground text-center">
-            Secure payment via Stripe. Credits are added instantly after purchase.
-          </div>
-        </DialogContent>
-      </Dialog>
+      <BuyCreditsModal open={showBuyCreditsModal} onOpenChange={setShowBuyCreditsModal} />
     </div>
   );
 }

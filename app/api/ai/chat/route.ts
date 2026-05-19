@@ -4,6 +4,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
+import { getDashboardMetrics } from "@/lib/server/dashboard-metrics";
 
 // Lazy init for service role client
 function getSupabaseAdmin() {
@@ -129,7 +130,8 @@ async function refundCredits(
   });
 }
 
-// Get analytics context for the AI
+// Get analytics context for the AI using SHARED dashboard metrics
+// This ensures AI sees the SAME data as Overview, Monetization, Products pages
 async function getAnalyticsContext(
   supabase: Awaited<ReturnType<typeof createServerClient>>,
   userId: string,
@@ -137,12 +139,13 @@ async function getAnalyticsContext(
 ) {
   // Get user's selected game (is_selected = true)
   let targetGameId = gameId;
+  let game = null;
 
   if (!targetGameId) {
     // First try to get the selected game
     const { data: selectedGame } = await supabase
       .from("games")
-      .select("id, name, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
+      .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", userId)
       .eq("is_selected", true)
       .neq("status", "deleted")
@@ -150,11 +153,12 @@ async function getAnalyticsContext(
 
     if (selectedGame) {
       targetGameId = selectedGame.id;
+      game = selectedGame;
     } else {
       // Fallback: auto-select the first active game
       const { data: games } = await supabase
         .from("games")
-        .select("id, name, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
+        .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
         .eq("user_id", userId)
         .neq("status", "deleted")
         .order("created_at", { ascending: false })
@@ -162,27 +166,56 @@ async function getAnalyticsContext(
 
       if (games && games.length > 0) {
         targetGameId = games[0].id;
+        game = games[0];
       }
     }
+  } else {
+    // Verify ownership and get Roblox stats
+    const { data: gameData } = await supabase
+      .from("games")
+      .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
+      .eq("id", targetGameId)
+      .eq("user_id", userId)
+      .single();
+    game = gameData;
   }
 
-  if (!targetGameId) {
-    return { hasData: false, gameName: null };
+  if (!targetGameId || !game) {
+    return { hasData: false, gameName: null, emptyReason: "no_game" };
   }
 
-  // Verify ownership and get Roblox stats
-  const { data: game } = await supabase
-    .from("games")
-    .select("id, name, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
-    .eq("id", targetGameId)
-    .eq("user_id", userId)
-    .single();
+  // Use SHARED dashboard metrics - same source as Overview, Monetization, Products
+  const metrics = await getDashboardMetrics(userId, targetGameId, "7d");
 
-  if (!game) {
-    return { hasData: false, gameName: null };
-  }
+  // Get top products from events
+  const { data: topProductsData } = await supabase
+    .from("events")
+    .select("product_name, product_id, product_type, robux, metadata")
+    .eq("game_id", targetGameId)
+    .in("event_type", ["purchase_success", "gamepass_purchase", "devproduct_purchase"])
+    .order("created_at", { ascending: false })
+    .limit(500);
 
-  // Fetch synced Roblox products
+  const productRevenue = new Map<string, { name: string; revenue: number; purchases: number; productType: string }>();
+  topProductsData?.forEach(e => {
+    const productId = e.product_id || e.product_name || "unknown";
+    const name = e.product_name || productId;
+    const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
+    const productType = e.product_type || "gamepass";
+    const existing = productRevenue.get(productId);
+    if (existing) {
+      existing.revenue += Number(robux) || 0;
+      existing.purchases += 1;
+    } else {
+      productRevenue.set(productId, { name, revenue: Number(robux) || 0, purchases: 1, productType });
+    }
+  });
+  
+  const topProducts = Array.from(productRevenue.values())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+
+  // Get synced Roblox products
   const { data: robloxProducts } = await supabase
     .from("roblox_products")
     .select("name, product_type, price_robux, is_for_sale")
@@ -191,150 +224,45 @@ async function getAnalyticsContext(
 
   const syncedProducts = robloxProducts || [];
 
-  // Get events (paginated to avoid caps)
-  const allEvents: Array<{
-    event_type: string;
-    player_id: string;
-    product_id: string | null;
-    product_name: string | null;
-    product_type: string | null;
-    robux: number;
-    created_at: string;
-  }> = [];
-
-  let offset = 0;
-  const pageSize = 1000;
-  let hasMore = true;
-
-  while (hasMore && offset < 10000) { // Cap at 10k for performance
-    const { data: events } = await supabase
-      .from("events")
-      .select(
-        "event_type, player_id, product_id, product_name, product_type, robux, created_at"
-      )
-      .eq("game_id", targetGameId)
-      .order("created_at", { ascending: false })
-      .range(offset, offset + pageSize - 1);
-
-    if (events && events.length > 0) {
-      allEvents.push(...events);
-      offset += events.length;
-      hasMore = events.length === pageSize;
+  // Calculate revenue by type (gamepass vs devproduct)
+  let gamepassRevenue = 0;
+  let devproductRevenue = 0;
+  topProductsData?.forEach(e => {
+    const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
+    const productType = e.product_type || "gamepass";
+    if (productType === "gamepass") {
+      gamepassRevenue += Number(robux) || 0;
     } else {
-      hasMore = false;
-    }
-  }
-
-  if (allEvents.length === 0) {
-    return { hasData: false, gameName: game.name };
-  }
-
-  // Calculate stats
-  const purchaseEventTypes = [
-    "purchase_success",
-    "gamepass_purchase",
-    "devproduct_purchase",
-  ];
-
-  const purchaseEvents = allEvents.filter((e) =>
-    purchaseEventTypes.includes(e.event_type)
-  );
-  const totalRevenue = purchaseEvents.reduce(
-    (sum, e) => sum + (e.robux || 0),
-    0
-  );
-  const totalPurchases = purchaseEvents.length;
-
-  // 72h Revenue calculation (like Roblox Dashboard)
-  const now72h = new Date();
-  const start72h = new Date(now72h.getTime() - 72 * 60 * 60 * 1000);
-  const purchases72h = purchaseEvents.filter(
-    (e) => new Date(e.created_at) >= start72h
-  );
-  const revenue72h = purchases72h.reduce(
-    (sum, e) => sum + (e.robux || 0),
-    0
-  );
-  const uniquePlayers = new Set(
-    allEvents.map((e) => e.player_id).filter(Boolean)
-  ).size;
-  const uniqueBuyers = new Set(
-    purchaseEvents.map((e) => e.player_id).filter(Boolean)
-  ).size;
-
-  // Revenue by type
-  const gamepassRevenue = purchaseEvents
-    .filter(
-      (e) =>
-        e.product_type === "gamepass" || e.event_type === "gamepass_purchase"
-    )
-    .reduce((sum, e) => sum + (e.robux || 0), 0);
-  const devproductRevenue = purchaseEvents
-    .filter(
-      (e) =>
-        e.product_type === "devproduct" || e.event_type === "devproduct_purchase"
-    )
-    .reduce((sum, e) => sum + (e.robux || 0), 0);
-
-  // Top products
-  const productMap = new Map<
-    string,
-    { name: string; revenue: number; purchases: number; productType: string }
-  >();
-  purchaseEvents.forEach((e) => {
-    const key = e.product_id || e.product_name || "unknown";
-    const existing = productMap.get(key);
-    if (existing) {
-      existing.revenue += e.robux || 0;
-      existing.purchases += 1;
-    } else {
-      productMap.set(key, {
-        name: e.product_name || "Unknown",
-        revenue: e.robux || 0,
-        purchases: 1,
-        productType: e.product_type || "gamepass",
-      });
+      devproductRevenue += Number(robux) || 0;
     }
   });
 
-  const topProducts = Array.from(productMap.values())
-    .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 5);
+  // IMPORTANT: Determine if we have real data
+  // Only say "no tracking data" if TRULY everything is zero
+  const hasTrackerEvents = (metrics.trackedActions ?? 0) > 0;
+  const hasPurchaseEvents = (metrics.purchases ?? 0) > 0;
+  const hasRobloxStats = !!(game.total_visits || game.current_players || game.favorites);
+  const hasProducts = syncedProducts.length > 0 || topProducts.length > 0;
+  
+  // We have data if ANY of these are true
+  const hasData = hasTrackerEvents || hasPurchaseEvents || hasRobloxStats || hasProducts;
 
-  // 7-day trends
-  const now = new Date();
-  const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-
-  const currentWeekPurchases = allEvents.filter(
-    (e) =>
-      new Date(e.created_at) >= sevenDaysAgo &&
-      purchaseEventTypes.includes(e.event_type)
-  );
-  const previousWeekPurchases = allEvents.filter((e) => {
-    const date = new Date(e.created_at);
-    return (
-      date >= fourteenDaysAgo &&
-      date < sevenDaysAgo &&
-      purchaseEventTypes.includes(e.event_type)
-    );
-  });
-
-  const currentWeekRevenue = currentWeekPurchases.reduce(
-    (sum, e) => sum + (e.robux || 0),
-    0
-  );
-  const previousWeekRevenue = previousWeekPurchases.reduce(
-    (sum, e) => sum + (e.robux || 0),
-    0
-  );
-
-  const revenueChange =
-    previousWeekRevenue > 0
-      ? ((currentWeekRevenue - previousWeekRevenue) / previousWeekRevenue) * 100
-      : currentWeekRevenue > 0
-        ? 100
-        : 0;
+  if (!hasData) {
+    return { 
+      hasData: false, 
+      gameName: game.name, 
+      emptyReason: "no_tracker_data",
+      // Still include Roblox stats if available
+      robloxStats: hasRobloxStats ? {
+        ccu: game.current_players,
+        visits: game.total_visits,
+        favorites: game.favorites,
+        likes: game.likes,
+        dislikes: game.dislikes,
+        lastSynced: game.last_roblox_sync,
+      } : null,
+    };
+  }
 
   return {
     hasData: true,
@@ -356,21 +284,32 @@ async function getAnalyticsContext(
       isForSale: p.is_for_sale,
     })),
     syncedProductsCount: syncedProducts.length,
-    // Tracker stats
-    totalEvents: allEvents.length,
-    totalRevenue,
-    revenue72h,
-    totalPurchases,
-    uniquePlayers,
-    uniqueBuyers,
+    // SHARED DASHBOARD METRICS (same as Overview, Monetization, Products pages)
+    trackedActions: metrics.trackedActions ?? 0,
+    uniquePlayers: metrics.uniquePlayers ?? 0,
+    totalSessions: metrics.totalSessions ?? 0,
+    avgSessionSeconds: metrics.avgSessionSeconds ?? 0,
+    // Monetization metrics
+    totalPurchases: metrics.purchases ?? 0,
+    grossRevenue: metrics.grossRevenue ?? 0,
+    estimatedRevenue: metrics.estimatedRevenue ?? 0,
+    payingUsers: metrics.payingUsers ?? 0,
+    activeUsers: metrics.activeUsers ?? 0,
+    pcr: metrics.pcr ?? 0,
+    arppu: metrics.arppu ?? 0,
+    arpdau: metrics.arpdau ?? 0,
+    // Revenue by type
     gamepassRevenue,
     devproductRevenue,
+    // Top products
     topProducts,
-    currentWeekRevenue,
-    previousWeekRevenue,
-    revenueChange,
-    currentWeekPurchases: currentWeekPurchases.length,
-    previousWeekPurchases: previousWeekPurchases.length,
+    // Data health flags (for debugging)
+    _dataHealth: {
+      hasTrackerEvents,
+      hasPurchaseEvents,
+      hasRobloxStats,
+      hasProducts,
+    },
   };
 }
 
@@ -390,21 +329,35 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, image } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType } = body as {
       message: string;
       gameId?: string;
-      image?: string | null;
+      imageDataUrl?: string;
+      imageName?: string;
+      imageMimeType?: string;
     };
 
-    if (!message) {
+    if (!message && !imageDataUrl) {
       return NextResponse.json(
-        { success: false, error: "Message is required" },
+        { success: false, error: "Message or image is required" },
         { status: 400 }
       );
     }
 
+    // Detect if we have an image
+    const hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
+    
+    // Debug: Log image detection
+    console.log("[v0] AI Chat - Image detection:", {
+      hasImageDataUrl: Boolean(imageDataUrl),
+      imageDataUrlLength: imageDataUrl?.length || 0,
+      startsWithDataImage: imageDataUrl?.startsWith("data:image") || false,
+      hasImage,
+      imageMimeType,
+    });
+    
     // Determine credit type based on image
-    const creditType = image ? "image" : "text";
+    const creditType = hasImage ? "image" : "text";
 
     // Consume credits before making AI call
     const creditResult = await consumeCredits(
@@ -481,26 +434,27 @@ ${analyticsContext.syncedProductsCount > 10 ? `... and ${analyticsContext.synced
 ` : "";
 
       systemPrompt += `
-ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
+ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"} (7-day period):
 ${robloxSection}
 TRACKER ANALYTICS (from RoMonetize tracking script):
-- Total Events Tracked: ${analyticsContext.totalEvents?.toLocaleString()}
-- Total Revenue: ${analyticsContext.totalRevenue?.toLocaleString()} Robux
-- 72h Revenue: ${analyticsContext.revenue72h?.toLocaleString() || 0} Robux (last 72 hours)
-- Total Purchases: ${analyticsContext.totalPurchases?.toLocaleString()}
-- Unique Players: ${analyticsContext.uniquePlayers?.toLocaleString()}
-- Unique Buyers: ${analyticsContext.uniqueBuyers?.toLocaleString()}
-- Gamepass Revenue: ${analyticsContext.gamepassRevenue?.toLocaleString()} Robux
-- Dev Product Revenue: ${analyticsContext.devproductRevenue?.toLocaleString()} Robux
+- Tracked Actions: ${analyticsContext.trackedActions?.toLocaleString() || 0}
+- Unique Players: ${analyticsContext.uniquePlayers?.toLocaleString() || 0}
+- Total Sessions: ${analyticsContext.totalSessions?.toLocaleString() || 0}
+- Avg Session Duration: ${analyticsContext.avgSessionSeconds ? Math.round(analyticsContext.avgSessionSeconds / 60) + " minutes" : "unknown"}
 
-7-DAY TRENDS:
-- Current Week Revenue: ${analyticsContext.currentWeekRevenue?.toLocaleString()} Robux
-- Previous Week Revenue: ${analyticsContext.previousWeekRevenue?.toLocaleString()} Robux
-- Revenue Change: ${analyticsContext.revenueChange?.toFixed(1)}%
-- Current Week Purchases: ${analyticsContext.currentWeekPurchases}
-- Previous Week Purchases: ${analyticsContext.previousWeekPurchases}
+MONETIZATION METRICS:
+- Purchases: ${analyticsContext.totalPurchases?.toLocaleString() || 0}
+- Estimated Revenue: ${analyticsContext.estimatedRevenue?.toLocaleString() || 0} Robux (creator payout after 30% Roblox cut)
+- Gross Revenue: ${analyticsContext.grossRevenue?.toLocaleString() || 0} Robux (before Roblox cut)
+- Paying Users: ${analyticsContext.payingUsers?.toLocaleString() || 0}
+- Active Users: ${analyticsContext.activeUsers?.toLocaleString() || 0}
+- PCR (Payer Conversion Rate): ${analyticsContext.pcr ? analyticsContext.pcr.toFixed(2) + "%" : "N/A"}
+- ARPPU (Avg Revenue Per Paying User): ${analyticsContext.arppu ? analyticsContext.arppu.toFixed(0) + " Robux" : "N/A"}
+- ARPDAU (Avg Revenue Per DAU): ${analyticsContext.arpdau ? analyticsContext.arpdau.toFixed(2) + " Robux" : "N/A"}
+- Gamepass Revenue: ${analyticsContext.gamepassRevenue?.toLocaleString() || 0} Robux
+- Dev Product Revenue: ${analyticsContext.devproductRevenue?.toLocaleString() || 0} Robux
 
-TOP PRODUCTS BY TRACKER REVENUE:
+TOP PRODUCTS BY REVENUE:
 ${
   analyticsContext.topProducts
     ?.map(
@@ -510,7 +464,7 @@ ${
     .join("\n") || "No product data"
 }
 ${productsSection}
-Use this real data when answering questions. Reference specific numbers and products. Roblox API stats show public game metrics, while tracker stats show deep monetization analytics.`;
+Use this real data when answering questions. Reference specific numbers and products. When the user asks for stats overview, provide the actual numbers above. Roblox API stats show public game metrics, while tracker stats show deep monetization analytics.`;
     } else {
       systemPrompt += `
 NOTE: This user ${analyticsContext.gameName ? `has a game called "${analyticsContext.gameName}" but ` : ""}doesn't have tracking data yet.
@@ -523,17 +477,49 @@ If they ask about their stats, guide them to:
 You can still answer general Roblox monetization questions without the data.`;
     }
 
-    // Build messages for the AI
-    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
-      { role: "user", content: message },
-    ];
+    // Build messages for the AI with proper image handling
+    // AI SDK uses ImagePart format: { type: 'image', image: dataUrl }
+    const userMessageText = message || "Please analyze this screenshot.";
+    
+    type ContentPart = { type: 'text'; text: string } | { type: 'image'; image: string; mimeType?: string };
+    let userContent: string | ContentPart[];
+    
+    if (hasImage && imageDataUrl) {
+      // Vision request - content must be array of parts
+      // AI SDK ImagePart uses 'image' not 'image_url'
+      console.log("[v0] Building vision message with image part");
+      userContent = [
+        {
+          type: "text" as const,
+          text: userMessageText,
+        },
+        {
+          type: "image" as const,
+          image: imageDataUrl,
+          mimeType: imageMimeType || undefined,
+        },
+      ];
+    } else {
+      // Text-only request
+      console.log("[v0] Building text-only message");
+      userContent = userMessageText;
+    }
 
-    // Generate response (not streaming for simplicity)
+    // Choose model based on whether we have an image
+    // Vision-capable models: gpt-4o, gpt-4o-mini, gpt-4-turbo
+    const modelId = hasImage ? "openai/gpt-4o-mini" : "openai/gpt-4.1-mini";
+
+    // Generate response
     const result = await generateText({
-      model: gateway("openai/gpt-4.1-mini"),
+      model: gateway(modelId),
       system: systemPrompt,
-      messages,
-      maxTokens: 1000,
+      messages: [
+        { 
+          role: "user" as const, 
+          content: userContent,
+        },
+      ],
+      maxTokens: 1500,
       temperature: 0.7,
     });
 
@@ -546,12 +532,23 @@ You can still answer general Roblox monetization questions without the data.`;
   } catch (error) {
     console.error("[v0] AI chat error:", error);
 
-    // Refund credits on error
+    // Refund credits on error - need to check if image was present
+    // We can't access hasImage here since it's in the try block, so check body
+    let refundType: "text" | "image" = "text";
+    try {
+      const body = await request.clone().json();
+      if (body.imageDataUrl && body.imageDataUrl.startsWith("data:image")) {
+        refundType = "image";
+      }
+    } catch {
+      // Ignore parse errors, default to text refund
+    }
+
     try {
       await refundCredits(
         supabaseAdmin,
         user.id,
-        "text",
+        refundType,
         "AI request failed"
       );
     } catch (refundError) {
