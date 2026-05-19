@@ -63,17 +63,20 @@ export function CreditsWidget() {
               Buy Extra AI Credits
             </DialogTitle>
             <DialogDescription>
-              Purchase additional credits for AI Assistant features. Extra credits never expire.
+              Purchase extra credits for AI Assistant. Extra credits never expire.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-4">
             {CREDIT_PACKAGES.map((pkg) => {
               // Determine badge based on package
               const badge = pkg.credits === 250 
-                ? { text: "Best Value • Save 10%", color: "text-green-600 bg-green-500/10" }
+                ? { text: "Save 10%", color: "text-green-600 bg-green-500/10" }
                 : pkg.credits === 500
-                  ? { text: "Save 25%", color: "text-blue-600 bg-blue-500/10" }
+                  ? { text: "Best Value · Save 25%", color: "text-blue-600 bg-blue-500/10" }
                   : null;
+              
+              // Calculate price per credit in dollars (priceInCents / credits / 100)
+              const pricePerCredit = (pkg.priceInCents / pkg.credits / 100).toFixed(2);
               
               return (
                 <button
@@ -81,20 +84,20 @@ export function CreditsWidget() {
                   onClick={() => handlePurchase(pkg.id)}
                   disabled={purchasingPackage !== null}
                   className={`w-full p-4 rounded-lg border transition-colors flex items-center justify-between disabled:opacity-50 disabled:cursor-not-allowed ${
-                    pkg.credits === 250
-                      ? "border-green-500/30 bg-green-500/5 hover:bg-green-500/10"
+                    pkg.credits === 500
+                      ? "border-blue-500/30 bg-blue-500/5 hover:bg-blue-500/10"
                       : "border-border bg-card hover:bg-secondary/50"
                   }`}
                 >
                   <div className="flex items-center gap-3">
                     <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                      pkg.credits === 250 ? "bg-green-500/10" : "bg-purple-500/10"
+                      pkg.credits === 500 ? "bg-blue-500/10" : "bg-purple-500/10"
                     }`}>
-                      <Sparkles className={`w-5 h-5 ${pkg.credits === 250 ? "text-green-500" : "text-purple-500"}`} />
+                      <Sparkles className={`w-5 h-5 ${pkg.credits === 500 ? "text-blue-500" : "text-purple-500"}`} />
                     </div>
                     <div className="text-left">
                       <div className="flex items-center gap-2">
-                        <span className="font-semibold">{pkg.credits} Credits</span>
+                        <span className="font-semibold">{pkg.credits} AI Credits</span>
                         {badge && (
                           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${badge.color}`}>
                             {badge.text}
@@ -102,7 +105,7 @@ export function CreditsWidget() {
                         )}
                       </div>
                       <div className="text-sm text-muted-foreground">
-                        ${(pkg.priceInCents / pkg.credits).toFixed(2)} per credit
+                        ${pricePerCredit} per credit
                       </div>
                     </div>
                   </div>
@@ -119,7 +122,7 @@ export function CreditsWidget() {
             })}
           </div>
           <div className="text-xs text-muted-foreground text-center">
-            Secure payment via Stripe. Credits are added instantly after purchase.
+            Secure checkout powered by Stripe. Credits are added after payment.
           </div>
         </DialogContent>
       </Dialog>
