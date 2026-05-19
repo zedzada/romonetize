@@ -133,17 +133,17 @@ async function refundCredits(
 // Get analytics context for the AI using SHARED dashboard metrics
 // This ensures AI sees the SAME data as Overview, Monetization, Products pages
 async function getAnalyticsContext(
-  supabase: Awaited<ReturnType<typeof createServerClient>>,
+  supabaseAdmin: ReturnType<typeof getSupabaseAdmin>,
   userId: string,
   gameId?: string
 ) {
-  // Get user's selected game (is_selected = true)
+  // Get user's selected game (is_selected = true) using ADMIN client to bypass RLS
   let targetGameId = gameId;
   let game = null;
 
   if (!targetGameId) {
     // First try to get the selected game
-    const { data: selectedGame } = await supabase
+    const { data: selectedGame } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("user_id", userId)
@@ -156,7 +156,7 @@ async function getAnalyticsContext(
       game = selectedGame;
     } else {
       // Fallback: auto-select the first active game
-      const { data: games } = await supabase
+      const { data: games } = await supabaseAdmin
         .from("games")
         .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
         .eq("user_id", userId)
@@ -171,7 +171,7 @@ async function getAnalyticsContext(
     }
   } else {
     // Verify ownership and get Roblox stats
-    const { data: gameData } = await supabase
+    const { data: gameData } = await supabaseAdmin
       .from("games")
       .select("id, name, roblox_game_id, current_players, total_visits, favorites, likes, dislikes, last_roblox_sync")
       .eq("id", targetGameId)
@@ -187,8 +187,8 @@ async function getAnalyticsContext(
   // Use SHARED dashboard metrics - same source as Overview, Monetization, Products
   const metrics = await getDashboardMetrics(userId, targetGameId, "7d");
 
-  // Get top products from events
-  const { data: topProductsData } = await supabase
+  // Get top products from events using admin client
+  const { data: topProductsData } = await supabaseAdmin
     .from("events")
     .select("product_name, product_id, product_type, robux, metadata")
     .eq("game_id", targetGameId)
@@ -215,8 +215,8 @@ async function getAnalyticsContext(
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // Get synced Roblox products
-  const { data: robloxProducts } = await supabase
+  // Get synced Roblox products using admin client
+  const { data: robloxProducts } = await supabaseAdmin
     .from("roblox_products")
     .select("name, product_type, price_robux, is_for_sale")
     .eq("game_id", targetGameId)
@@ -329,12 +329,13 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, imageDataUrl, imageName, imageMimeType } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType, conversationId } = body as {
       message: string;
       gameId?: string;
       imageDataUrl?: string;
       imageName?: string;
       imageMimeType?: string;
+      conversationId?: string;
     };
 
     if (!message && !imageDataUrl) {
@@ -346,15 +347,6 @@ export async function POST(request: NextRequest) {
 
     // Detect if we have an image
     const hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
-    
-    // Debug: Log image detection
-    console.log("[v0] AI Chat - Image detection:", {
-      hasImageDataUrl: Boolean(imageDataUrl),
-      imageDataUrlLength: imageDataUrl?.length || 0,
-      startsWithDataImage: imageDataUrl?.startsWith("data:image") || false,
-      hasImage,
-      imageMimeType,
-    });
     
     // Determine credit type based on image
     const creditType = hasImage ? "image" : "text";
@@ -376,9 +368,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Get analytics context
+    // Get analytics context using admin client (bypasses RLS for reliable data access)
     const analyticsContext = await getAnalyticsContext(
-      supabase,
+      supabaseAdmin,
       user.id,
       gameId
     );
@@ -487,7 +479,6 @@ You can still answer general Roblox monetization questions without the data.`;
     if (hasImage && imageDataUrl) {
       // Vision request - content must be array of parts
       // AI SDK ImagePart uses 'image' not 'image_url'
-      console.log("[v0] Building vision message with image part");
       userContent = [
         {
           type: "text" as const,
@@ -501,7 +492,6 @@ You can still answer general Roblox monetization questions without the data.`;
       ];
     } else {
       // Text-only request
-      console.log("[v0] Building text-only message");
       userContent = userMessageText;
     }
 
@@ -523,11 +513,48 @@ You can still answer general Roblox monetization questions without the data.`;
       temperature: 0.7,
     });
 
+    // Save messages to conversation if conversationId provided
+    let savedConversationId = conversationId;
+    if (conversationId) {
+      try {
+        // Save user message
+        await supabaseAdmin.from("ai_messages").insert({
+          conversation_id: conversationId,
+          user_id: user.id,
+          role: "user",
+          content: userMessageText,
+          has_image: hasImage,
+          image_url: null, // We don't persist image data URLs for privacy/storage
+          metadata: hasImage ? { imageName, imageMimeType } : {},
+        });
+        
+        // Save assistant message
+        await supabaseAdmin.from("ai_messages").insert({
+          conversation_id: conversationId,
+          user_id: user.id,
+          role: "assistant",
+          content: result.text,
+          has_image: false,
+          metadata: {},
+        });
+        
+        // Update conversation's updated_at
+        await supabaseAdmin
+          .from("ai_conversations")
+          .update({ updated_at: new Date().toISOString() })
+          .eq("id", conversationId);
+      } catch (msgError) {
+        console.error("[v0] Failed to save messages:", msgError);
+        // Don't fail the request if message saving fails
+      }
+    }
+
     // Return success response
     return NextResponse.json({
       success: true,
       message: result.text,
       credits: creditResult.remaining,
+      conversationId: savedConversationId,
     });
   } catch (error) {
     console.error("[v0] AI chat error:", error);
