@@ -151,15 +151,15 @@ function AIAssistantContent() {
 
     // Do NOT block on credits client-side - let server handle it
 
-    // Build user message content
+    // Build user message content for display
     let userContent = text;
     if (imagePreview && !text) {
-      userContent = "Please analyze this screenshot.";
+      userContent = "[Image attached]\n\nPlease analyze this screenshot.";
     } else if (imagePreview && text) {
       userContent = `[Image attached]\n\n${text}`;
     }
 
-    // Add user message
+    // Add user message to UI
     const userMessageId = `user-${Date.now()}`;
     const userMessage: Message = {
       id: userMessageId,
@@ -168,20 +168,32 @@ function AIAssistantContent() {
     };
     setMessages(prev => [...prev, userMessage]);
 
-    // Clear input and image
+    // Clear input and capture image before clearing
     setInput("");
-    const currentImage = imagePreview;
+    const currentImageDataUrl = imagePreview;
+    const currentImageFile = selectedImage;
     handleRemoveImage();
 
     // Set loading
     setIsLoading(true);
 
     try {
-      // Build request body
-      const requestBody = {
+      // Build request body - send actual image data URL to API
+      const requestBody: {
+        message: string;
+        imageDataUrl?: string;
+        imageName?: string;
+        imageMimeType?: string;
+      } = {
         message: text || "Please analyze this screenshot.",
-        image: currentImage || null,
       };
+      
+      // Include image data if present
+      if (currentImageDataUrl && currentImageFile) {
+        requestBody.imageDataUrl = currentImageDataUrl;
+        requestBody.imageName = currentImageFile.name;
+        requestBody.imageMimeType = currentImageFile.type || "image/png";
+      }
 
       // Call API
       const res = await fetch("/api/ai/chat", {

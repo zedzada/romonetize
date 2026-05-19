@@ -329,21 +329,26 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json();
-    const { message, gameId, image } = body as {
+    const { message, gameId, imageDataUrl, imageName, imageMimeType } = body as {
       message: string;
       gameId?: string;
-      image?: string | null;
+      imageDataUrl?: string;
+      imageName?: string;
+      imageMimeType?: string;
     };
 
-    if (!message) {
+    if (!message && !imageDataUrl) {
       return NextResponse.json(
-        { success: false, error: "Message is required" },
+        { success: false, error: "Message or image is required" },
         { status: 400 }
       );
     }
 
+    // Detect if we have an image
+    const hasImage = Boolean(imageDataUrl && imageDataUrl.startsWith("data:image"));
+    
     // Determine credit type based on image
-    const creditType = image ? "image" : "text";
+    const creditType = hasImage ? "image" : "text";
 
     // Consume credits before making AI call
     const creditResult = await consumeCredits(
@@ -463,17 +468,47 @@ If they ask about their stats, guide them to:
 You can still answer general Roblox monetization questions without the data.`;
     }
 
-    // Build messages for the AI
-    const messages: Array<{ role: "user" | "assistant"; content: string }> = [
-      { role: "user", content: message },
-    ];
+    // Build messages for the AI with proper image handling
+    // AI SDK uses ImagePart format: { type: 'image', image: dataUrl }
+    const userMessageText = message || "Please analyze this screenshot.";
+    
+    type ContentPart = { type: 'text'; text: string } | { type: 'image'; image: string; mimeType?: string };
+    let userContent: string | ContentPart[];
+    
+    if (hasImage && imageDataUrl) {
+      // Vision request - content must be array of parts
+      // AI SDK ImagePart uses 'image' not 'image_url'
+      userContent = [
+        {
+          type: "text" as const,
+          text: userMessageText,
+        },
+        {
+          type: "image" as const,
+          image: imageDataUrl,
+          mimeType: imageMimeType || undefined,
+        },
+      ];
+    } else {
+      // Text-only request
+      userContent = userMessageText;
+    }
 
-    // Generate response (not streaming for simplicity)
+    // Choose model based on whether we have an image
+    // Vision-capable models: gpt-4o, gpt-4o-mini, gpt-4-turbo
+    const modelId = hasImage ? "openai/gpt-4o-mini" : "openai/gpt-4.1-mini";
+
+    // Generate response
     const result = await generateText({
-      model: gateway("openai/gpt-4.1-mini"),
+      model: gateway(modelId),
       system: systemPrompt,
-      messages,
-      maxTokens: 1000,
+      messages: [
+        { 
+          role: "user" as const, 
+          content: userContent,
+        },
+      ],
+      maxTokens: 1500,
       temperature: 0.7,
     });
 
@@ -486,12 +521,23 @@ You can still answer general Roblox monetization questions without the data.`;
   } catch (error) {
     console.error("[v0] AI chat error:", error);
 
-    // Refund credits on error
+    // Refund credits on error - need to check if image was present
+    // We can't access hasImage here since it's in the try block, so check body
+    let refundType: "text" | "image" = "text";
+    try {
+      const body = await request.clone().json();
+      if (body.imageDataUrl && body.imageDataUrl.startsWith("data:image")) {
+        refundType = "image";
+      }
+    } catch {
+      // Ignore parse errors, default to text refund
+    }
+
     try {
       await refundCredits(
         supabaseAdmin,
         user.id,
-        "text",
+        refundType,
         "AI request failed"
       );
     } catch (refundError) {
