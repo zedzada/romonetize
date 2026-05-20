@@ -167,8 +167,8 @@ function AIAssistantContent() {
     setAiContextLoading(true);
     setAiContextError(null);
     try {
-      // Use range=7d to match dashboard default (28d for monetization would be better but keep consistent)
-      const res = await fetch("/api/dashboard/analytics?range=7d", { cache: "no-store" });
+      // Use range=30d to match Monetization tab default (28d display, 30d data)
+      const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
       const data = await res.json();
       
       if (debug) {
@@ -191,7 +191,7 @@ function AIAssistantContent() {
           // Game identity
           selectedGame: root.selectedGameName || root.game?.name || null,
           gameId: root.selectedGameId || root.game?.id || null,
-          range: root.range || "7d",
+          range: root.range || "30d",
           
           // Roblox Stats - from robloxStats object (same as Roblox Stats section)
           robloxStats: {
@@ -503,7 +503,7 @@ function AIAssistantContent() {
     let contextToSend = aiContext;
     if (!contextToSend || !analyticsLoaded) {
       try {
-        const res = await fetch("/api/dashboard/analytics?range=7d", { cache: "no-store" });
+        const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
         const data = await res.json();
         const root = data?.data;
         
@@ -511,7 +511,7 @@ function AIAssistantContent() {
           contextToSend = {
             selectedGame: root.selectedGameName || root.game?.name || null,
             gameId: root.selectedGameId || root.game?.id || null,
-            range: root.range || "7d",
+            range: root.range || "30d",
             robloxStats: {
               visits: root.robloxStats?.totalVisits || root.robloxStats?.visits || 0,
               ccu: root.robloxStats?.currentPlayers || root.robloxStats?.ccu || 0,

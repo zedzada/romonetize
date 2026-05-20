@@ -4,6 +4,7 @@ import { createClient as createServerClient } from "@/lib/supabase/server";
 import { AI_CREDIT_COSTS } from "@/lib/products";
 import { generateText } from "ai";
 import { gateway } from "@ai-sdk/gateway";
+import { calculatePeriodMetrics, type EventWithMetrics } from "@/lib/metrics/arppu-arpdau";
 
 // Safe formatting helpers to prevent "Cannot read properties of undefined" crashes
 function safeNumber(value: unknown, fallback = 0): number {
@@ -206,8 +207,8 @@ async function getAnalyticsContext(
     return { hasData: false, gameName: null, emptyReason: "no_game", gameId: null };
   }
 
-  // Query dashboard stats directly
-  const hours = 168; // 7 days
+  // Query dashboard stats directly - use 30 days to match Monetization tab default
+  const hours = 720; // 30 days (matches Monetization tab default of 28d)
   const now = new Date();
   const rangeStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
   
@@ -274,11 +275,20 @@ async function getAnalyticsContext(
   const PURCHASE_TYPES = ["purchase_success", "gamepass_purchase", "devproduct_purchase"];
   const { data: purchaseData } = await supabaseAdmin
     .from("events")
-    .select("id, event_type, player_id, product_id, product_name, robux, metadata")
+    .select("id, event_type, player_id, product_id, product_name, robux, metadata, created_at")
     .eq("game_id", targetGameId)
     .in("event_type", PURCHASE_TYPES)
     .gte("created_at", rangeStart.toISOString())
     .lte("created_at", now.toISOString());
+  
+  // Query all events for ARPPU/ARPDAU calculation (same as dashboard)
+  const { data: allEventsData } = await supabaseAdmin
+    .from("events")
+    .select("player_id, created_at, event_type, robux")
+    .eq("game_id", targetGameId)
+    .gte("created_at", rangeStart.toISOString())
+    .lte("created_at", now.toISOString())
+    .limit(10000);
   
   const purchases = purchaseData?.length ?? 0;
   let grossRevenue = 0;
@@ -296,10 +306,27 @@ async function getAnalyticsContext(
   const CREATOR_REVENUE_RATE = 0.7;
   const estimatedRevenue = Math.round(grossRevenue * CREATOR_REVENUE_RATE);
   
-  // Calculate derived metrics
+  // Use shared calculatePeriodMetrics for ARPPU/ARPDAU (same as dashboard)
+  const allEvents: EventWithMetrics[] = (allEventsData || []).map(e => ({
+    player_id: e.player_id,
+    created_at: e.created_at,
+    event_type: e.event_type,
+    robux: e.robux,
+  }));
+  
+  const purchaseEventsForMetrics: EventWithMetrics[] = (purchaseData || []).map(e => ({
+    player_id: e.player_id,
+    created_at: e.created_at,
+    event_type: e.event_type,
+    robux: e.robux ?? (e.metadata as Record<string, unknown>)?.robux as number ?? 0,
+  }));
+  
+  const periodMetrics = calculatePeriodMetrics(allEvents, purchaseEventsForMetrics);
+  
+  // Use calculated metrics (same formulas as dashboard)
   const pcr = activeUsers > 0 ? (payingUsers / activeUsers) * 100 : 0;
-  const arppu = payingUsers > 0 ? grossRevenue / payingUsers : 0;
-  const arpdau = activeUsers > 0 ? grossRevenue / activeUsers : 0;
+  const arppu = periodMetrics.periodArppu;
+  const arpdau = periodMetrics.periodArpdau;
   
   // Query 6: Avg session duration
   const { data: sessionEndData } = await supabaseAdmin
@@ -651,7 +678,7 @@ Roblox Public Stats:
                              safeNumber(analyticsContext.uniquePlayers) > 0;
       if (hasTrackerData) {
         contextText += `
-Tracker Stats (last 7 days):
+Tracker Stats (last 30 days):
 - Tracked Actions: ${safeNumber(analyticsContext.trackedActions) > 0 ? formatNum(analyticsContext.trackedActions) : "Unknown"}
 - Unique Players: ${safeNumber(analyticsContext.uniquePlayers) > 0 ? formatNum(analyticsContext.uniquePlayers) : "Unknown"}
 - Total Sessions: ${safeNumber(analyticsContext.totalSessions) > 0 ? formatNum(analyticsContext.totalSessions) : "Unknown"}
@@ -665,7 +692,7 @@ Tracker Stats (last 7 days):
                               safeNumber(analyticsContext.estimatedRevenue) > 0;
       if (hasPurchaseData) {
         contextText += `
-Monetization (last 7 days):
+Monetization (last 30 days):
 - Purchases: ${safeNumber(analyticsContext.totalPurchases) > 0 ? formatNum(analyticsContext.totalPurchases) : "Unknown"}
 - Estimated Revenue: ${safeNumber(analyticsContext.estimatedRevenue) > 0 ? formatRobux(analyticsContext.estimatedRevenue) : "Unknown"}
 - Gross Revenue: ${safeNumber(analyticsContext.grossRevenue) > 0 ? formatRobux(analyticsContext.grossRevenue) : "Unknown"}
