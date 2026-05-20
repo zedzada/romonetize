@@ -362,12 +362,17 @@ function BillingContent() {
       setDebugInfo(prev => ({ ...prev, upgradeResponse: data }));
       
       if (data.success) {
-        // Upgrade successful - close modal and refresh subscription status
+        // Payment succeeded immediately - Studio is now active
         setUpgradeModal({ open: false, targetPlan: null, confirmed: true, stripeFlowStarted: true });
         await loadSubscription();
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
         setLastSyncMessage(data.message || `Studio upgrade successful. Your Studio benefits are now active.`);
+      } else if (data.pending && data.url) {
+        // Payment is pending - redirect to Stripe to complete payment
+        // DO NOT show success message or refresh credits yet
+        setLastSyncMessage("Studio upgrade pending. Complete payment in Stripe.");
+        window.location.href = data.url;
       } else if (data.requiresPaymentAction && data.url) {
         // Payment requires action (3D Secure, etc) - redirect to Stripe
         setLastSyncMessage("Complete your Studio upgrade in Stripe.");
@@ -802,22 +807,21 @@ function BillingContent() {
 {JSON.stringify({
   currentPlan: currentPlan.id,
   targetPlan: currentPlan.id === "pro" ? "studio" : currentPlan.id === "free" ? "pro/studio" : "n/a",
-  upgradeConfirmed: upgradeModal.confirmed,
-  stripeCustomerIdExists: !!subscription?.stripeCustomerId,
-  activeSubscriptionId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionId || "unknown",
-  activeSubscriptionItemId: debugInfo?.upgradeResponse?.debug?.subscriptionItemId || "unknown",
-  oldPriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
-  newStudioPriceId: debugInfo?.upgradeResponse?.debug?.targetPriceId || "unknown",
-  prorationBehavior: debugInfo?.upgradeResponse?.debug?.prorationBehavior || "always_invoice",
-  paymentBehavior: debugInfo?.upgradeResponse?.debug?.paymentBehavior || "error_if_incomplete",
-  invoiceCreated: debugInfo?.upgradeResponse?.debug?.invoiceCreated || false,
-  paymentStatus: debugInfo?.upgradeResponse?.debug?.paymentStatus || "unknown",
-  planAfterSync: debugInfo?.upgradeResponse?.debug?.planAfterSync || subscriptionSyncState.syncedPlan,
-  monthlyCreditsAfterSync: debugInfo?.upgradeResponse?.debug?.monthlyCreditsAfterSync || monthlyCredits,
+  currentDbPlan: currentPlan.id,
+  stripeSubscriptionPlan: debugInfo?.upgradeResponse?.debug?.targetPlan || subscription?.plan?.id || "unknown",
+  activeStripePriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
+  studioPriceId: debugInfo?.upgradeResponse?.debug?.targetStudioPriceId || "unknown",
+  upgradePending: debugInfo?.upgradeResponse?.pending || debugInfo?.upgradeResponse?.debug?.upgradePending || false,
+  lastUpgradeConfirmed: upgradeModal.confirmed,
+  lastInvoicePaid: debugInfo?.upgradeResponse?.debug?.paymentSucceeded || false,
+  lastWebhookEvent: debugInfo?.upgradeResponse?.debug?.activationSource || "none",
+  planActivationSource: debugInfo?.upgradeResponse?.debug?.activationSource || "none",
+  paymentBehavior: debugInfo?.upgradeResponse?.debug?.paymentBehavior || "pending_if_incomplete",
   subscriptionStatus: subscription?.status,
   upgradeModalOpened: upgradeModal.open,
   upgradeTargetPlan: upgradeModal.targetPlan?.id || null,
   stripeFlowStarted: upgradeModal.stripeFlowStarted,
+  dbUpdated: debugInfo?.upgradeResponse?.debug?.dbUpdated || false,
   subscriptionSyncState,
   creditSyncState,
   urlParams: { success, canceled, sessionId, creditsSuccess, creditsPurchased },

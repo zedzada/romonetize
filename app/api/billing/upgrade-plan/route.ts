@@ -173,7 +173,7 @@ export async function POST(request: NextRequest) {
       // Update the subscription item to the new price with IMMEDIATE invoice
       // This charges the user right away instead of waiting for the next billing cycle
       debug.prorationBehavior = "always_invoice";
-      debug.paymentBehavior = "error_if_incomplete";
+      debug.paymentBehavior = "pending_if_incomplete";
       
       const updatedSubscription = await stripe.subscriptions.update(currentSubscription.id, {
         items: [
@@ -185,106 +185,168 @@ export async function POST(request: NextRequest) {
         // ALWAYS_INVOICE: Creates an invoice immediately with prorated charges
         // This ensures the user is charged NOW, not at the end of the billing cycle
         proration_behavior: "always_invoice",
-        // ERROR_IF_INCOMPLETE: Fail if payment cannot be completed immediately
-        // This prevents "pending" subscriptions that might not actually be paid
-        payment_behavior: "error_if_incomplete",
+        // PENDING_IF_INCOMPLETE: Allow subscription to go into "past_due" if payment fails
+        // This lets us track pending upgrades and only activate after invoice.paid webhook
+        payment_behavior: "pending_if_incomplete",
         metadata: {
           ...currentSubscription.metadata,
           plan_id: targetPlan,
-          upgraded_at: new Date().toISOString(),
+          upgrade_requested_at: new Date().toISOString(),
           previous_plan: profile.plan,
+          upgrade_pending: "true",
         },
       });
       
       debug.subscriptionUpdated = true;
       debug.newPriceId = updatedSubscription.items.data[0]?.price.id;
       debug.newStatus = updatedSubscription.status;
-      debug.invoiceCreated = true;
-      debug.paymentStatus = updatedSubscription.status === "active" ? "paid" : updatedSubscription.status;
+      debug.latestInvoice = updatedSubscription.latest_invoice;
       
-      // Update the profile in Supabase immediately
-      const aiCredits = targetPlan === "studio" ? 500 : targetPlan === "pro" ? 100 : 0;
-      const gameLimit = targetPlan === "studio" ? 25 : targetPlan === "pro" ? 5 : 1;
+      // Check if payment was successful (subscription is active)
+      // IMPORTANT: Only activate Studio if payment actually succeeded
+      const paymentSucceeded = updatedSubscription.status === "active";
+      debug.paymentSucceeded = paymentSucceeded;
       
-      await supabaseAdmin
-        .from("profiles")
-        .update({
-          plan: targetPlan,
-          subscription_status: "active",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", user.id);
-      
-      // Update subscriptions table
-      await supabaseAdmin
-        .from("subscriptions")
-        .update({
-          stripe_price_id: targetPriceId,
-          plan: targetPlan,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("stripe_subscription_id", currentSubscription.id);
-      
-      // Grant the new monthly credits for the upgraded plan
-      const now = new Date();
-      const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-      
-      // Get current extra credits to preserve them
-      const { data: currentBalance } = await supabaseAdmin
-        .from("ai_credit_balances")
-        .select("extra_credits")
-        .eq("user_id", user.id)
-        .single();
-      
-      const extraCredits = currentBalance?.extra_credits || 0;
-      
-      await supabaseAdmin
-        .from("ai_credit_balances")
-        .upsert({
-          user_id: user.id,
-          monthly_credits: aiCredits,
-          extra_credits: extraCredits, // Preserve extra credits
-          monthly_credits_reset_at: nextMonth.toISOString(),
-          updated_at: new Date().toISOString(),
-        }, {
-          onConflict: "user_id",
-        });
-      
-      // Record transaction
-      await supabaseAdmin
-        .from("ai_credit_transactions")
-        .insert({
-          user_id: user.id,
-          type: "upgrade_grant",
-          amount: aiCredits,
-          balance_after: aiCredits + extraCredits,
+      if (paymentSucceeded) {
+        // Payment succeeded immediately - update the profile in Supabase
+        const aiCredits = targetPlan === "studio" ? 500 : targetPlan === "pro" ? 100 : 0;
+        const gameLimit = targetPlan === "studio" ? 25 : targetPlan === "pro" ? 5 : 1;
+        
+        await supabaseAdmin
+          .from("profiles")
+          .update({
+            plan: targetPlan,
+            subscription_status: "active",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id);
+        
+        // Update subscriptions table
+        await supabaseAdmin
+          .from("subscriptions")
+          .update({
+            stripe_price_id: targetPriceId,
+            plan: targetPlan,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("stripe_subscription_id", currentSubscription.id);
+        
+        // Grant the new monthly credits for the upgraded plan
+        const now = new Date();
+        const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+        
+        // Get current extra credits to preserve them
+        const { data: currentBalance } = await supabaseAdmin
+          .from("ai_credit_balances")
+          .select("extra_credits")
+          .eq("user_id", user.id)
+          .single();
+        
+        const extraCredits = currentBalance?.extra_credits || 0;
+        
+        await supabaseAdmin
+          .from("ai_credit_balances")
+          .upsert({
+            user_id: user.id,
+            monthly_credits: aiCredits,
+            extra_credits: extraCredits, // Preserve extra credits
+            monthly_credits_reset_at: nextMonth.toISOString(),
+            updated_at: new Date().toISOString(),
+          }, {
+            onConflict: "user_id",
+          });
+        
+        // Record transaction
+        await supabaseAdmin
+          .from("ai_credit_transactions")
+          .insert({
+            user_id: user.id,
+            type: "upgrade_grant",
+            amount: aiCredits,
+            balance_after: aiCredits + extraCredits,
+            metadata: {
+              source: "plan_upgrade",
+              from_plan: profile.plan,
+              to_plan: targetPlan,
+            },
+            created_at: new Date().toISOString(),
+          });
+        
+        // Clear the upgrade_pending flag in Stripe
+        await stripe.subscriptions.update(updatedSubscription.id, {
           metadata: {
-            source: "plan_upgrade",
-            from_plan: profile.plan,
-            to_plan: targetPlan,
+            ...updatedSubscription.metadata,
+            upgrade_pending: null,
           },
-          created_at: new Date().toISOString(),
         });
-      
-      debug.creditsGranted = aiCredits;
-      debug.extraCreditsPreserved = extraCredits;
-      debug.dbUpdated = true;
-      debug.planAfterSync = targetPlan;
-      debug.monthlyCreditsAfterSync = aiCredits;
-      
-      return NextResponse.json({
-        success: true,
-        message: `Studio upgrade successful. Your Studio benefits are now active.`,
-        plan: targetPlan,
-        subscriptionId: updatedSubscription.id,
-        priceId: targetPriceId,
-        monthlyCredits: aiCredits,
-        extraCredits: extraCredits,
-        totalCredits: aiCredits + extraCredits,
-        gameLimit: gameLimit,
-        chargedImmediately: true,
-        debug: debugMode ? debug : undefined,
-      });
+        
+        debug.creditsGranted = aiCredits;
+        debug.extraCreditsPreserved = extraCredits;
+        debug.dbUpdated = true;
+        debug.planAfterSync = targetPlan;
+        debug.monthlyCreditsAfterSync = aiCredits;
+        debug.activationSource = "immediate_payment_success";
+        
+        return NextResponse.json({
+          success: true,
+          message: `Studio upgrade successful. Your Studio benefits are now active.`,
+          plan: targetPlan,
+          subscriptionId: updatedSubscription.id,
+          priceId: targetPriceId,
+          monthlyCredits: aiCredits,
+          extraCredits: extraCredits,
+          totalCredits: aiCredits + extraCredits,
+          gameLimit: gameLimit,
+          chargedImmediately: true,
+          debug: debugMode ? debug : undefined,
+        });
+      } else {
+        // Payment is pending or requires action - DO NOT activate Studio yet
+        // The webhook will handle activation when invoice.paid fires
+        debug.upgradePending = true;
+        debug.dbUpdated = false;
+        debug.planAfterSync = profile.plan; // Still on old plan
+        debug.activationSource = "waiting_for_webhook";
+        
+        // Check if there's a payment intent that requires action
+        let paymentUrl: string | null = null;
+        if (updatedSubscription.latest_invoice) {
+          try {
+            const invoice = await stripe.invoices.retrieve(
+              typeof updatedSubscription.latest_invoice === "string" 
+                ? updatedSubscription.latest_invoice 
+                : updatedSubscription.latest_invoice.id
+            );
+            debug.invoiceStatus = invoice.status;
+            debug.invoicePaymentIntent = invoice.payment_intent;
+            
+            if (invoice.hosted_invoice_url) {
+              paymentUrl = invoice.hosted_invoice_url;
+            }
+          } catch (invoiceErr) {
+            debug.invoiceRetrieveError = invoiceErr instanceof Error ? invoiceErr.message : "Unknown";
+          }
+        }
+        
+        // If no invoice URL, create a portal session as fallback
+        if (!paymentUrl) {
+          const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+          const portalSession = await stripe.billingPortal.sessions.create({
+            customer: profile.stripe_customer_id,
+            return_url: `${origin}/dashboard/billing?upgrade_pending=true`,
+          });
+          paymentUrl = portalSession.url;
+        }
+        
+        return NextResponse.json({
+          success: false,
+          pending: true,
+          message: "Studio upgrade pending. Complete payment to activate Studio.",
+          url: paymentUrl,
+          subscriptionStatus: updatedSubscription.status,
+          debug: debugMode ? debug : undefined,
+        });
+      }
       
     } catch (stripeError) {
       // Check if this is a card_error that requires action (e.g., 3D Secure)
