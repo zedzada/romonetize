@@ -42,23 +42,6 @@ import { useRevenueDisplayMode, getRevenueModeShortLabel } from "@/hooks/use-rev
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 import { getProductPurchaseMetrics } from "@/lib/utils/product-aggregation";
 
-// Range options for the Overview page
-type OverviewRange = "24h" | "7d" | "28d" | "90d";
-
-const RANGE_TO_HOURS: Record<OverviewRange, number> = {
-  "24h": 24,
-  "7d": 168,
-  "28d": 672,
-  "90d": 2160,
-};
-
-const RANGE_LABELS: Record<OverviewRange, string> = {
-  "24h": "24H",
-  "7d": "7D",
-  "28d": "28D",
-  "90d": "90D",
-};
-
 function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -69,32 +52,13 @@ function DashboardPageInner() {
     "Connect a game and start tracking activity to get AI-powered monetization insights."
   );
   const [loading, setLoading] = useState(true);
-  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [alerts, setAlerts] = useState<AnalyticsAlert[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
-  const [productsError, setProductsError] = useState<string | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [gameIds, setGameIds] = useState<string[]>([]);
-  
-  // Range state - default to 28d to match Monetization tab
-  const [range, setRange] = useState<OverviewRange>("28d");
-  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
-  
-  // Monetization data fetched with range (same endpoint as Monetization tab)
-  const [monetizationData, setMonetizationData] = useState<{
-    estimatedRevenue: number;
-    grossRevenue: number;
-    totalPurchases: number;
-    payingUsers: number;
-    activeUsers: number;
-  } | null>(null);
-  
-  // Products data (same endpoint as Products tab)
-  const [productsCount, setProductsCount] = useState<number>(0);
   
   // Connect game form state
   const [gameId, setGameId] = useState("");
@@ -116,49 +80,7 @@ function DashboardPageInner() {
     trackerActiveUsers: revenueStats?.trackerActiveUsers,
   });
 
-  // Fetch monetization data with selected range (same endpoint as Monetization tab)
-  const fetchMonetizationData = useCallback(async () => {
-    setAnalyticsError(null);
-    setProductsError(null);
-    try {
-      const res = await fetch(`/api/dashboard/monetization-data?range=${range}`, { cache: "no-store" });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      
-      if (data.success && data.data) {
-        setMonetizationData({
-          estimatedRevenue: data.data.summary?.estimatedRevenue || 0,
-          grossRevenue: data.data.summary?.grossRevenue || 0,
-          totalPurchases: data.data.summary?.totalPurchases || 0,
-          payingUsers: data.data.summary?.payingUsers || 0,
-          activeUsers: data.data.summary?.activeUsers || 0,
-        });
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to fetch monetization data";
-      setAnalyticsError(msg);
-      console.error("[Overview] Monetization fetch error:", msg);
-    }
-    
-    // Also fetch products count (separate try/catch so one failure doesn't block the other)
-    try {
-      const productsRes = await fetch(`/api/dashboard/products-data?range=${range}`, { cache: "no-store" });
-      if (!productsRes.ok) throw new Error(`HTTP ${productsRes.status}`);
-      const productsData = await productsRes.json();
-      if (productsData.success && productsData.data) {
-        setProductsCount(productsData.data.products?.length || 0);
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to fetch products data";
-      setProductsError(msg);
-      console.error("[Overview] Products fetch error:", msg);
-    }
-    
-    setFetchedAt(new Date().toISOString());
-  }, [range]);
-
   // Fetch dashboard stats and alerts (fresh from Supabase)
-  // NOTE: No dependencies on monetizationData or sharedMetrics to avoid infinite loops
   const fetchStats = useCallback(async (showLoadingState = true) => {
     if (showLoadingState) setIsRefreshing(true);
     
@@ -175,6 +97,13 @@ function DashboardPageInner() {
       } else {
         setStats(statsResult.stats);
         setLastRefresh(new Date());
+        // Update AI response based on data
+        if (statsResult.stats && statsResult.stats.totalEvents > 0) {
+          const estimatedRev = sharedMetrics.estimatedTotalRevenue || statsResult.stats.estimatedRevenue || Math.round(statsResult.stats.totalRevenue * 0.7);
+          setAiResponse(
+            `I'm analyzing your ${statsResult.stats.totalEvents.toLocaleString()} tracked player actions across ${statsResult.stats.totalGames} game${statsResult.stats.totalGames !== 1 ? "s" : ""}. Your estimated revenue is ${estimatedRev.toLocaleString()} Robux with ${statsResult.stats.totalProducts} tracked products. Ask me anything about your monetization performance!`
+          );
+        }
       }
       
       // Set alerts
@@ -189,12 +118,11 @@ function DashboardPageInner() {
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch dashboard stats";
       setError(msg);
-      console.error("[Overview] Stats fetch error:", msg);
     }
     
     if (showLoadingState) setIsRefreshing(false);
     setLoading(false);
-  }, []);
+  }, [sharedMetrics.estimatedTotalRevenue]);
 
   // Setup Supabase Realtime subscription
   const { status: realtimeStatus, isLive } = useRealtimeStats({
@@ -205,55 +133,28 @@ function DashboardPageInner() {
 
   // Initial fetch - only run once on mount
   useEffect(() => {
-    setLoading(true);
     fetchStats(false);
-    fetchMonetizationData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  
-  // Refetch when range changes (but not on initial mount)
-  const [hasMounted, setHasMounted] = useState(false);
-  useEffect(() => {
-    if (hasMounted) {
-      fetchMonetizationData();
-    } else {
-      setHasMounted(true);
-    }
-  }, [range, hasMounted, fetchMonetizationData]);
-  
-  // Timeout fallback - if loading takes more than 3 seconds, show UI anyway
-  useEffect(() => {
-    const timeout = setTimeout(() => {
-      if (loading) {
-        setLoadingTimedOut(true);
-        setLoading(false);
-      }
-    }, 3000);
-    return () => clearTimeout(timeout);
-  }, [loading]);
 
   // Listen for global stats refresh
   useStatsRefresh(fetchStats);
 
   // Fallback polling only when realtime is not connected (every 15 seconds)
-  // The realtime hook handles polling internally when connection fails
   useEffect(() => {
-    // Only poll if we have no realtime connection and no games (realtime hook won't activate)
     if (gameIds.length === 0 && !loading) {
       const interval = setInterval(() => {
         fetchStats(false);
       }, 15000);
       return () => clearInterval(interval);
     }
-  }, [fetchStats, gameIds.length, loading]);
+  }, [gameIds.length, loading]);
 
-  // Manual refresh handler - uses currently selected range
+  // Manual refresh handler
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await Promise.all([
       fetchStats(false),
       refreshAnalytics(),
-      fetchMonetizationData(),
     ]);
     setIsRefreshing(false);
   };
@@ -337,31 +238,17 @@ function DashboardPageInner() {
     }
   };
 
-  // Loading state - only show for first 3 seconds, then render anyway
+  // Loading state
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+      <div className="flex items-center justify-center min-h-[60vh]">
         <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Loading Overview...</p>
       </div>
     );
   }
-  
-  // Create safe stats with fallback values (never undefined)
-  const safeStats = stats || {
-    totalGames: 0,
-    totalEvents: 0,
-    totalRevenue: 0,
-    estimatedRevenue: 0,
-    totalPurchases: 0,
-    totalProducts: 0,
-    latestEvents: [],
-    recentEvents: [],
-    topProducts: [],
-  };
 
-  // Empty state - no game connected (but only if we have loaded and confirmed no games)
-  if (stats && stats.totalGames === 0) {
+  // Empty state - no game connected
+  if (!stats || stats.totalGames === 0) {
     return (
       <div className="space-y-8">
         {/* Premium empty state hero */}
@@ -487,23 +374,7 @@ function DashboardPageInner() {
             </span>
           </p>
         </div>
-        <div className="flex items-center gap-3 flex-wrap">
-          {/* Range selector - visible buttons */}
-          <div className="flex items-center rounded-lg border border-border bg-muted/50 p-1">
-            {(["24h", "7d", "28d", "90d"] as OverviewRange[]).map((r) => (
-              <button
-                key={r}
-                onClick={() => setRange(r)}
-                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                  range === r
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {RANGE_LABELS[r]}
-              </button>
-            ))}
-          </div>
+        <div className="flex items-center gap-3">
           {/* Revenue mode toggle - affects all pages */}
           {!monetizationLocked && <RevenueModeToggleCompact />}
           <Button
@@ -518,42 +389,16 @@ function DashboardPageInner() {
         </div>
       </div>
       
-      {/* Debug panel - only in development or with ?debug=true */}
-      {showDebug && (
-        <div className="p-4 bg-muted/50 rounded-lg border border-border text-xs font-mono">
-          <div className="font-semibold mb-2">Debug Info:</div>
-          <pre className="whitespace-pre-wrap">
-{JSON.stringify({
-  overviewMounted: true,
-  overviewRouteFile: "app/dashboard/page.tsx",
-  selectedRange: range,
-  selectedHours: RANGE_TO_HOURS[range],
-  loadingState: loading,
-  loadingTimedOut: loadingTimedOut,
-  analyticsStatus: analyticsError ? "error" : (stats ? "loaded" : "pending"),
-  analyticsError: analyticsError,
-  productsStatus: productsError ? "error" : (productsCount > 0 ? "loaded" : "pending"),
-  productsError: productsError,
-  selectedGameName: stats ? `${stats.totalGames} games` : "none",
-  fetchedAt: fetchedAt,
-  monetizationData: monetizationData,
-  productsCount: productsCount,
-  error: error,
-}, null, 2)}
-          </pre>
-        </div>
-      )}
-      
-      {/* Error/warning banner if data failed to load */}
-      {(loadingTimedOut || error || analyticsError) && (
+      {/* Error banner if data failed to load */}
+      {error && (
         <div className="p-4 bg-amber-500/10 rounded-lg border border-amber-500/20 flex items-start gap-3">
           <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
           <div>
             <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
-              {loadingTimedOut ? "Overview data took too long to load." : "Some data could not be loaded."}
+              Some data could not be loaded.
             </p>
             <p className="text-xs text-muted-foreground mt-1">
-              {error || analyticsError || "Try refreshing the page or check your connection."}
+              {error}
             </p>
           </div>
         </div>
@@ -568,7 +413,7 @@ function DashboardPageInner() {
                 <Gamepad2 className="w-5 h-5 text-primary" />
               </div>
             </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">{safeStats.totalGames}</div>
+            <div className="text-3xl font-bold text-foreground tracking-tight">{stats?.totalGames || 0}</div>
             <div className="text-xs text-muted-foreground mt-1">Connected Games</div>
           </CardContent>
         </Card>
@@ -579,15 +424,15 @@ function DashboardPageInner() {
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-blue-500" />
               </div>
-              {safeStats.totalEvents > 100 && (
+              {(stats?.totalEvents || 0) > 100 && (
                 <span className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">
                   Active
                 </span>
               )}
             </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">{safeStats.totalEvents.toLocaleString()}</div>
+            <div className="text-3xl font-bold text-foreground tracking-tight">{(stats?.totalEvents || 0).toLocaleString()}</div>
             <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              {RANGE_LABELS[range]} Tracked Actions
+              Tracked Actions
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="w-3 h-3 text-muted-foreground/50 cursor-help" />
@@ -600,21 +445,21 @@ function DashboardPageInner() {
           </CardContent>
         </Card>
 
-        {/* Revenue - Locked for free users, uses monetization data from same endpoint as Monetization tab */}
+        {/* Revenue - Locked for free users, uses shared metrics */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label={`${RANGE_LABELS[range]} ${revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}`}
+            label={revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}
             icon={<DollarSign className="w-5 h-5 text-green-500" />}
             iconBgClassName="bg-green-500/10"
             gradientClassName="from-card to-green-500/5"
           />
         ) : (() => {
-          // Use monetization data from /api/dashboard/monetization-data (same as Monetization tab)
-          const grossRevenue = monetizationData?.grossRevenue || 0;
-          const estimatedRevenue = monetizationData?.estimatedRevenue || 0;
+          // Use shared purchase metrics as PRIMARY source (same helper as Products/Monetization)
+          const grossRevenue = sharedMetrics.grossTotalRevenue || revenueStats?.grossRevenue || stats?.totalRevenue || 0;
+          const estimatedRevenue = sharedMetrics.estimatedTotalRevenue || revenueStats?.estimatedRevenue || stats?.estimatedRevenue || Math.round((stats?.totalRevenue || 0) * 0.7);
           const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
           const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
-          const revenueLabel = `${RANGE_LABELS[range]} ${revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}`;
+          const revenueLabel = revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue";
           const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
           
           return (
@@ -643,17 +488,17 @@ function DashboardPageInner() {
           );
         })()}
 
-        {/* Total Purchases - Locked for free users, uses monetization data from same endpoint */}
+        {/* Total Purchases - Locked for free users */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label={`${RANGE_LABELS[range]} Purchases`}
+            label="Total Purchases"
             icon={<ShoppingCart className="w-5 h-5 text-pink-500" />}
             iconBgClassName="bg-pink-500/10"
             gradientClassName="from-card to-pink-500/5"
           />
         ) : (() => {
-          // Use monetization data from /api/dashboard/monetization-data (same as Monetization tab)
-          const totalPurchases = monetizationData?.totalPurchases || 0;
+          // Use shared purchase metrics as PRIMARY source
+          const totalPurchases = sharedMetrics.totalPurchases || stats?.totalPurchases || 0;
           return (
           <Card className="border-border/50 bg-gradient-to-br from-card to-pink-500/5 shadow-sm hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
@@ -668,16 +513,16 @@ function DashboardPageInner() {
                 )}
               </div>
               <div className="text-3xl font-bold text-foreground tracking-tight">{totalPurchases.toLocaleString()}</div>
-              <div className="text-xs text-muted-foreground mt-1">{RANGE_LABELS[range]} Purchases</div>
+              <div className="text-xs text-muted-foreground mt-1">Total Purchases</div>
             </CardContent>
           </Card>
           );
         })()}
 
-        {/* Total Products - uses products count from same endpoint as Products tab */}
+        {/* Tracked Products - Locked for free users */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label="Total Products"
+            label="Tracked Products"
             icon={<Eye className="w-5 h-5 text-amber-500" />}
             iconBgClassName="bg-amber-500/10"
             gradientClassName="from-card to-amber-500/5"
@@ -690,8 +535,8 @@ function DashboardPageInner() {
                   <Eye className="w-5 h-5 text-amber-500" />
                 </div>
               </div>
-              <div className="text-3xl font-bold text-foreground tracking-tight">{productsCount || safeStats.totalProducts}</div>
-              <div className="text-xs text-muted-foreground mt-1">Total Products</div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">{stats?.totalProducts || 0}</div>
+              <div className="text-xs text-muted-foreground mt-1">Tracked Products</div>
             </CardContent>
           </Card>
         )}
@@ -932,7 +777,7 @@ function DashboardPageInner() {
                 </CardTitle>
                 <CardDescription>Latest player actions from your games</CardDescription>
               </div>
-              {safeStats.recentEvents && safeStats.recentEvents.length > 0 && (
+              {stats?.recentEvents && stats.recentEvents.length > 0 && (
                 <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">
                   Live
                 </span>
@@ -940,7 +785,7 @@ function DashboardPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            {!safeStats.recentEvents || safeStats.recentEvents.length === 0 ? (
+            {!stats?.recentEvents || stats.recentEvents.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
                   <MousePointerClick className="w-7 h-7 text-muted-foreground/50" />
@@ -952,7 +797,7 @@ function DashboardPageInner() {
               </div>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-primary/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
-                {(safeStats.recentEvents || []).map((event, index) => (
+                {(stats?.recentEvents || []).map((event, index) => (
                   <div 
                     key={event.id} 
                     className={`flex items-center justify-between p-3 rounded-xl transition-colors ${
@@ -992,7 +837,7 @@ function DashboardPageInner() {
                 <CardTitle className="text-base font-semibold">Top Products</CardTitle>
                 <CardDescription>Best performing monetization products</CardDescription>
               </div>
-              {safeStats.topProducts && safeStats.topProducts.length > 0 && (
+              {stats?.topProducts && stats.topProducts.length > 0 && (
                 <Link href="/dashboard/products">
                   <Button variant="ghost" size="sm" className="text-xs h-7 gap-1">
                     View all <ArrowRight className="w-3 h-3" />
@@ -1002,7 +847,7 @@ function DashboardPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            {!safeStats.topProducts || safeStats.topProducts.length === 0 ? (
+            {!stats?.topProducts || stats.topProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
                   <ShoppingCart className="w-7 h-7 text-muted-foreground/50" />
@@ -1014,7 +859,7 @@ function DashboardPageInner() {
               </div>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-primary/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
-                {(safeStats.topProducts || []).map((product, index) => (
+                {(stats?.topProducts || []).map((product, index) => (
                   <div 
                     key={product.id} 
                     className={`flex items-center justify-between p-3 rounded-xl transition-colors ${
