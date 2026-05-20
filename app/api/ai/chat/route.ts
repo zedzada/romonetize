@@ -706,9 +706,9 @@ Revenue numbers shown are estimates from RoMonetize tracker data and may differ 
       // Roblox public stats
       if (hasAnyRobloxStats) {
         contextText += `
-Roblox Public Stats:
+Roblox Public Stats (current/lifetime - from Roblox API):
 - Current CCU: ${safeNumber(rStats?.ccu) > 0 ? formatNum(rStats?.ccu) : "Unknown"}
-- Visits: ${safeNumber(rStats?.visits) > 0 ? formatNum(rStats?.visits) : "Unknown"}
+- Total Visits (lifetime): ${safeNumber(rStats?.visits) > 0 ? formatNum(rStats?.visits) : "Unknown"}
 - Favorites: ${safeNumber(rStats?.favorites) > 0 ? formatNum(rStats?.favorites) : "Unknown"}
 - Likes: ${safeNumber(rStats?.likes) > 0 ? formatNum(rStats?.likes) : "Unknown"}
 - Dislikes: ${safeNumber(rStats?.dislikes) > 0 ? formatNum(rStats?.dislikes) : "Unknown"}
@@ -720,7 +720,7 @@ Roblox Public Stats:
                              safeNumber(analyticsContext.uniquePlayers) > 0;
       if (hasTrackerData) {
         contextText += `
-Tracker Stats (last 30 days):
+Tracker Stats (last 28 days - from RoMonetize tracker):
 - Tracked Actions: ${safeNumber(analyticsContext.trackedActions) > 0 ? formatNum(analyticsContext.trackedActions) : "Unknown"}
 - Unique Players: ${safeNumber(analyticsContext.uniquePlayers) > 0 ? formatNum(analyticsContext.uniquePlayers) : "Unknown"}
 - Total Sessions: ${safeNumber(analyticsContext.totalSessions) > 0 ? formatNum(analyticsContext.totalSessions) : "Unknown"}
@@ -734,7 +734,7 @@ Tracker Stats (last 30 days):
                               safeNumber(analyticsContext.estimatedRevenue) > 0;
       if (hasPurchaseData) {
         contextText += `
-Monetization (last 30 days):
+Monetization Stats (last 28 days - same range as Monetization tab):
 - Purchases: ${safeNumber(analyticsContext.totalPurchases) > 0 ? formatNum(analyticsContext.totalPurchases) : "Unknown"}
 - Estimated Revenue: ${safeNumber(analyticsContext.estimatedRevenue) > 0 ? formatRobux(analyticsContext.estimatedRevenue) : "Unknown"}
 - Gross Revenue: ${safeNumber(analyticsContext.grossRevenue) > 0 ? formatRobux(analyticsContext.grossRevenue) : "Unknown"}
@@ -805,7 +805,7 @@ ${validProducts.map((p, i) => {
         const sortedByRevenue = [...productsTable].sort((a, b) => b.estimated_revenue - a.estimated_revenue);
         
         contextText += `
-Products Table (${productsTable.length} products - SAME DATA AS PRODUCTS TAB):
+Products Table (last 28 days - same range as Products tab, ${productsTable.length} products):
 ${sortedByRevenue.slice(0, 15).map((p, i) => {
   const typeLabel = p.product_type === "gamepass" ? "Game Pass" : p.product_type === "devproduct" ? "Dev Product" : p.product_type;
   return `${i + 1}. ${p.product_name} — ${typeLabel} — R$${p.estimated_revenue.toLocaleString()} — ${p.purchases} purchases — ${p.buyers} buyers`;

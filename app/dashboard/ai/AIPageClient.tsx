@@ -664,8 +664,38 @@ function AIAssistantContent() {
     // PART 6: Fix duplicate conversations - only create if no activeConversationId
     let conversationId = activeConversationId;
     if (!conversationId) {
-      // Auto-generate title from first message
-      const autoTitle = text.length > 40 ? text.substring(0, 40) + "..." : (text || "Image Analysis");
+      // Generate a cleaner title from the first message
+      let autoTitle = "New Chat";
+      const trimmedText = text.trim();
+      
+      // Map common quick prompts to cleaner titles
+      const titleMappings: Record<string, string> = {
+        "show me my stats overview": "Stats Overview",
+        "how can i improve my conversion": "Improve Conversion",
+        "analyze my products": "Product Analysis",
+        "what should i do next": "Next Steps",
+        "show me my revenue": "Revenue Analysis",
+        "how do i increase revenue": "Increase Revenue",
+        "what are my best products": "Best Products",
+        "help me with pricing": "Pricing Help",
+      };
+      
+      const lowerText = trimmedText.toLowerCase();
+      if (titleMappings[lowerText]) {
+        autoTitle = titleMappings[lowerText];
+      } else if (trimmedText.length > 0) {
+        // Trim to 38 chars, break at word boundary
+        if (trimmedText.length <= 38) {
+          autoTitle = trimmedText;
+        } else {
+          const truncated = trimmedText.substring(0, 38);
+          const lastSpace = truncated.lastIndexOf(" ");
+          autoTitle = (lastSpace > 20 ? truncated.substring(0, lastSpace) : truncated) + "...";
+        }
+      } else if (imagePreview) {
+        autoTitle = "Image Analysis";
+      }
+      
       conversationId = await createNewConversation(autoTitle);
       if (conversationId) {
         setActiveConversationId(conversationId);
@@ -1030,12 +1060,12 @@ function AIAssistantContent() {
                     className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[85%] rounded-2xl px-5 py-4 ${
+                      className={`rounded-2xl px-5 py-4 ${
                         message.role === "user"
-                          ? "bg-primary text-primary-foreground"
+                          ? "max-w-[85%] bg-primary text-primary-foreground"
                           : message.role === "error"
-                          ? "bg-destructive/10 text-destructive border border-destructive/20"
-                          : "bg-secondary/50 text-foreground"
+                          ? "max-w-[85%] bg-destructive/10 text-destructive border border-destructive/20"
+                          : "w-full max-w-[900px] bg-secondary/30 text-foreground"
                       }`}
                     >
                       {message.role === "error" ? (
@@ -1044,7 +1074,7 @@ function AIAssistantContent() {
                           <span>{message.content}</span>
                         </div>
                       ) : message.role === "assistant" ? (
-                        <div className="prose prose-base dark:prose-invert max-w-none prose-p:leading-relaxed prose-li:leading-relaxed prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
+                        <div className="prose prose-base dark:prose-invert max-w-none prose-headings:font-semibold prose-h2:text-lg prose-h2:mt-6 prose-h2:mb-3 prose-h3:text-base prose-h3:mt-4 prose-h3:mb-2 prose-p:my-3 prose-p:leading-7 prose-ul:my-3 prose-ul:space-y-1 prose-ol:my-3 prose-ol:space-y-1 prose-li:leading-7 prose-strong:font-semibold prose-hr:my-4 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                           <ReactMarkdown>{message.content}</ReactMarkdown>
                         </div>
                       ) : (
