@@ -38,18 +38,27 @@ export async function POST(request: NextRequest) {
   
   try {
     // Parse request body
-    let body: { targetPlan?: string; interval?: "monthly" | "yearly" } = {};
+    let body: { targetPlan?: string; interval?: "monthly" | "yearly"; confirmed?: boolean } = {};
     try {
       body = await request.json();
     } catch {
       return NextResponse.json({ error: "Invalid request body" }, { status: 400 });
     }
     
-    const { targetPlan, interval = "monthly" } = body;
+    const { targetPlan, interval = "monthly", confirmed } = body;
     const url = new URL(request.url);
     const debugMode = url.searchParams.get("debug") === "true";
     
-    debug.requestBody = { targetPlan, interval };
+    debug.requestBody = { targetPlan, interval, confirmed };
+    
+    // IMPORTANT: Require explicit confirmation to prevent accidental upgrades
+    if (confirmed !== true) {
+      return NextResponse.json({
+        error: "Upgrade must be confirmed. Please use the confirmation modal.",
+        requiresConfirmation: true,
+        debug: debugMode ? debug : undefined,
+      }, { status: 400 });
+    }
     
     // Validate target plan
     if (!targetPlan || !["pro", "studio"].includes(targetPlan)) {
