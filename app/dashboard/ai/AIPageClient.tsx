@@ -1122,17 +1122,17 @@ function AIAssistantContent() {
   robloxStats: aiContext.robloxStats,
   trackerStats: aiContext.trackerStats,
   monetizationStats: aiContext.monetizationStats,
-  revenueByProductType: {
-    gamepassRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.gamepassRevenue,
-    devproductRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.devproductRevenue,
-    unknownRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.unknownRevenue,
-  },
   productStats: {
-    totalProducts: (aiContext.productStats as Record<string, unknown>)?.totalProducts,
-    syncedRobloxProducts: (aiContext.productStats as Record<string, unknown>)?.syncedRobloxProducts,
-    topProducts: ((aiContext.productStats as Record<string, unknown>)?.topProducts as unknown[] || []).slice(0, 3),
+    productStatsAvailable: !!((aiContext.productStats as Record<string, unknown>)?.topProducts as unknown[] || []).length,
+    productCatalogCount: (aiContext.productStats as Record<string, unknown>)?.totalProducts || (aiContext.productStats as Record<string, unknown>)?.syncedRobloxProducts,
+    topProductsCount: ((aiContext.productStats as Record<string, unknown>)?.topProducts as unknown[] || []).length,
+    topProductsPreview: ((aiContext.productStats as Record<string, unknown>)?.topProducts as Array<{product_id?: string; id?: string; product_name?: string; name?: string; purchases?: number; revenue?: number}> || []).slice(0, 5).map(p => ({
+      product_id: p.product_id || p.id,
+      product_name: p.product_name || p.name || null,
+      purchases: p.purchases,
+      revenue: p.revenue,
+    })),
   },
-  productEnrichment: (aiContext as Record<string, unknown>)?._productEnrichment,
 }, null, 2)}
                   </pre>
                 </div>
