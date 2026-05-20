@@ -69,9 +69,12 @@ function DashboardPageInner() {
     "Connect a game and start tracking activity to get AI-powered monetization insights."
   );
   const [loading, setLoading] = useState(true);
+  const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [alerts, setAlerts] = useState<AnalyticsAlert[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [productsError, setProductsError] = useState<string | null>(null);
 
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
@@ -115,9 +118,11 @@ function DashboardPageInner() {
 
   // Fetch monetization data with selected range (same endpoint as Monetization tab)
   const fetchMonetizationData = useCallback(async () => {
+    setAnalyticsError(null);
+    setProductsError(null);
     try {
-      const hours = RANGE_TO_HOURS[range];
       const res = await fetch(`/api/dashboard/monetization-data?range=${range}`, { cache: "no-store" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       
       if (data.success && data.data) {
@@ -129,59 +134,67 @@ function DashboardPageInner() {
           activeUsers: data.data.summary?.activeUsers || 0,
         });
       }
-      
-      // Also fetch products count
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch monetization data";
+      setAnalyticsError(msg);
+      console.error("[Overview] Monetization fetch error:", msg);
+    }
+    
+    // Also fetch products count (separate try/catch so one failure doesn't block the other)
+    try {
       const productsRes = await fetch(`/api/dashboard/products-data?range=${range}`, { cache: "no-store" });
+      if (!productsRes.ok) throw new Error(`HTTP ${productsRes.status}`);
       const productsData = await productsRes.json();
       if (productsData.success && productsData.data) {
         setProductsCount(productsData.data.products?.length || 0);
       }
-      
-      setFetchedAt(new Date().toISOString());
     } catch (err) {
-      console.error("[Overview] Failed to fetch monetization data:", err);
+      const msg = err instanceof Error ? err.message : "Failed to fetch products data";
+      setProductsError(msg);
+      console.error("[Overview] Products fetch error:", msg);
     }
+    
+    setFetchedAt(new Date().toISOString());
   }, [range]);
 
   // Fetch dashboard stats and alerts (fresh from Supabase)
+  // NOTE: No dependencies on monetizationData or sharedMetrics to avoid infinite loops
   const fetchStats = useCallback(async (showLoadingState = true) => {
     if (showLoadingState) setIsRefreshing(true);
     
-    // Fetch stats, alerts, and game IDs in parallel
-    const [statsResult, alertsResult, gameIdsResult] = await Promise.all([
-      getDashboardStats(),
-      getAnalyticsAlerts(),
-      getUserGameIds(),
-    ]);
-    
-    if (statsResult.error) {
-      setError(statsResult.error);
-    } else {
-      setStats(statsResult.stats);
-      setLastRefresh(new Date());
-      // Update AI response based on data
-      if (statsResult.stats && statsResult.stats.totalEvents > 0) {
-        const estimatedRev = monetizationData?.estimatedRevenue || sharedMetrics.estimatedTotalRevenue || statsResult.stats.estimatedRevenue || Math.round(statsResult.stats.totalRevenue * 0.7);
-        const purchaseCount = monetizationData?.totalPurchases || sharedMetrics.totalPurchases || statsResult.stats.totalPurchases || 0;
-        setAiResponse(
-          `I'm analyzing your ${statsResult.stats.totalEvents.toLocaleString()} tracked player actions across ${statsResult.stats.totalGames} game${statsResult.stats.totalGames !== 1 ? "s" : ""}. Your estimated revenue is ${estimatedRev.toLocaleString()} Robux with ${statsResult.stats.totalProducts} tracked products. Ask me anything about your monetization performance!`
-        );
+    try {
+      // Fetch stats, alerts, and game IDs in parallel
+      const [statsResult, alertsResult, gameIdsResult] = await Promise.all([
+        getDashboardStats(),
+        getAnalyticsAlerts(),
+        getUserGameIds(),
+      ]);
+      
+      if (statsResult.error) {
+        setError(statsResult.error);
+      } else {
+        setStats(statsResult.stats);
+        setLastRefresh(new Date());
       }
-    }
-    
-    // Set alerts
-    if (!alertsResult.error) {
-      setAlerts(alertsResult.alerts);
-    }
-    
-    // Set game IDs for realtime subscription
-    if (!gameIdsResult.error) {
-      setGameIds(gameIdsResult.gameIds);
+      
+      // Set alerts
+      if (!alertsResult.error) {
+        setAlerts(alertsResult.alerts);
+      }
+      
+      // Set game IDs for realtime subscription
+      if (!gameIdsResult.error) {
+        setGameIds(gameIdsResult.gameIds);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to fetch dashboard stats";
+      setError(msg);
+      console.error("[Overview] Stats fetch error:", msg);
     }
     
     if (showLoadingState) setIsRefreshing(false);
     setLoading(false);
-  }, [monetizationData, sharedMetrics]);
+  }, []);
 
   // Setup Supabase Realtime subscription
   const { status: realtimeStatus, isLive } = useRealtimeStats({
@@ -190,17 +203,34 @@ function DashboardPageInner() {
     enabled: gameIds.length > 0,
   });
 
-  // Initial fetch
+  // Initial fetch - only run once on mount
   useEffect(() => {
     setLoading(true);
     fetchStats(false);
     fetchMonetizationData();
-  }, [fetchStats, fetchMonetizationData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   
-  // Refetch when range changes
+  // Refetch when range changes (but not on initial mount)
+  const [hasMounted, setHasMounted] = useState(false);
   useEffect(() => {
-    fetchMonetizationData();
-  }, [range, fetchMonetizationData]);
+    if (hasMounted) {
+      fetchMonetizationData();
+    } else {
+      setHasMounted(true);
+    }
+  }, [range, hasMounted, fetchMonetizationData]);
+  
+  // Timeout fallback - if loading takes more than 3 seconds, show UI anyway
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        setLoadingTimedOut(true);
+        setLoading(false);
+      }
+    }, 3000);
+    return () => clearTimeout(timeout);
+  }, [loading]);
 
   // Listen for global stats refresh
   useStatsRefresh(fetchStats);
@@ -307,17 +337,31 @@ function DashboardPageInner() {
     }
   };
 
-  // Loading state
+  // Loading state - only show for first 3 seconds, then render anyway
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
         <RefreshCw className="w-8 h-8 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Loading Overview...</p>
       </div>
     );
   }
+  
+  // Create safe stats with fallback values (never undefined)
+  const safeStats = stats || {
+    totalGames: 0,
+    totalEvents: 0,
+    totalRevenue: 0,
+    estimatedRevenue: 0,
+    totalPurchases: 0,
+    totalProducts: 0,
+    latestEvents: [],
+    recentEvents: [],
+    topProducts: [],
+  };
 
-  // Empty state - no game connected
-  if (!stats || stats.totalGames === 0) {
+  // Empty state - no game connected (but only if we have loaded and confirmed no games)
+  if (stats && stats.totalGames === 0) {
     return (
       <div className="space-y-8">
         {/* Premium empty state hero */}
@@ -480,17 +524,38 @@ function DashboardPageInner() {
           <div className="font-semibold mb-2">Debug Info:</div>
           <pre className="whitespace-pre-wrap">
 {JSON.stringify({
+  overviewMounted: true,
   overviewRouteFile: "app/dashboard/page.tsx",
   selectedRange: range,
   selectedHours: RANGE_TO_HOURS[range],
-  revenueSource: "/api/dashboard/monetization-data",
-  purchasesSource: "/api/dashboard/monetization-data",
-  productsSource: "/api/dashboard/products-data",
+  loadingState: loading,
+  loadingTimedOut: loadingTimedOut,
+  analyticsStatus: analyticsError ? "error" : (stats ? "loaded" : "pending"),
+  analyticsError: analyticsError,
+  productsStatus: productsError ? "error" : (productsCount > 0 ? "loaded" : "pending"),
+  productsError: productsError,
+  selectedGameName: stats ? `${stats.totalGames} games` : "none",
   fetchedAt: fetchedAt,
   monetizationData: monetizationData,
   productsCount: productsCount,
+  error: error,
 }, null, 2)}
           </pre>
+        </div>
+      )}
+      
+      {/* Error/warning banner if data failed to load */}
+      {(loadingTimedOut || error || analyticsError) && (
+        <div className="p-4 bg-amber-500/10 rounded-lg border border-amber-500/20 flex items-start gap-3">
+          <AlertTriangle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-700 dark:text-amber-400">
+              {loadingTimedOut ? "Overview data took too long to load." : "Some data could not be loaded."}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {error || analyticsError || "Try refreshing the page or check your connection."}
+            </p>
+          </div>
         </div>
       )}
 
@@ -503,7 +568,7 @@ function DashboardPageInner() {
                 <Gamepad2 className="w-5 h-5 text-primary" />
               </div>
             </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalGames}</div>
+            <div className="text-3xl font-bold text-foreground tracking-tight">{safeStats.totalGames}</div>
             <div className="text-xs text-muted-foreground mt-1">Connected Games</div>
           </CardContent>
         </Card>
@@ -514,13 +579,13 @@ function DashboardPageInner() {
               <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-blue-500" />
               </div>
-              {stats.totalEvents > 100 && (
+              {safeStats.totalEvents > 100 && (
                 <span className="text-[10px] font-semibold text-blue-500 bg-blue-500/10 px-2 py-0.5 rounded-full">
                   Active
                 </span>
               )}
             </div>
-            <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalEvents.toLocaleString()}</div>
+            <div className="text-3xl font-bold text-foreground tracking-tight">{safeStats.totalEvents.toLocaleString()}</div>
             <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
               {RANGE_LABELS[range]} Tracked Actions
               <Tooltip>
@@ -625,7 +690,7 @@ function DashboardPageInner() {
                   <Eye className="w-5 h-5 text-amber-500" />
                 </div>
               </div>
-              <div className="text-3xl font-bold text-foreground tracking-tight">{productsCount || stats.totalProducts}</div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">{productsCount || safeStats.totalProducts}</div>
               <div className="text-xs text-muted-foreground mt-1">Total Products</div>
             </CardContent>
           </Card>
@@ -867,7 +932,7 @@ function DashboardPageInner() {
                 </CardTitle>
                 <CardDescription>Latest player actions from your games</CardDescription>
               </div>
-              {stats.recentEvents.length > 0 && (
+              {safeStats.recentEvents && safeStats.recentEvents.length > 0 && (
                 <span className="text-[10px] font-medium text-primary bg-primary/10 px-2 py-1 rounded-full">
                   Live
                 </span>
@@ -875,7 +940,7 @@ function DashboardPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            {stats.recentEvents.length === 0 ? (
+            {!safeStats.recentEvents || safeStats.recentEvents.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
                   <MousePointerClick className="w-7 h-7 text-muted-foreground/50" />
@@ -887,7 +952,7 @@ function DashboardPageInner() {
               </div>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-primary/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
-                {stats.recentEvents.map((event, index) => (
+                {(safeStats.recentEvents || []).map((event, index) => (
                   <div 
                     key={event.id} 
                     className={`flex items-center justify-between p-3 rounded-xl transition-colors ${
@@ -927,7 +992,7 @@ function DashboardPageInner() {
                 <CardTitle className="text-base font-semibold">Top Products</CardTitle>
                 <CardDescription>Best performing monetization products</CardDescription>
               </div>
-              {stats.topProducts.length > 0 && (
+              {safeStats.topProducts && safeStats.topProducts.length > 0 && (
                 <Link href="/dashboard/products">
                   <Button variant="ghost" size="sm" className="text-xs h-7 gap-1">
                     View all <ArrowRight className="w-3 h-3" />
@@ -937,7 +1002,7 @@ function DashboardPageInner() {
             </div>
           </CardHeader>
           <CardContent>
-            {stats.topProducts.length === 0 ? (
+            {!safeStats.topProducts || safeStats.topProducts.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
                 <div className="w-16 h-16 rounded-2xl bg-secondary/50 flex items-center justify-center mb-4">
                   <ShoppingCart className="w-7 h-7 text-muted-foreground/50" />
@@ -949,7 +1014,7 @@ function DashboardPageInner() {
               </div>
             ) : (
               <div className="space-y-2 max-h-72 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-primary/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-track]:bg-transparent">
-                {stats.topProducts.map((product, index) => (
+                {(safeStats.topProducts || []).map((product, index) => (
                   <div 
                     key={product.id} 
                     className={`flex items-center justify-between p-3 rounded-xl transition-colors ${
