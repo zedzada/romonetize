@@ -137,6 +137,10 @@ function AIAssistantContent() {
   const [aiContextLoading, setAiContextLoading] = useState(true); // Start as true - loading on mount
   const [aiContextError, setAiContextError] = useState<string | null>(null);
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
+  const [analyticsFetchedAt, setAnalyticsFetchedAt] = useState<string | null>(null);
+  
+  // Track the game context when conversation started (to detect game switches mid-conversation)
+  const [conversationStartedWithGame, setConversationStartedWithGame] = useState<string | null>(null);
   
   // All connected games for multi-game support
   const [allConnectedGames, setAllConnectedGames] = useState<Array<{ id: string; name: string; roblox_game_id?: string }>>([]);
@@ -163,6 +167,24 @@ function AIAssistantContent() {
   useEffect(() => {
     fetchConversations();
     fetchAiContext();
+  }, []);
+  
+  // Listen for game selection changes from header game selector
+  useEffect(() => {
+    const handleGameChanged = () => {
+      // Clear old context and refetch for the new selected game
+      setAiContext(null);
+      setAnalyticsLoaded(false);
+      setAiContextError(null);
+      setAnalyticsFetchedAt(null);
+      // Refetch context for the newly selected game
+      fetchAiContext();
+    };
+    
+    window.addEventListener("selected-game-changed", handleGameChanged);
+    return () => {
+      window.removeEventListener("selected-game-changed", handleGameChanged);
+    };
   }, []);
 
   // Fetch AI context from dashboard analytics AND products-data (same as Products tab)
@@ -314,6 +336,7 @@ function AIAssistantContent() {
         };
         setAiContext(context);
         setAnalyticsLoaded(true);
+        setAnalyticsFetchedAt(new Date().toISOString());
         
         if (debug) {
           setDebugInfo(prev => ({
@@ -580,57 +603,77 @@ function AIAssistantContent() {
       return;
     }
 
-    // PART 2: Ensure aiContext is ready before first message
-    // If not ready, refetch immediately before sending
+    // PART 2: ALWAYS refetch fresh context before every message
+    // This ensures we use the current selected game, not stale cached context
     let contextToSend = aiContext;
-    if (!contextToSend || !analyticsLoaded) {
-      try {
-        const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
-        const data = await res.json();
-        const root = data?.data;
+    let gameSwitchedMidConversation = false;
+    let previousGameName: string | null = null;
+    let currentGameName: string | null = null;
+    
+    try {
+      const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
+      const data = await res.json();
+      const root = data?.data;
+      
+      if (root) {
+        currentGameName = root.selectedGameName || root.game?.name || null;
         
-        if (root) {
-          contextToSend = {
-            selectedGame: root.selectedGameName || root.game?.name || null,
-            gameId: root.selectedGameId || root.game?.id || null,
-            range: root.range || "30d",
-            robloxStats: {
-              visits: root.robloxStats?.totalVisits || root.robloxStats?.visits || 0,
-              ccu: root.robloxStats?.currentPlayers || root.robloxStats?.ccu || 0,
-              favorites: root.robloxStats?.favorites || 0,
-              likes: root.robloxStats?.likes || 0,
-              dislikes: root.robloxStats?.dislikes || 0,
-            },
-            trackerStats: {
-              trackedActions: root.trackerStats?.totalEvents || 0,
-              uniquePlayers: root.trackerStats?.uniquePlayers || 0,
-              totalSessions: root.trackerStats?.totalSessions || 0,
-              avgSessionSeconds: root.trackerStats?.avgSessionDuration || 0,
-              newPlayers: root.trackerStats?.newPlayers || 0,
-              purchases: root.trackerStats?.totalPurchases || 0,
-            },
-            monetizationStats: {
-              purchases: root.revenueStats?.totalPurchases || root.trackerStats?.totalPurchases || 0,
-              grossRevenue: root.revenueStats?.grossRevenue || root.revenueStats?.totalRevenue || 0,
-              estimatedRevenue: root.revenueStats?.estimatedRevenue || 0,
-              payingUsers: root.revenueStats?.payingUsers || root.revenueStats?.trackerPayingUsers || 0,
-              activeUsers: root.revenueStats?.trackerActiveUsers || root.trackerStats?.uniquePlayers || 0,
-              pcr: root.revenueStats?.trackerPcr || root.revenueStats?.conversionRate || 0,
-              arppu: root.revenueStats?.estimatedArppu || root.revenueStats?.arppu || 0,
-              arpdau: root.revenueStats?.estimatedArpdau || root.revenueStats?.arpdau || 0,
-            },
-            productStats: {
-              totalProducts: root.productAnalytics?.productsCount || root.productStats?.products?.length || 0,
-              topProducts: root.productAnalytics?.topProducts || root.productStats?.products?.slice(0, 5) || [],
-            },
-            dataHealth: root.dataHealth || null,
-          };
-          setAiContext(contextToSend);
-          setAnalyticsLoaded(true);
+        // Check if game switched mid-conversation
+        if (conversationStartedWithGame && currentGameName && conversationStartedWithGame !== currentGameName) {
+          gameSwitchedMidConversation = true;
+          previousGameName = conversationStartedWithGame;
         }
-      } catch {
-        // Continue without context - backend will try to fetch
+        
+        // Track conversation start game
+        if (!conversationStartedWithGame && currentGameName) {
+          setConversationStartedWithGame(currentGameName);
+        }
+        
+        contextToSend = {
+          selectedGame: currentGameName,
+          gameId: root.selectedGameId || root.game?.id || null,
+          robloxGameId: root.game?.roblox_game_id || null,
+          range: root.range || "30d",
+          robloxStats: {
+            visits: root.robloxStats?.totalVisits || root.robloxStats?.visits || 0,
+            ccu: root.robloxStats?.currentPlayers || root.robloxStats?.ccu || 0,
+            favorites: root.robloxStats?.favorites || 0,
+            likes: root.robloxStats?.likes || 0,
+            dislikes: root.robloxStats?.dislikes || 0,
+          },
+          trackerStats: {
+            trackedActions: root.trackerStats?.totalEvents || 0,
+            uniquePlayers: root.trackerStats?.uniquePlayers || 0,
+            totalSessions: root.trackerStats?.totalSessions || 0,
+            avgSessionSeconds: root.trackerStats?.avgSessionDuration || 0,
+            newPlayers: root.trackerStats?.newPlayers || 0,
+            purchases: root.trackerStats?.totalPurchases || 0,
+          },
+          monetizationStats: {
+            purchases: root.revenueStats?.totalPurchases || root.trackerStats?.totalPurchases || 0,
+            grossRevenue: root.revenueStats?.grossRevenue || root.revenueStats?.totalRevenue || 0,
+            estimatedRevenue: root.revenueStats?.estimatedRevenue || 0,
+            payingUsers: root.revenueStats?.payingUsers || root.revenueStats?.trackerPayingUsers || 0,
+            activeUsers: root.revenueStats?.trackerActiveUsers || root.trackerStats?.uniquePlayers || 0,
+            pcr: root.revenueStats?.trackerPcr || root.revenueStats?.conversionRate || 0,
+            arppu: root.revenueStats?.estimatedArppu || root.revenueStats?.arppu || 0,
+            arpdau: root.revenueStats?.estimatedArpdau || root.revenueStats?.arpdau || 0,
+          },
+          productStats: {
+            totalProducts: root.productAnalytics?.productsCount || root.productStats?.products?.length || 0,
+            topProducts: root.productAnalytics?.topProducts || root.productStats?.products?.slice(0, 5) || [],
+          },
+          dataHealth: root.dataHealth || null,
+          // Include game switch info for AI to mention
+          gameSwitchedMidConversation,
+          previousGameName,
+        };
+        setAiContext(contextToSend);
+        setAnalyticsLoaded(true);
+        setAnalyticsFetchedAt(new Date().toISOString());
       }
+    } catch {
+      // Continue with existing context if fresh fetch fails
     }
 
     // Build user message content for display
@@ -874,6 +917,8 @@ function AIAssistantContent() {
     setActiveConversationId(null);
     setInput("");
     handleRemoveImage();
+    // Reset conversation-started-with-game tracker for new conversation
+    setConversationStartedWithGame(null);
   };
 
   // Handle Enter key
@@ -1176,11 +1221,25 @@ function AIAssistantContent() {
           <Card className="mt-4 p-4 border-yellow-500/30 bg-yellow-500/5">
             <h3 className="font-semibold text-sm mb-2 text-yellow-600">Debug Panel (AI Context)</h3>
             
-            {/* PART 7: Key status indicators */}
+            {/* PART 7: Key status indicators - per spec requirements */}
             <div className="mb-4 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">
-              <h4 className="text-xs font-semibold text-yellow-600 mb-2">Status (per spec section 7)</h4>
+              <h4 className="text-xs font-semibold text-yellow-600 mb-2">Game Context Status (spec section 5)</h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><strong>selectedGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>selectedGameId:</strong> {(aiContext?.gameId as string) || "N/A"}</div>
+                <div><strong>robloxGameId:</strong> {(aiContext?.robloxGameId as string) || "N/A"}</div>
+                <div><strong>aiContextGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>analyticsFetchedAt:</strong> {analyticsFetchedAt || "N/A"}</div>
+                <div><strong>analyticsRequestUrl:</strong> /api/dashboard/analytics?range=30d</div>
+                <div><strong>conversationStartedWithGame:</strong> {conversationStartedWithGame || "N/A"}</div>
+                <div><strong>gameSwitchedMidConversation:</strong> {(aiContext?.gameSwitchedMidConversation as boolean) ? "YES" : "no"}</div>
+              </div>
+            </div>
+            
+            {/* Additional status indicators */}
+            <div className="mb-4 p-3 bg-blue-500/10 rounded-lg border border-blue-500/30">
+              <h4 className="text-xs font-semibold text-blue-600 mb-2">Loading Status</h4>
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 <div><strong>analyticsLoaded:</strong> <span className={analyticsLoaded ? "text-green-600" : "text-red-600"}>{String(analyticsLoaded)}</span></div>
                 <div><strong>productsLoaded:</strong> <span className={(debugInfo.productsLoaded as boolean) ? "text-green-600" : "text-red-600"}>{String(debugInfo.productsLoaded || false)}</span></div>
                 <div><strong>productsTableCount:</strong> {((aiContext?.productsTable as unknown[]) || []).length}</div>

@@ -604,6 +604,9 @@ export async function POST(request: NextRequest) {
         productsTable: productsTable,
         productsSummary: productsSummary,
         allConnectedGames: aiContext.allConnectedGames || [],
+        // Game switch tracking
+        gameSwitchedMidConversation: aiContext.gameSwitchedMidConversation || false,
+        previousGameName: aiContext.previousGameName || null,
         emptyReason: hasData ? null : "no_data_in_aiContext",
         _dataHealth: {
           hasTrackerData,
@@ -702,6 +705,11 @@ Revenue numbers shown are estimates from RoMonetize tracker data and may differ 
       
       // Build clean context sections
       let contextText = `\nSelected Game: ${analyticsContext.gameName || "Unknown"}\n`;
+      
+      // Check if game was switched mid-conversation
+      if (analyticsContext.gameSwitchedMidConversation && analyticsContext.previousGameName) {
+        contextText += `\n**Note: You switched from "${analyticsContext.previousGameName}" to "${analyticsContext.gameName}". The stats below are for the current game (${analyticsContext.gameName}).**\n`;
+      }
       
       // Roblox public stats
       if (hasAnyRobloxStats) {
