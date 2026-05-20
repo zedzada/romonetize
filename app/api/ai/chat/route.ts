@@ -565,7 +565,20 @@ export async function POST(request: NextRequest) {
                              (robloxStats.ccu || 0) > 0;
       const hasProducts = (productStats.totalProducts || 0) > 0;
       
-      const hasData = hasTrackerData || hasPurchaseData || hasRobloxStats || hasProducts;
+      // Get productsTable from aiContext (same data as Products tab)
+      const productsTable = (aiContext.productsTable || []) as Array<{
+        product_id: string;
+        product_name: string;
+        product_type: string;
+        estimated_revenue: number;
+        gross_revenue: number;
+        purchases: number;
+        buyers: number;
+        revenue_per_buyer: number;
+      }>;
+      const productsSummary = aiContext.productsSummary as Record<string, unknown> | null;
+      
+      const hasData = hasTrackerData || hasPurchaseData || hasRobloxStats || hasProducts || productsTable.length > 0;
       
       analyticsContext = {
         hasData,
@@ -587,6 +600,9 @@ export async function POST(request: NextRequest) {
         arpdau: monetizationStats.arpdau || 0,
         syncedProductsCount: productStats.totalProducts || 0,
         topProducts: productStats.topProducts || [],
+        // Products Table - SAME DATA AS PRODUCTS TAB
+        productsTable: productsTable,
+        productsSummary: productsSummary,
         allConnectedGames: aiContext.allConnectedGames || [],
         emptyReason: hasData ? null : "no_data_in_aiContext",
         _dataHealth: {
@@ -594,6 +610,7 @@ export async function POST(request: NextRequest) {
           hasPurchaseData,
           hasRobloxStats,
           hasProducts,
+          hasProductsTable: productsTable.length > 0,
         },
       };
     } else {
@@ -638,9 +655,21 @@ BEHAVIOR RULES:
 - For general Roblox questions: Answer directly. No stats needed.
 - For questions about the user's specific game: Use the provided dashboard context if available.
 - If stats exist, include a "Stats I'm using" section with the actual values you're referencing.
-- If product-level data is incomplete, mention it briefly, then still give useful advice from available totals.
 - Do not invent missing product names, prices, or exact revenue splits.
 - Be practical, direct, and helpful. Write like a knowledgeable colleague, not a corporate FAQ.
+
+PRODUCT QUESTIONS - CRITICAL:
+When user asks about products, gamepasses, dev products, best sellers, revenue per product:
+- If "Products Table" data exists below, USE IT. This is the SAME data shown in the Products tab.
+- For "show me all my products" - list them from the Products Table with names, types, revenue, purchases.
+- For "best seller by purchases" - find highest purchases in Products Table.
+- For "best revenue" - find highest estimated_revenue in Products Table.
+- For "which product should I improve" - analyze Products Table rows:
+  * High purchases + low revenue per buyer = pricing opportunity
+  * High revenue + high purchases = promote more
+  * Low buyers + high revenue per buyer = niche product, add visibility
+- DO NOT say "I don't have product list" if Products Table has rows.
+- DO NOT say "product-level data unavailable" if Products Table has rows.
 
 WHEN STATS ARE PROVIDED:
 For advice questions about the user's game, structure your answer as:
@@ -756,6 +785,33 @@ ${validProducts.map((p, i) => {
       const productCount = safeNumber(analyticsContext.syncedProductsCount);
       if (productCount > 0) {
         contextText += `\nProduct Catalog: ${productCount} products synced from Roblox\n`;
+      }
+      
+      // Products Table - SAME DATA AS PRODUCTS TAB
+      // This gives the AI the full product list with names, types, revenue, purchases
+      const productsTable = analyticsContext.productsTable as Array<{
+        product_id: string;
+        product_name: string;
+        product_type: string;
+        estimated_revenue: number;
+        gross_revenue: number;
+        purchases: number;
+        buyers: number;
+        revenue_per_buyer: number;
+      }> | undefined;
+      
+      if (productsTable && productsTable.length > 0) {
+        // Sort by revenue for display
+        const sortedByRevenue = [...productsTable].sort((a, b) => b.estimated_revenue - a.estimated_revenue);
+        
+        contextText += `
+Products Table (${productsTable.length} products - SAME DATA AS PRODUCTS TAB):
+${sortedByRevenue.slice(0, 15).map((p, i) => {
+  const typeLabel = p.product_type === "gamepass" ? "Game Pass" : p.product_type === "devproduct" ? "Dev Product" : p.product_type;
+  return `${i + 1}. ${p.product_name} — ${typeLabel} — R$${p.estimated_revenue.toLocaleString()} — ${p.purchases} purchases — ${p.buyers} buyers`;
+}).join("\n")}
+${productsTable.length > 15 ? `\n... and ${productsTable.length - 15} more products` : ""}
+`;
       }
       
       // All connected games (for multi-game questions)

@@ -165,18 +165,61 @@ function AIAssistantContent() {
     fetchAiContext();
   }, []);
 
-  // Fetch AI context from dashboard analytics
+  // Fetch AI context from dashboard analytics AND products-data (same as Products tab)
   const fetchAiContext = async () => {
     setAiContextLoading(true);
     setAiContextError(null);
     try {
-      // Fetch analytics and all connected games in parallel
-      const [analyticsRes, gamesRes] = await Promise.all([
+      // Fetch analytics, products-data, and all connected games in parallel
+      // CRITICAL: Products-data gives us the same product table as the Products tab
+      const [analyticsRes, productsRes, gamesRes] = await Promise.all([
         fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" }),
+        fetch("/api/dashboard/products-data?range=28d", { cache: "no-store" }),
         fetch("/api/dashboard/analytics?includeAllGames=true", { cache: "no-store" }).catch(() => null),
       ]);
       
       const data = await analyticsRes.json();
+      
+      // Parse products-data response (same data as Products tab)
+      let productsTable: Array<{
+        product_id: string;
+        product_name: string;
+        product_type: string;
+        estimated_revenue: number;
+        gross_revenue: number;
+        purchases: number;
+        buyers: number;
+        revenue_per_buyer: number;
+      }> = [];
+      let productsSummary: Record<string, unknown> | null = null;
+      
+      try {
+        const productsData = await productsRes.json();
+        if (productsData?.success && productsData?.data?.products) {
+          productsTable = productsData.data.products.map((p: {
+            productId: string;
+            productName: string;
+            productType: string;
+            estimatedRevenue: number;
+            grossRevenue: number;
+            purchases: number;
+            buyers: number;
+            revPerBuyer: number;
+          }) => ({
+            product_id: p.productId,
+            product_name: p.productName,
+            product_type: p.productType,
+            estimated_revenue: p.estimatedRevenue,
+            gross_revenue: p.grossRevenue,
+            purchases: p.purchases,
+            buyers: p.buyers,
+            revenue_per_buyer: p.revPerBuyer,
+          }));
+          productsSummary = productsData.data.summary;
+        }
+      } catch {
+        // Products fetch failed, continue without
+      }
       
       // Try to get all connected games from the response or a separate endpoint
       let connectedGames: Array<{ id: string; name: string; roblox_game_id?: string }> = [];
@@ -201,6 +244,10 @@ function AIAssistantContent() {
           analyticsResponseKeys: Object.keys(data),
           analyticsRawData: data,
           allConnectedGamesCount: connectedGames.length,
+          productsLoaded: productsTable.length > 0,
+          productsTableCount: productsTable.length,
+          productsTablePreview: productsTable.slice(0, 5),
+          productsSummary,
         }));
       }
       
@@ -254,6 +301,11 @@ function AIAssistantContent() {
             topProducts: root.productAnalytics?.topProducts || root.productStats?.products?.slice(0, 5) || [],
           },
           
+          // Products Table - SAME DATA AS PRODUCTS TAB
+          // This is the detailed product list with names, types, revenue, purchases, etc.
+          productsTable: productsTable,
+          productsSummary: productsSummary,
+          
           // All connected games for multi-game questions
           allConnectedGames: connectedGames,
           
@@ -292,6 +344,9 @@ function AIAssistantContent() {
               visits: context.robloxStats.visits,
               ccu: context.robloxStats.ccu,
               favorites: context.robloxStats.favorites,
+              // Products table info (same as Products tab)
+              productsTableCount: productsTable.length,
+              productsTablePreview: productsTable.slice(0, 3).map(p => `${p.product_name} — ${p.product_type} — R$${p.estimated_revenue}`),
             },
             emptyStateReason: null,
           }));
@@ -1093,16 +1148,33 @@ function AIAssistantContent() {
             
             {/* PART 7: Key status indicators */}
             <div className="mb-4 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">
-              <h4 className="text-xs font-semibold text-yellow-600 mb-2">Status (per spec section 11)</h4>
+              <h4 className="text-xs font-semibold text-yellow-600 mb-2">Status (per spec section 7)</h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><strong>selectedGame:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
-                <div><strong>allConnectedGamesCount:</strong> {allConnectedGames.length}</div>
+                <div><strong>selectedGameName:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>analyticsLoaded:</strong> <span className={analyticsLoaded ? "text-green-600" : "text-red-600"}>{String(analyticsLoaded)}</span></div>
+                <div><strong>productsLoaded:</strong> <span className={(debugInfo.productsLoaded as boolean) ? "text-green-600" : "text-red-600"}>{String(debugInfo.productsLoaded || false)}</span></div>
+                <div><strong>productsTableCount:</strong> {((aiContext?.productsTable as unknown[]) || []).length}</div>
                 <div><strong>aiContextReady:</strong> <span className={aiContextReady ? "text-green-600 font-bold" : "text-red-600"}>{String(aiContextReady)}</span></div>
-                <div><strong>analyticsRequestUrl:</strong> /api/dashboard/analytics?range=30d</div>
+                <div><strong>allConnectedGamesCount:</strong> {allConnectedGames.length}</div>
                 <div><strong>imageAttached:</strong> {String(!!selectedImage)}</div>
                 <div><strong>conversationId:</strong> {activeConversationId || "new"}</div>
               </div>
             </div>
+            
+            {/* Products Table Preview (per spec section 7) */}
+            {((aiContext?.productsTable as unknown[]) || []).length > 0 && (
+              <div className="mb-4 p-3 bg-green-500/10 rounded-lg border border-green-500/30">
+                <h4 className="text-xs font-semibold text-green-600 mb-2">Products Table Preview (same as Products tab)</h4>
+                <div className="text-xs space-y-1">
+                  {((aiContext?.productsTable as Array<{product_name: string; product_type: string; estimated_revenue: number; purchases: number}>) || []).slice(0, 5).map((p, i) => (
+                    <div key={i}>{i + 1}. {p.product_name} — {p.product_type} — R${p.estimated_revenue} — {p.purchases} purchases</div>
+                  ))}
+                  {((aiContext?.productsTable as unknown[]) || []).length > 5 && (
+                    <div className="text-muted-foreground">... and {((aiContext?.productsTable as unknown[]) || []).length - 5} more</div>
+                  )}
+                </div>
+              </div>
+            )}
             
             {/* PART 7: sentPayloadPreview */}
             {debugInfo.sentPayloadPreview && (
