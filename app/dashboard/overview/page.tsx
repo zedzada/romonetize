@@ -1,10 +1,11 @@
 "use client";
 
+import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useAnalytics } from "@/hooks/use-analytics";
+import { RangeControls, type ChartDateRange } from "@/components/dashboard/chart-card";
 import { 
   RefreshCw, 
   DollarSign, 
@@ -14,8 +15,12 @@ import {
   AlertCircle,
   ExternalLink,
   Activity,
+  Package,
 } from "lucide-react";
 import Link from "next/link";
+
+// Overview range type - supports 24h, 7d, 28d, 90d
+type OverviewRange = "24h" | "7d" | "28d" | "90d";
 
 // Safe number formatter - prevents crashes on undefined/null
 function formatNumber(value: number | null | undefined): string {
@@ -28,41 +33,137 @@ function formatRobux(value: number | null | undefined): string {
   return `R$${Math.round(value).toLocaleString()}`;
 }
 
+// Range label map
+const RANGE_LABELS: Record<OverviewRange, string> = {
+  "24h": "24H",
+  "7d": "7D",
+  "28d": "28D",
+  "90d": "90D",
+};
+
+// API response data shape (from monetization-data endpoint)
+interface MonetizationApiData {
+  hasGame: boolean;
+  selectedGameId?: string;
+  selectedGameName?: string;
+  range?: string;
+  summary: {
+    purchases: number;
+    payingUsers: number;
+    activeUsersRaw: number;
+    activeUsersFixed: number;
+    grossRevenue: number;
+    estimatedRevenue: number;
+    arppu: number | null;
+    pcr: number | null;
+  };
+  hasTrackerEvents: boolean;
+}
+
+// Products API response
+interface ProductsApiData {
+  hasGame: boolean;
+  products: Array<{
+    productId: string;
+    productName: string;
+    productType: string;
+    purchases: number;
+    estimatedRevenue: number;
+  }>;
+  summary: {
+    totalProducts: number;
+    totalPurchases: number;
+    estimatedRevenue: number;
+  };
+  hasTrackerEvents: boolean;
+}
+
 export default function OverviewPage() {
-  const {
-    isLoading,
-    isRefreshing,
-    error,
-    dataHealth,
-    robloxStats,
-    revenueStats,
-    trackerStats,
-    ccuStats,
-    hasTrackerData,
-    hasRobloxData,
-    needsTrackingScript,
-    selectedGameId,
-    selectedGameName,
-    refresh,
-  } = useAnalytics({ enabled: true, range: "7d" });
+  // Range state - default to 28d to match Monetization tab
+  const [range, setRange] = useState<OverviewRange>("28d");
+  
+  // Data states
+  const [monetizationData, setMonetizationData] = useState<MonetizationApiData | null>(null);
+  const [productsData, setProductsData] = useState<ProductsApiData | null>(null);
+  const [robloxStats, setRobloxStats] = useState<{ ccu: number | null; visits: number | null } | null>(null);
+  
+  // Loading states
+  const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Safe defaults - use estimated revenue (70% creator payout)
-  const safeRevenueStats = {
-    estimatedRevenue: revenueStats?.estimatedRevenue ?? null,
-    estimatedRevenue72h: revenueStats?.estimatedRevenue72h ?? null,
-    totalPurchases: revenueStats?.totalPurchases ?? null,
-    payingUsers: revenueStats?.payingUsers ?? null,
-  };
+  // Derived values
+  const selectedGameName = monetizationData?.selectedGameName || null;
+  const hasTrackerData = monetizationData?.hasTrackerEvents || false;
+  const hasRobloxData = robloxStats !== null && (robloxStats.ccu !== null || robloxStats.visits !== null);
+  const needsTrackingScript = !hasTrackerData && monetizationData?.hasGame;
 
-  const safeTrackerStats = {
-    uniquePlayers: trackerStats?.uniquePlayers ?? null,
-    totalSessions: trackerStats?.totalSessions ?? null,
-  };
+  // Fetch data
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) {
+      setIsRefreshing(true);
+    } else {
+      setIsLoading(true);
+    }
+    setError(null);
+
+    try {
+      // Fetch monetization data, products data, and Roblox stats in parallel
+      const [monetizationRes, productsRes, robloxRes] = await Promise.all([
+        fetch(`/api/dashboard/monetization-data?range=${range}`, { cache: "no-store" }),
+        fetch(`/api/dashboard/products-data?range=${range}`, { cache: "no-store" }),
+        fetch(`/api/dashboard/analytics?range=${range}`, { cache: "no-store" }),
+      ]);
+
+      // Parse monetization data (same source as Monetization tab)
+      if (monetizationRes.ok) {
+        const monetizationResult = await monetizationRes.json();
+        if (monetizationResult.success) {
+          setMonetizationData(monetizationResult.data);
+        }
+      }
+
+      // Parse products data (same source as Products tab)
+      if (productsRes.ok) {
+        const productsResult = await productsRes.json();
+        if (productsResult.success) {
+          setProductsData(productsResult.data);
+        }
+      }
+
+      // Parse Roblox stats for CCU
+      if (robloxRes.ok) {
+        const robloxResult = await robloxRes.json();
+        if (robloxResult.success && robloxResult.data) {
+          setRobloxStats({
+            ccu: robloxResult.data.robloxStats?.currentPlayers || robloxResult.data.robloxStats?.ccu || null,
+            visits: robloxResult.data.robloxStats?.totalVisits || robloxResult.data.robloxStats?.visits || null,
+          });
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to fetch data");
+    } finally {
+      setIsLoading(false);
+      setIsRefreshing(false);
+    }
+  }, [range]);
+
+  // Fetch on mount and when range changes
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
   // Handle refresh
   const handleRefresh = async () => {
-    if (refresh) {
-      await refresh();
+    await fetchData(true);
+  };
+
+  // Handle range change
+  const handleRangeChange = (newRange: ChartDateRange) => {
+    // Only allow supported ranges
+    if (["24h", "7d", "28d", "90d"].includes(newRange)) {
+      setRange(newRange as OverviewRange);
     }
   };
 
@@ -110,10 +211,20 @@ export default function OverviewPage() {
     );
   }
 
+  // Get values from monetization data (same source as Monetization tab)
+  const summary = monetizationData?.summary;
+  const estimatedRevenue = summary?.estimatedRevenue ?? 0;
+  const totalPurchases = summary?.purchases ?? 0;
+  const payingUsers = summary?.payingUsers ?? 0;
+  const activeUsers = summary?.activeUsersFixed ?? summary?.activeUsersRaw ?? 0;
+  
+  // Products count from products data (same source as Products tab)
+  const totalProducts = productsData?.summary?.totalProducts ?? 0;
+
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      {/* Header with Range Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Overview</h1>
           <p className="text-muted-foreground">
@@ -122,15 +233,24 @@ export default function OverviewPage() {
               : "Your game analytics at a glance"}
           </p>
         </div>
-        <Button 
-          onClick={handleRefresh} 
-          variant="outline" 
-          disabled={isRefreshing}
-          className="gap-2"
-        >
-          <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-          Refresh Data
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Range Selector */}
+          <RangeControls
+            value={range}
+            onChange={handleRangeChange}
+            ranges={["24h", "7d", "28d", "90d"]}
+          />
+          {/* Refresh Button */}
+          <Button 
+            onClick={handleRefresh} 
+            variant="outline" 
+            disabled={isRefreshing}
+            className="gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Data source badges */}
@@ -145,6 +265,9 @@ export default function OverviewPage() {
             RoMonetize Tracker
           </Badge>
         )}
+        <Badge variant="outline" className="text-[10px] text-muted-foreground">
+          {RANGE_LABELS[range]} data
+        </Badge>
       </div>
 
       {/* Tracking script required banner */}
@@ -178,63 +301,82 @@ export default function OverviewPage() {
             Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports.
           </p>
         )}
-        {/* Est. Total Revenue */}
+        
+        {/* Est. Revenue (range-based) */}
         <Card className="border-border/50">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <DollarSign className="w-4 h-4 text-green-500" />
-              <span className="text-xs text-muted-foreground">Est. Revenue</span>
+              <span className="text-xs text-muted-foreground">{RANGE_LABELS[range]} Est. Revenue</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : safeRevenueStats.estimatedRevenue === 0 ? (
+              ) : estimatedRevenue === 0 ? (
                 <span className="text-lg font-medium text-muted-foreground">R$0</span>
               ) : (
-                formatRobux(safeRevenueStats.estimatedRevenue)
+                formatRobux(estimatedRevenue)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">All time (after 30% fee)</p>
+            <p className="text-[10px] text-muted-foreground mt-1">After 30% Roblox fee</p>
           </CardContent>
         </Card>
 
-        {/* Est. 72h Revenue */}
-        <Card className="border-border/50">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 text-emerald-500" />
-              <span className="text-xs text-muted-foreground">Est. 72h Revenue</span>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData ? (
-                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (
-                formatRobux(safeRevenueStats.estimatedRevenue72h ?? 0)
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Last 72 hours</p>
-          </CardContent>
-        </Card>
-
-        {/* Purchases */}
+        {/* Total Purchases (range-based) */}
         <Card className="border-border/50">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
               <ShoppingCart className="w-4 h-4 text-blue-500" />
-              <span className="text-xs text-muted-foreground">7D Purchases</span>
+              <span className="text-xs text-muted-foreground">{RANGE_LABELS[range]} Purchases</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
               {!hasTrackerData ? (
                 <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
               ) : (
-                formatNumber(safeRevenueStats.totalPurchases ?? 0)
+                formatNumber(totalPurchases)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Last 7 days</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Total transactions</p>
           </CardContent>
         </Card>
 
-        {/* Current CCU */}
+        {/* Paying Users (range-based) */}
+        <Card className="border-border/50">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Users className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-muted-foreground">{RANGE_LABELS[range]} Paying Users</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                formatNumber(payingUsers)
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Made a purchase</p>
+          </CardContent>
+        </Card>
+
+        {/* Active Users (range-based) */}
+        <Card className="border-border/50">
+          <CardContent className="pt-5 pb-4">
+            <div className="flex items-center gap-2 mb-2">
+              <TrendingUp className="w-4 h-4 text-purple-500" />
+              <span className="text-xs text-muted-foreground">{RANGE_LABELS[range]} Active Users</span>
+            </div>
+            <div className="text-2xl font-bold text-foreground">
+              {!hasTrackerData ? (
+                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
+              ) : (
+                formatNumber(activeUsers)
+              )}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Unique players</p>
+          </CardContent>
+        </Card>
+
+        {/* Current CCU (live) */}
         <Card className="border-border/50">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
@@ -242,49 +384,27 @@ export default function OverviewPage() {
               <span className="text-xs text-muted-foreground">Current CCU</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {!hasRobloxData && !ccuStats?.current ? (
+              {!hasRobloxData ? (
                 <span className="text-sm text-muted-foreground font-normal">No sync yet</span>
               ) : (
-                formatNumber(ccuStats?.current ?? robloxStats?.ccu ?? 0)
+                formatNumber(robloxStats?.ccu ?? 0)
               )}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Players online</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Players online (live)</p>
           </CardContent>
         </Card>
 
-        {/* Unique Players */}
+        {/* Tracked Products (total catalog) */}
         <Card className="border-border/50">
           <CardContent className="pt-5 pb-4">
             <div className="flex items-center gap-2 mb-2">
-              <Users className="w-4 h-4 text-purple-500" />
-              <span className="text-xs text-muted-foreground">Unique Players</span>
+              <Package className="w-4 h-4 text-pink-500" />
+              <span className="text-xs text-muted-foreground">Total Products</span>
             </div>
             <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData ? (
-                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (
-                formatNumber(safeTrackerStats.uniquePlayers ?? 0)
-              )}
+              {formatNumber(totalProducts)}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">In selected period</p>
-          </CardContent>
-        </Card>
-
-        {/* Paying Users */}
-        <Card className="border-border/50">
-          <CardContent className="pt-5 pb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-4 h-4 text-amber-500" />
-              <span className="text-xs text-muted-foreground">Paying Users</span>
-            </div>
-            <div className="text-2xl font-bold text-foreground">
-              {!hasTrackerData ? (
-                <span className="text-sm text-muted-foreground font-normal">Requires tracking</span>
-              ) : (
-                formatNumber(safeRevenueStats.payingUsers ?? 0)
-              )}
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Made a purchase</p>
+            <p className="text-[10px] text-muted-foreground mt-1">In product catalog</p>
           </CardContent>
         </Card>
       </div>
