@@ -206,8 +206,8 @@ async function getAnalyticsContext(
     return { hasData: false, gameName: null, emptyReason: "no_game", gameId: null };
   }
 
-  // Query dashboard stats directly
-  const hours = 168; // 7 days
+  // Query dashboard stats directly - use 30 days to match Monetization tab default
+  const hours = 720; // 30 days (matches Monetization tab default of 28d)
   const now = new Date();
   const rangeStart = new Date(now.getTime() - hours * 60 * 60 * 1000);
   
@@ -651,7 +651,7 @@ Roblox Public Stats:
                              safeNumber(analyticsContext.uniquePlayers) > 0;
       if (hasTrackerData) {
         contextText += `
-Tracker Stats (last 7 days):
+Tracker Stats (last 30 days):
 - Tracked Actions: ${safeNumber(analyticsContext.trackedActions) > 0 ? formatNum(analyticsContext.trackedActions) : "Unknown"}
 - Unique Players: ${safeNumber(analyticsContext.uniquePlayers) > 0 ? formatNum(analyticsContext.uniquePlayers) : "Unknown"}
 - Total Sessions: ${safeNumber(analyticsContext.totalSessions) > 0 ? formatNum(analyticsContext.totalSessions) : "Unknown"}
@@ -665,7 +665,7 @@ Tracker Stats (last 7 days):
                               safeNumber(analyticsContext.estimatedRevenue) > 0;
       if (hasPurchaseData) {
         contextText += `
-Monetization (last 7 days):
+Monetization (last 30 days):
 - Purchases: ${safeNumber(analyticsContext.totalPurchases) > 0 ? formatNum(analyticsContext.totalPurchases) : "Unknown"}
 - Estimated Revenue: ${safeNumber(analyticsContext.estimatedRevenue) > 0 ? formatRobux(analyticsContext.estimatedRevenue) : "Unknown"}
 - Gross Revenue: ${safeNumber(analyticsContext.grossRevenue) > 0 ? formatRobux(analyticsContext.grossRevenue) : "Unknown"}
