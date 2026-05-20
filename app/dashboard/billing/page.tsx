@@ -338,7 +338,7 @@ function BillingContent() {
     setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
   };
   
-  // Confirm and execute upgrade after user clicks "Continue to Stripe"
+  // Confirm and execute upgrade after user clicks "Continue to payment"
   const confirmUpgrade = async () => {
     if (!upgradeModal.targetPlan) return;
     
@@ -367,19 +367,23 @@ function BillingContent() {
         await loadSubscription();
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
-        setLastSyncMessage(`Upgraded to ${targetPlanId}! Credits: ${data.monthlyCredits}`);
+        setLastSyncMessage(data.message || `Studio upgrade successful. Your Studio benefits are now active.`);
+      } else if (data.requiresPaymentAction && data.url) {
+        // Payment requires action (3D Secure, etc) - redirect to Stripe
+        setLastSyncMessage("Complete your Studio upgrade in Stripe.");
+        window.location.href = data.url;
       } else if (data.url) {
         // Fallback to portal - redirect
         window.location.href = data.url;
       } else {
         // Error - close modal and show error
         setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
-        alert(data.error || "Failed to upgrade plan");
+        setLastSyncMessage(`Studio upgrade failed. No changes were made. ${data.error || ""}`);
       }
     } catch (err) {
       console.error("Upgrade error:", err);
       setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
-      alert("Failed to upgrade plan. Please try again.");
+      setLastSyncMessage("Studio upgrade failed. No changes were made.");
     }
     setProcessingPlan(null);
   };
@@ -798,13 +802,22 @@ function BillingContent() {
 {JSON.stringify({
   currentPlan: currentPlan.id,
   targetPlan: currentPlan.id === "pro" ? "studio" : currentPlan.id === "free" ? "pro/studio" : "n/a",
+  upgradeConfirmed: upgradeModal.confirmed,
+  stripeCustomerIdExists: !!subscription?.stripeCustomerId,
+  activeSubscriptionId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionId || "unknown",
+  activeSubscriptionItemId: debugInfo?.upgradeResponse?.debug?.subscriptionItemId || "unknown",
+  oldPriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
+  newStudioPriceId: debugInfo?.upgradeResponse?.debug?.targetPriceId || "unknown",
+  prorationBehavior: debugInfo?.upgradeResponse?.debug?.prorationBehavior || "always_invoice",
+  paymentBehavior: debugInfo?.upgradeResponse?.debug?.paymentBehavior || "error_if_incomplete",
+  invoiceCreated: debugInfo?.upgradeResponse?.debug?.invoiceCreated || false,
+  paymentStatus: debugInfo?.upgradeResponse?.debug?.paymentStatus || "unknown",
+  planAfterSync: debugInfo?.upgradeResponse?.debug?.planAfterSync || subscriptionSyncState.syncedPlan,
+  monthlyCreditsAfterSync: debugInfo?.upgradeResponse?.debug?.monthlyCreditsAfterSync || monthlyCredits,
   subscriptionStatus: subscription?.status,
   upgradeModalOpened: upgradeModal.open,
-  upgradeConfirmed: upgradeModal.confirmed,
   upgradeTargetPlan: upgradeModal.targetPlan?.id || null,
   stripeFlowStarted: upgradeModal.stripeFlowStarted,
-  activeSubscriptionPriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
-  lastPlanSync: subscriptionSyncState.syncedPlan,
   subscriptionSyncState,
   creditSyncState,
   urlParams: { success, canceled, sessionId, creditsSuccess, creditsPurchased },
@@ -895,19 +908,50 @@ function BillingContent() {
 
       {/* Upgrade Confirmation Modal */}
       <Dialog open={upgradeModal.open} onOpenChange={(open) => !open && cancelUpgrade()}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              <Crown className="w-5 h-5 text-primary" />
               Upgrade to Studio?
             </DialogTitle>
             <DialogDescription className="pt-2">
-              You are currently on <span className="font-semibold">Pro</span>. Studio includes up to 25 connected games and 500 AI credits/month.
+              You are currently on <span className="font-semibold">Pro</span>.
             </DialogDescription>
           </DialogHeader>
           
           <div className="space-y-4 py-4">
-            {/* Current vs New Plan */}
+            {/* Studio benefits */}
+            <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+              <div className="text-sm font-semibold text-primary mb-3">Studio includes:</div>
+              <ul className="space-y-2 text-sm text-muted-foreground">
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  Up to <span className="font-semibold text-foreground">25 connected games</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  <span className="font-semibold text-foreground">500 AI credits/month</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  Unlimited tracked events
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  Advanced monetization analytics
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  Products analytics
+                </li>
+                <li className="flex items-center gap-2">
+                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                  Priority support
+                </li>
+              </ul>
+            </div>
+            
+            {/* Current vs New Plan pricing */}
             <div className="grid grid-cols-2 gap-4">
               <div className="p-3 rounded-lg bg-muted/50 border border-border">
                 <div className="text-xs text-muted-foreground mb-1">Current Plan</div>
@@ -931,11 +975,14 @@ function BillingContent() {
               <Badge variant="outline">{billingPeriod === "yearly" ? "Yearly" : "Monthly"}</Badge>
             </div>
             
-            {/* Proration note */}
+            {/* Immediate charge warning */}
             <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <p className="text-xs text-amber-700 dark:text-amber-400">
-                Stripe may apply prorated charges or credits based on your current billing cycle.
-              </p>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-700 dark:text-amber-400">
+                  <span className="font-semibold">You will be charged immediately for the upgrade.</span> Stripe may apply prorated credits or charges based on your current billing cycle.
+                </p>
+              </div>
             </div>
           </div>
           
@@ -950,7 +997,10 @@ function BillingContent() {
                   Processing...
                 </>
               ) : (
-                "Continue to Stripe"
+                <>
+                  <CreditCard className="w-4 h-4 mr-2" />
+                  Continue to payment
+                </>
               )}
             </Button>
           </DialogFooter>
