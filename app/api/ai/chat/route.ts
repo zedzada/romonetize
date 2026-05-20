@@ -593,7 +593,12 @@ export async function POST(request: NextRequest) {
 
 Use the provided dashboard stats as your source of truth.
 Do not invent missing product names, product prices, or revenue splits.
-If product-level data is incomplete, say that product-level tracking needs more product metadata, but still provide useful advice from the available totals.
+
+IMPORTANT - Product Questions:
+If product-level names or revenue are missing but product IDs and purchase counts exist, STILL ANSWER product questions using product IDs and purchase counts.
+When asked about best sellers, top products, or which product to improve - rank by purchases and show product IDs if names are missing.
+Example: "Your best seller is Product ID 315503012 with 652 purchases. The product name is not mapped yet, but this is your top-selling product based on purchase count."
+Do NOT say "product-level data is unavailable" when product IDs and purchase counts exist.
 
 Give practical, direct recommendations for Roblox developers.
 Keep answers clear and structured.
@@ -662,9 +667,8 @@ Monetization (last 7 days):
 `;
       }
       
-      // Products - only show if we have valid product data
+      // Products - ALWAYS show if we have valid product IDs with purchases
       const topProducts = analyticsContext.topProducts as Array<{ id: string; name: string; purchases: number }> | undefined;
-      const productMappingComplete = analyticsContext.productMappingComplete as boolean | undefined;
       
       // Filter to only show products with valid data (valid ID and purchases > 0)
       const validProducts = (topProducts || []).filter(p => {
@@ -673,30 +677,28 @@ Monetization (last 7 days):
         return hasValidId && hasValidPurchases;
       });
       
-      if (validProducts.length > 0 && productMappingComplete) {
-        // All products have names - show full list
+      if (validProducts.length > 0) {
+        // Check if all products have names
+        const allHaveNames = validProducts.every(p => p.name && p.name.length > 0);
+        const someHaveNames = validProducts.some(p => p.name && p.name.length > 0);
+        
         contextText += `
-Top Products by Purchases:
+Top Products by Purchases (ranked by purchase count):
 ${validProducts.map((p, i) => {
-  const displayName = p.name || `Product ${p.id}`;
+  // Show name if available, otherwise show Product ID
+  const displayName = p.name && p.name.length > 0 
+    ? p.name 
+    : `Product ID ${p.id}`;
   return `${i + 1}. ${displayName} — ${p.purchases} purchases`;
 }).join("\n")}
 `;
-      } else if (validProducts.length > 0) {
-        // Some products exist but names are incomplete - only show products with names
-        const namedProducts = validProducts.filter(p => p.name && p.name.length > 0);
-        if (namedProducts.length > 0) {
-          contextText += `
-Top Products by Purchases:
-${namedProducts.map((p, i) => `${i + 1}. ${p.name} — ${p.purchases} purchases`).join("\n")}
-
-(Note: Product-level names are not fully mapped yet. Only showing products with known names.)
-`;
-        } else {
-          // No named products at all
-          contextText += `
-(Product-level names and IDs are not fully mapped yet, so individual product rankings are not shown. Your total monetization stats above are still usable for recommendations.)
-`;
+        // Add note about incomplete mapping only if needed
+        if (!allHaveNames) {
+          if (someHaveNames) {
+            contextText += `\n(Note: Some product names are not fully mapped yet. Products without names are shown by ID.)\n`;
+          } else {
+            contextText += `\n(Note: Product names are not mapped yet. Products are shown by ID. Revenue per product is not available, but purchase counts are accurate.)\n`;
+          }
         }
       }
       
