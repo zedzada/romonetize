@@ -33,6 +33,7 @@ import {
   ShoppingCart, 
   Users, 
   AlertCircle,
+  AlertTriangle,
   ExternalLink,
   Activity,
 } from "lucide-react";
@@ -653,12 +654,15 @@ function MonetizationContent() {
         </Card>
       )}
 
-      {/* Revenue disclaimer */}
-      {hasTrackerData && (
-        <p className="text-[10px] text-muted-foreground">
-          Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports. Use Roblox Creator Dashboard as the final source of truth for payouts and official revenue.
-        </p>
-      )}
+  {/* Revenue disclaimer */}
+  {hasTrackerData && (
+  <div className="flex items-start gap-2.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+    <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+    <p className="text-xs text-amber-700 dark:text-amber-400">
+      Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports. Use Roblox Creator Dashboard as the final source of truth for payouts and official revenue.
+    </p>
+  </div>
+  )}
 
       {/* Monetization Stats Cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
