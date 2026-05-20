@@ -103,7 +103,17 @@ function BillingContent() {
     targetPlan: PricingPlan | null;
     confirmed: boolean;
     stripeFlowStarted: boolean;
-  }>({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
+    loading: boolean;
+    preview: {
+      currentPlanAmount: number;
+      targetPlanAmount: number;
+      estimatedImmediateCharge: number;
+      nextRenewalAmount: number;
+      currency: string;
+      renewalDate: string;
+      previewAvailable: boolean;
+    } | null;
+  }>({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false, loading: false, preview: null });
 
   // Refresh credits on successful purchase
   useEffect(() => {
@@ -319,23 +329,81 @@ function BillingContent() {
     return formatPrice(price);
   };
 
-  // Handle upgrade from Pro to Studio - shows confirmation modal first
-  const handleUpgrade = (targetPlanId: string) => {
+  // Handle upgrade from Pro to Studio - shows confirmation modal with preview first
+  const handleUpgrade = async (targetPlanId: string) => {
     const targetPlan = PRICING_PLANS.find(p => p.id === targetPlanId);
     if (!targetPlan) return;
     
-    // Open confirmation modal - do NOT call API yet
+    // Open modal in loading state
     setUpgradeModal({
       open: true,
       targetPlan,
       confirmed: false,
       stripeFlowStarted: false,
+      loading: true,
+      preview: null,
     });
+    
+    // Fetch upgrade preview from Stripe
+    try {
+      const res = await fetch(`/api/billing/upgrade-preview?targetPlan=${targetPlanId}&interval=${billingPeriod}${debugMode ? "&debug=true" : ""}`);
+      const data = await res.json();
+      
+      if (data.success) {
+        setUpgradeModal(prev => ({
+          ...prev,
+          loading: false,
+          preview: {
+            currentPlanAmount: data.currentPlanAmount,
+            targetPlanAmount: data.targetPlanAmount,
+            estimatedImmediateCharge: data.estimatedImmediateCharge,
+            nextRenewalAmount: data.nextRenewalAmount,
+            currency: data.currency,
+            renewalDate: data.renewalDate,
+            previewAvailable: data.previewAvailable,
+          },
+        }));
+        
+        // Store debug info
+        setDebugInfo(prev => ({ ...prev, upgradePreview: data }));
+      } else {
+        // Preview failed, show modal with fallback estimates
+        setUpgradeModal(prev => ({
+          ...prev,
+          loading: false,
+          preview: {
+            currentPlanAmount: billingPeriod === "yearly" ? 19000 : 1900, // Pro: $190/yr or $19/mo
+            targetPlanAmount: billingPeriod === "yearly" ? 49000 : 4900, // Studio: $490/yr or $49/mo
+            estimatedImmediateCharge: billingPeriod === "yearly" ? 30000 : 3000, // Difference
+            nextRenewalAmount: billingPeriod === "yearly" ? 49000 : 4900,
+            currency: "usd",
+            renewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+            previewAvailable: false,
+          },
+        }));
+      }
+    } catch (err) {
+      console.error("Failed to fetch upgrade preview:", err);
+      // Fallback to estimates
+      setUpgradeModal(prev => ({
+        ...prev,
+        loading: false,
+        preview: {
+          currentPlanAmount: billingPeriod === "yearly" ? 19000 : 1900,
+          targetPlanAmount: billingPeriod === "yearly" ? 49000 : 4900,
+          estimatedImmediateCharge: billingPeriod === "yearly" ? 30000 : 3000,
+          nextRenewalAmount: billingPeriod === "yearly" ? 49000 : 4900,
+          currency: "usd",
+          renewalDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          previewAvailable: false,
+        },
+      }));
+    }
   };
   
   // Cancel upgrade modal
   const cancelUpgrade = () => {
-    setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
+    setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false, loading: false, preview: null });
   };
   
   // Confirm and execute upgrade after user clicks "Continue to payment"
@@ -362,12 +430,24 @@ function BillingContent() {
       setDebugInfo(prev => ({ ...prev, upgradeResponse: data }));
       
       if (data.success) {
-        // Upgrade successful - close modal and refresh subscription status
-        setUpgradeModal({ open: false, targetPlan: null, confirmed: true, stripeFlowStarted: true });
+        // Payment succeeded immediately - Studio is now active
+        const chargedAmount = upgradeModal.preview?.estimatedImmediateCharge 
+          ? `$${(upgradeModal.preview.estimatedImmediateCharge / 100).toFixed(2)}`
+          : null;
+        setUpgradeModal({ open: false, targetPlan: null, confirmed: true, stripeFlowStarted: true, loading: false, preview: null });
         await loadSubscription();
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
-        setLastSyncMessage(data.message || `Studio upgrade successful. Your Studio benefits are now active.`);
+        setLastSyncMessage(
+          chargedAmount 
+            ? `Studio upgrade successful. You were charged ${chargedAmount} today and your Studio benefits are active.`
+            : `Studio upgrade successful. Your Studio benefits are active.`
+        );
+      } else if (data.pending && data.url) {
+        // Payment is pending - redirect to Stripe to complete payment
+        // DO NOT show success message or refresh credits yet
+        setLastSyncMessage("Studio upgrade pending. Complete payment in Stripe.");
+        window.location.href = data.url;
       } else if (data.requiresPaymentAction && data.url) {
         // Payment requires action (3D Secure, etc) - redirect to Stripe
         setLastSyncMessage("Complete your Studio upgrade in Stripe.");
@@ -377,12 +457,12 @@ function BillingContent() {
         window.location.href = data.url;
       } else {
         // Error - close modal and show error
-        setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
+        setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false, loading: false, preview: null });
         setLastSyncMessage(`Studio upgrade failed. No changes were made. ${data.error || ""}`);
       }
     } catch (err) {
       console.error("Upgrade error:", err);
-      setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
+      setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false, loading: false, preview: null });
       setLastSyncMessage("Studio upgrade failed. No changes were made.");
     }
     setProcessingPlan(null);
@@ -802,22 +882,21 @@ function BillingContent() {
 {JSON.stringify({
   currentPlan: currentPlan.id,
   targetPlan: currentPlan.id === "pro" ? "studio" : currentPlan.id === "free" ? "pro/studio" : "n/a",
-  upgradeConfirmed: upgradeModal.confirmed,
-  stripeCustomerIdExists: !!subscription?.stripeCustomerId,
-  activeSubscriptionId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionId || "unknown",
-  activeSubscriptionItemId: debugInfo?.upgradeResponse?.debug?.subscriptionItemId || "unknown",
-  oldPriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
-  newStudioPriceId: debugInfo?.upgradeResponse?.debug?.targetPriceId || "unknown",
-  prorationBehavior: debugInfo?.upgradeResponse?.debug?.prorationBehavior || "always_invoice",
-  paymentBehavior: debugInfo?.upgradeResponse?.debug?.paymentBehavior || "error_if_incomplete",
-  invoiceCreated: debugInfo?.upgradeResponse?.debug?.invoiceCreated || false,
-  paymentStatus: debugInfo?.upgradeResponse?.debug?.paymentStatus || "unknown",
-  planAfterSync: debugInfo?.upgradeResponse?.debug?.planAfterSync || subscriptionSyncState.syncedPlan,
-  monthlyCreditsAfterSync: debugInfo?.upgradeResponse?.debug?.monthlyCreditsAfterSync || monthlyCredits,
+  currentDbPlan: currentPlan.id,
+  stripeSubscriptionPlan: debugInfo?.upgradeResponse?.debug?.targetPlan || subscription?.plan?.id || "unknown",
+  activeStripePriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
+  studioPriceId: debugInfo?.upgradeResponse?.debug?.targetStudioPriceId || "unknown",
+  upgradePending: debugInfo?.upgradeResponse?.pending || debugInfo?.upgradeResponse?.debug?.upgradePending || false,
+  lastUpgradeConfirmed: upgradeModal.confirmed,
+  lastInvoicePaid: debugInfo?.upgradeResponse?.debug?.paymentSucceeded || false,
+  lastWebhookEvent: debugInfo?.upgradeResponse?.debug?.activationSource || "none",
+  planActivationSource: debugInfo?.upgradeResponse?.debug?.activationSource || "none",
+  paymentBehavior: debugInfo?.upgradeResponse?.debug?.paymentBehavior || "pending_if_incomplete",
   subscriptionStatus: subscription?.status,
   upgradeModalOpened: upgradeModal.open,
   upgradeTargetPlan: upgradeModal.targetPlan?.id || null,
   stripeFlowStarted: upgradeModal.stripeFlowStarted,
+  dbUpdated: debugInfo?.upgradeResponse?.debug?.dbUpdated || false,
   subscriptionSyncState,
   creditSyncState,
   urlParams: { success, canceled, sessionId, creditsSuccess, creditsPurchased },
@@ -912,94 +991,114 @@ function BillingContent() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Crown className="w-5 h-5 text-primary" />
-              Upgrade to Studio?
+              Upgrade to Studio
             </DialogTitle>
             <DialogDescription className="pt-2">
               You are currently on <span className="font-semibold">Pro</span>.
+              {billingPeriod === "monthly" ? " Studio is $49/month." : " Studio is $490/year."}
             </DialogDescription>
           </DialogHeader>
           
-          <div className="space-y-4 py-4">
-            {/* Studio benefits */}
-            <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
-              <div className="text-sm font-semibold text-primary mb-3">Studio includes:</div>
-              <ul className="space-y-2 text-sm text-muted-foreground">
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  Up to <span className="font-semibold text-foreground">25 connected games</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  <span className="font-semibold text-foreground">500 AI credits/month</span>
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  Unlimited tracked events
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  Advanced monetization analytics
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  Products analytics
-                </li>
-                <li className="flex items-center gap-2">
-                  <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
-                  Priority support
-                </li>
-              </ul>
+          {upgradeModal.loading ? (
+            <div className="py-8 flex flex-col items-center justify-center gap-3">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">Calculating upgrade cost...</p>
             </div>
-            
-            {/* Current vs New Plan pricing */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="p-3 rounded-lg bg-muted/50 border border-border">
-                <div className="text-xs text-muted-foreground mb-1">Current Plan</div>
-                <div className="font-semibold">Pro</div>
-                <div className="text-sm text-muted-foreground">
-                  {billingPeriod === "yearly" ? "$190/year" : "$19/month"}
+          ) : (
+            <div className="space-y-4 py-4">
+              {/* Pricing breakdown */}
+              <div className="space-y-3 p-4 rounded-lg bg-muted/50 border border-border">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">Current plan:</span>
+                  <span className="font-medium">Pro — ${((upgradeModal.preview?.currentPlanAmount || 1900) / 100).toFixed(0)}/{billingPeriod === "yearly" ? "year" : "month"}</span>
+                </div>
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">New plan:</span>
+                  <span className="font-medium text-primary">Studio — ${((upgradeModal.preview?.targetPlanAmount || 4900) / 100).toFixed(0)}/{billingPeriod === "yearly" ? "year" : "month"}</span>
+                </div>
+                <div className="border-t border-border pt-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-semibold">Immediate charge today:</span>
+                    <span className="font-bold text-lg">
+                      {upgradeModal.preview?.previewAvailable ? "" : "~"}${((upgradeModal.preview?.estimatedImmediateCharge || 3000) / 100).toFixed(2)}
+                    </span>
+                  </div>
+                  {!upgradeModal.preview?.previewAvailable && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Estimated. Final amount calculated by Stripe based on your billing cycle.
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center justify-between text-sm pt-2 border-t border-border">
+                  <span className="text-muted-foreground">Next renewal:</span>
+                  <span className="font-medium">
+                    ${((upgradeModal.preview?.nextRenewalAmount || 4900) / 100).toFixed(0)}/{billingPeriod === "yearly" ? "year" : "month"} on{" "}
+                    {upgradeModal.preview?.renewalDate
+                      ? new Date(upgradeModal.preview.renewalDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                      : "your renewal date"}
+                  </span>
                 </div>
               </div>
-              <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
-                <div className="text-xs text-muted-foreground mb-1">New Plan</div>
-                <div className="font-semibold text-primary">Studio</div>
-                <div className="text-sm text-muted-foreground">
-                  {billingPeriod === "yearly" ? "$490/year" : "$49/month"}
+              
+              {/* Studio benefits */}
+              <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                <div className="text-sm font-semibold text-primary mb-3">Studio unlocks:</div>
+                <ul className="space-y-2 text-sm text-muted-foreground">
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    Up to <span className="font-semibold text-foreground">25 connected games</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    <span className="font-semibold text-foreground">500 AI credits/month</span>
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    Advanced monetization analytics
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    Products analytics
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="w-4 h-4 text-green-500 flex-shrink-0" />
+                    Priority support
+                  </li>
+                </ul>
+              </div>
+              
+              {/* Payment notice */}
+              <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    <span className="font-semibold">You will be charged immediately.</span> Your card on file will be charged the upgrade difference now.
+                  </p>
                 </div>
               </div>
             </div>
-            
-            {/* Billing interval */}
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Billing interval:</span>
-              <Badge variant="outline">{billingPeriod === "yearly" ? "Yearly" : "Monthly"}</Badge>
-            </div>
-            
-            {/* Immediate charge warning */}
-            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-              <div className="flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-700 dark:text-amber-400">
-                  <span className="font-semibold">You will be charged immediately for the upgrade.</span> Stripe may apply prorated credits or charges based on your current billing cycle.
-                </p>
-              </div>
-            </div>
-          </div>
+          )}
           
           <DialogFooter className="flex gap-2 sm:gap-0">
-            <Button variant="outline" onClick={cancelUpgrade} disabled={upgradeModal.stripeFlowStarted}>
+            <Button variant="outline" onClick={cancelUpgrade} disabled={upgradeModal.stripeFlowStarted || upgradeModal.loading}>
               Cancel
             </Button>
-            <Button onClick={confirmUpgrade} disabled={upgradeModal.stripeFlowStarted}>
+            <Button 
+              onClick={confirmUpgrade} 
+              disabled={upgradeModal.stripeFlowStarted || upgradeModal.loading}
+            >
               {upgradeModal.stripeFlowStarted ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Processing...
+                  Processing payment...
                 </>
               ) : (
                 <>
                   <CreditCard className="w-4 h-4 mr-2" />
-                  Continue to payment
+                  {upgradeModal.preview?.previewAvailable 
+                    ? `Pay $${((upgradeModal.preview?.estimatedImmediateCharge || 3000) / 100).toFixed(2)} now`
+                    : "Pay upgrade now"
+                  }
                 </>
               )}
             </Button>
