@@ -424,29 +424,34 @@ async function getAnalyticsContext(
   const rawTopProductIds = new Set<string>();
   const matchedProductIds = new Set<string>();
   const unmatchedProductIds = new Set<string>();
+  const missingPriceProductIds = new Set<string>();
 
-  const productRevenue = new Map<string, { 
+  // First pass: aggregate purchases and event revenue per product
+  const productAggregation = new Map<string, { 
     productId: string;
     name: string; 
-    revenue: number; 
+    eventRevenueSum: number;  // Sum of robux from events (may be 0)
     purchases: number; 
     productType: "gamepass" | "developer_product" | "unknown";
     clicks: number;
     views: number;
-    priceRobux: number;
+    catalogPriceRobux: number;  // Price from catalog lookup
+    hasCatalogPrice: boolean;
   }>();
   
-  // Calculate revenue by type (using ALL purchase data)
-  let gamepassRevenue = 0;
-  let devproductRevenue = 0;
-  let unknownRevenue = 0;
-  
   topProductsData?.forEach(e => {
-    const rawProductId = e.product_id || e.product_name || "unknown";
+    // Extract product ID from multiple possible fields
+    const rawProductId = e.product_id || e.product_name || 
+      (e.metadata as Record<string, unknown>)?.product_id ||
+      (e.metadata as Record<string, unknown>)?.productId ||
+      (e.metadata as Record<string, unknown>)?.id ||
+      "unknown";
     const productId = normalizeId(rawProductId);
     rawTopProductIds.add(productId);
     
-    const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
+    // Extract robux from multiple possible fields
+    const metadata = (e.metadata || {}) as Record<string, unknown>;
+    const robux = e.robux ?? metadata.robux ?? metadata.price_robux ?? metadata.amount_robux ?? metadata.price ?? 0;
     const robuxNum = Number(robux) || 0;
     
     // Look up product info from catalog - use normalized ID
@@ -459,59 +464,101 @@ async function getAnalyticsContext(
       unmatchedProductIds.add(productId);
     }
     
+    // Get catalog name from multiple possible fields
+    const catalogName = lookup?.name || "";
+    
     // Product name: prefer catalog name, then event name, then fallback to "Product {ID}"
-    const name = lookup?.name || e.product_name || (productId !== "unknown" && productId !== "" ? `Product ${productId}` : "Unknown Product");
+    const name = catalogName || e.product_name || (productId !== "unknown" && productId !== "" ? `Product ${productId}` : "Unknown Product");
     
     // Product type: prefer event type (normalized), then catalog type
     const eventProductType = normalizeProductType(e.product_type);
     const catalogProductType = lookup?.productType || "unknown";
     const productType = eventProductType !== "unknown" ? eventProductType : catalogProductType;
     
-    // Price: prefer event robux, then catalog price
-    const priceRobux = robuxNum > 0 ? robuxNum : (lookup?.priceRobux || 0);
+    // Catalog price for fallback calculation
+    const catalogPriceRobux = lookup?.priceRobux || 0;
+    const hasCatalogPrice = catalogPriceRobux > 0;
     
-    // Track revenue by type
-    if (productType === "gamepass") {
-      gamepassRevenue += robuxNum;
-    } else if (productType === "developer_product") {
-      devproductRevenue += robuxNum;
-    } else {
-      unknownRevenue += robuxNum;
+    // Track missing prices
+    if (lookup && !hasCatalogPrice) {
+      missingPriceProductIds.add(productId);
     }
     
-    const existing = productRevenue.get(productId);
+    const existing = productAggregation.get(productId);
     if (existing) {
-      existing.revenue += robuxNum;
+      existing.eventRevenueSum += robuxNum;
       existing.purchases += 1;
     } else {
-      productRevenue.set(productId, { 
+      productAggregation.set(productId, { 
         productId,
         name, 
-        revenue: robuxNum, 
+        eventRevenueSum: robuxNum, 
         purchases: 1, 
         productType,
         clicks: productClicks.get(productId) || 0,
         views: productViews.get(productId) || 0,
-        priceRobux,
+        catalogPriceRobux,
+        hasCatalogPrice,
       });
     }
   });
   
-  const topProducts = Array.from(productRevenue.values())
+  // Second pass: calculate final revenue with catalog price fallback
+  // Revenue = eventRevenueSum > 0 ? eventRevenueSum : purchases * catalogPrice
+  let gamepassRevenue = 0;
+  let devproductRevenue = 0;
+  let unknownRevenue = 0;
+  let revenueFromCatalogFallback = 0;
+  
+  const topProducts = Array.from(productAggregation.values())
     .map(p => {
+      // Calculate revenue: use event sum if available, otherwise use catalog price * purchases
+      let revenue: number;
+      let revenueSource: "events" | "catalog" | "unknown";
+      
+      if (p.eventRevenueSum > 0) {
+        revenue = p.eventRevenueSum;
+        revenueSource = "events";
+      } else if (p.hasCatalogPrice) {
+        revenue = p.purchases * p.catalogPriceRobux;
+        revenueSource = "catalog";
+        revenueFromCatalogFallback += revenue;
+      } else {
+        revenue = 0;
+        revenueSource = "unknown";
+      }
+      
+      // Track revenue by type (after fallback calculation)
+      if (p.productType === "gamepass") {
+        gamepassRevenue += revenue;
+      } else if (p.productType === "developer_product") {
+        devproductRevenue += revenue;
+      } else {
+        unknownRevenue += revenue;
+      }
+      
       // Calculate conversion rate
       let conversionRate: number | null = null;
       if (p.clicks > 0) {
-        conversionRate = Math.round((p.purchases / p.clicks) * 100 * 10) / 10; // percentage with 1 decimal
+        conversionRate = Math.round((p.purchases / p.clicks) * 100 * 10) / 10;
       } else if (p.views > 0) {
         conversionRate = Math.round((p.purchases / p.views) * 100 * 10) / 10;
       }
+      
       return {
-        ...p,
+        productId: p.productId,
+        name: p.name,
+        revenue,
+        revenueSource,
+        purchases: p.purchases,
+        productType: p.productType,
+        clicks: p.clicks,
+        views: p.views,
+        priceRobux: p.catalogPriceRobux,
         conversionRate,
       };
     })
-    .sort((a, b) => b.revenue - a.revenue)
+    .sort((a, b) => b.revenue - a.revenue || b.purchases - a.purchases)
     .slice(0, 10);
 
   // Get synced Roblox products using admin client
@@ -614,6 +661,8 @@ async function getAnalyticsContext(
       rawTopProductIds: Array.from(rawTopProductIds),
       matchedProductIds: Array.from(matchedProductIds),
       unmatchedProductIds: Array.from(unmatchedProductIds),
+      missingPriceProductIds: Array.from(missingPriceProductIds),
+      revenueFromCatalogFallback,
       revenueByProductType: {
         gamepass: gamepassRevenue,
         developer_product: devproductRevenue,
@@ -624,7 +673,9 @@ async function getAnalyticsContext(
         name: p.name,
         productType: p.productType,
         revenue: p.revenue,
+        revenueSource: p.revenueSource,
         purchases: p.purchases,
+        priceRobux: p.priceRobux,
       })),
     },
   };
@@ -861,6 +912,19 @@ ${syncedCount > 5 ? `  ... and ${syncedCount - 5} more products` : ""}
       const devproductRev = safeNumber(analyticsContext.devproductRevenue);
       const unknownRev = safeNumber(analyticsContext.unknownRevenue);
 
+      // Check if any revenue came from catalog fallback
+      const enrichmentInfo = analyticsContext._productEnrichment as Record<string, unknown> | undefined;
+      const revenueFromFallback = safeNumber(enrichmentInfo?.revenueFromCatalogFallback);
+      const missingPriceCount = ((enrichmentInfo?.missingPriceProductIds as string[]) || []).length;
+      
+      // Revenue source note
+      const revenueSourceNote = revenueFromFallback > 0 
+        ? `\n(Note: Product revenue estimated from ${safeNumber(analyticsContext.totalPurchases)} purchases × catalog prices)`
+        : "";
+      const missingPriceNote = missingPriceCount > 0
+        ? `\n(${missingPriceCount} products are missing catalog prices, so their revenue shows as 0)`
+        : "";
+
       systemPrompt += `
 ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
 
@@ -882,15 +946,15 @@ ${robloxSection}
 - ARPDAU (Avg Revenue Per DAU): ${safeNumber(analyticsContext.arpdau) > 0 ? `${safeNumber(analyticsContext.arpdau).toFixed(2)} Robux` : "N/A"}
 
 REVENUE BY PRODUCT TYPE (last 7 days):
-- Gamepasses: ${formatRobux(gamepassRev)}
-- Developer Products: ${formatRobux(devproductRev)}
+- Gamepasses: ${formatRobux(gamepassRev)}${gamepassRev > 0 && revenueFromFallback > 0 ? " (estimated from catalog prices)" : ""}
+- Developer Products: ${formatRobux(devproductRev)}${devproductRev > 0 && revenueFromFallback > 0 ? " (estimated from catalog prices)" : ""}
 ${unknownRev > 0 ? `- Unknown/Unmapped: ${formatRobux(unknownRev)}` : ""}
 
 --- TOP PRODUCTS BY REVENUE (last 7 days) ---
 ${
   analyticsContext.topProducts
     ?.map(
-      (p: { productId?: string; name: string; revenue: number; purchases: number; productType: string; clicks?: number; views?: number; conversionRate?: number | null; priceRobux?: number }, i: number) => {
+      (p: { productId?: string; name: string; revenue: number; revenueSource?: string; purchases: number; productType: string; clicks?: number; views?: number; conversionRate?: number | null; priceRobux?: number }, i: number) => {
         const productName = p.name || (p.productId && p.productId !== "unknown" ? `Product ${p.productId}` : "Unknown");
         const productType = p.productType === "devproduct" || p.productType === "developer_product" ? "Developer Product" : p.productType === "gamepass" ? "Gamepass" : "Unknown";
         const conversionStr = p.conversionRate !== null && p.conversionRate !== undefined ? `${p.conversionRate.toFixed(1)}% conv` : "";
@@ -898,11 +962,22 @@ ${
         const viewsStr = (p.views ?? 0) > 0 ? `${safeNumber(p.views)} views` : "";
         const funnelInfo = [clicksStr, viewsStr, conversionStr].filter(Boolean).join(", ");
         const idSuffix = p.productId && p.productId !== "unknown" && p.name && !p.name.includes(p.productId) ? ` [ID: ${p.productId}]` : "";
-        return `${i + 1}. ${productName} (${productType}) - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases${funnelInfo ? `, ${funnelInfo}` : ""})${idSuffix}`;
+        
+        // Revenue display with source indicator
+        let revenueDisplay: string;
+        if (p.revenue > 0) {
+          revenueDisplay = formatRobux(p.revenue);
+        } else if (p.revenueSource === "unknown" && (p.priceRobux ?? 0) === 0) {
+          revenueDisplay = "Unknown price";
+        } else {
+          revenueDisplay = "0 Robux";
+        }
+        
+        return `${i + 1}. ${productName} (${productType}) — ID ${p.productId} — ${safeNumber(p.purchases)} purchases — R$${p.revenue > 0 ? p.revenue.toLocaleString() : revenueDisplay}${funnelInfo ? ` (${funnelInfo})` : ""}`;
       }
     )
     .join("\n") || "No product data available"
-}
+}${revenueSourceNote}${missingPriceNote}
 ${productsSection}
 Use this real data when answering questions. Reference specific numbers and products. When the user asks for stats overview, provide the actual numbers above.
 
