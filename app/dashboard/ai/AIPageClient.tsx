@@ -948,7 +948,7 @@ function AIAssistantContent() {
                     className={`flex ${message.role === "user" ? "justify-end" : "justify-start"}`}
                   >
                     <div
-                      className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+                      className={`max-w-[85%] rounded-2xl px-5 py-4 ${
                         message.role === "user"
                           ? "bg-primary text-primary-foreground"
                           : message.role === "error"
@@ -962,7 +962,7 @@ function AIAssistantContent() {
                           <span>{message.content}</span>
                         </div>
                       ) : message.role === "assistant" ? (
-                        <div className="prose prose-sm dark:prose-invert max-w-none">
+                        <div className="prose prose-base dark:prose-invert max-w-none prose-p:leading-relaxed prose-li:leading-relaxed prose-headings:mt-4 prose-headings:mb-2 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
                           <ReactMarkdown>{message.content}</ReactMarkdown>
                         </div>
                       ) : (
