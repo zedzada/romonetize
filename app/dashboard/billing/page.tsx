@@ -16,12 +16,21 @@ import {
   Plus,
   RefreshCw,
   TrendingUp,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { PRICING_PLANS, formatPrice, type PricingPlan } from "@/lib/products";
 import { createCheckoutSession, createPortalSession, getSubscriptionStatus } from "@/lib/actions/stripe";
 import { useSearchParams } from "next/navigation";
@@ -87,6 +96,14 @@ function BillingContent() {
     error: string | null;
     syncedPlan: string | null;
   }>({ syncing: false, synced: false, error: null, syncedPlan: null });
+  
+  // Upgrade confirmation modal state
+  const [upgradeModal, setUpgradeModal] = useState<{
+    open: boolean;
+    targetPlan: PricingPlan | null;
+    confirmed: boolean;
+    stripeFlowStarted: boolean;
+  }>({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
 
   // Refresh credits on successful purchase
   useEffect(() => {
@@ -302,9 +319,33 @@ function BillingContent() {
     return formatPrice(price);
   };
 
-  // Handle upgrade from Pro to Studio (or any paid plan upgrade)
-  const handleUpgrade = async (targetPlanId: string) => {
+  // Handle upgrade from Pro to Studio - shows confirmation modal first
+  const handleUpgrade = (targetPlanId: string) => {
+    const targetPlan = PRICING_PLANS.find(p => p.id === targetPlanId);
+    if (!targetPlan) return;
+    
+    // Open confirmation modal - do NOT call API yet
+    setUpgradeModal({
+      open: true,
+      targetPlan,
+      confirmed: false,
+      stripeFlowStarted: false,
+    });
+  };
+  
+  // Cancel upgrade modal
+  const cancelUpgrade = () => {
+    setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
+  };
+  
+  // Confirm and execute upgrade after user clicks "Continue to Stripe"
+  const confirmUpgrade = async () => {
+    if (!upgradeModal.targetPlan) return;
+    
+    const targetPlanId = upgradeModal.targetPlan.id;
+    setUpgradeModal(prev => ({ ...prev, confirmed: true, stripeFlowStarted: true }));
     setProcessingPlan(targetPlanId);
+    
     try {
       const res = await fetch(`/api/billing/upgrade-plan${debugMode ? "?debug=true" : ""}`, {
         method: "POST",
@@ -312,6 +353,7 @@ function BillingContent() {
         body: JSON.stringify({
           targetPlan: targetPlanId,
           interval: billingPeriod,
+          confirmed: true, // Required by backend
         }),
       });
       const data = await res.json();
@@ -320,19 +362,23 @@ function BillingContent() {
       setDebugInfo(prev => ({ ...prev, upgradeResponse: data }));
       
       if (data.success) {
-        // Upgrade successful - refresh subscription status
+        // Upgrade successful - close modal and refresh subscription status
+        setUpgradeModal({ open: false, targetPlan: null, confirmed: true, stripeFlowStarted: true });
         await loadSubscription();
         await refreshCredits();
         window.dispatchEvent(new CustomEvent("credits-updated"));
         setLastSyncMessage(`Upgraded to ${targetPlanId}! Credits: ${data.monthlyCredits}`);
       } else if (data.url) {
-        // Fallback to portal
+        // Fallback to portal - redirect
         window.location.href = data.url;
       } else {
+        // Error - close modal and show error
+        setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
         alert(data.error || "Failed to upgrade plan");
       }
     } catch (err) {
       console.error("Upgrade error:", err);
+      setUpgradeModal({ open: false, targetPlan: null, confirmed: false, stripeFlowStarted: false });
       alert("Failed to upgrade plan. Please try again.");
     }
     setProcessingPlan(null);
@@ -753,6 +799,12 @@ function BillingContent() {
   currentPlan: currentPlan.id,
   targetPlan: currentPlan.id === "pro" ? "studio" : currentPlan.id === "free" ? "pro/studio" : "n/a",
   subscriptionStatus: subscription?.status,
+  upgradeModalOpened: upgradeModal.open,
+  upgradeConfirmed: upgradeModal.confirmed,
+  upgradeTargetPlan: upgradeModal.targetPlan?.id || null,
+  stripeFlowStarted: upgradeModal.stripeFlowStarted,
+  activeSubscriptionPriceId: debugInfo?.upgradeResponse?.debug?.activeSubscriptionPriceId || "unknown",
+  lastPlanSync: subscriptionSyncState.syncedPlan,
   subscriptionSyncState,
   creditSyncState,
   urlParams: { success, canceled, sessionId, creditsSuccess, creditsPurchased },
@@ -840,6 +892,70 @@ function BillingContent() {
           </CardContent>
         </Card>
       )}
+
+      {/* Upgrade Confirmation Modal */}
+      <Dialog open={upgradeModal.open} onOpenChange={(open) => !open && cancelUpgrade()}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Upgrade to Studio?
+            </DialogTitle>
+            <DialogDescription className="pt-2">
+              You are currently on <span className="font-semibold">Pro</span>. Studio includes up to 25 connected games and 500 AI credits/month.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            {/* Current vs New Plan */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 rounded-lg bg-muted/50 border border-border">
+                <div className="text-xs text-muted-foreground mb-1">Current Plan</div>
+                <div className="font-semibold">Pro</div>
+                <div className="text-sm text-muted-foreground">
+                  {billingPeriod === "yearly" ? "$190/year" : "$19/month"}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-primary/5 border border-primary/20">
+                <div className="text-xs text-muted-foreground mb-1">New Plan</div>
+                <div className="font-semibold text-primary">Studio</div>
+                <div className="text-sm text-muted-foreground">
+                  {billingPeriod === "yearly" ? "$490/year" : "$49/month"}
+                </div>
+              </div>
+            </div>
+            
+            {/* Billing interval */}
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-muted-foreground">Billing interval:</span>
+              <Badge variant="outline">{billingPeriod === "yearly" ? "Yearly" : "Monthly"}</Badge>
+            </div>
+            
+            {/* Proration note */}
+            <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+              <p className="text-xs text-amber-700 dark:text-amber-400">
+                Stripe may apply prorated charges or credits based on your current billing cycle.
+              </p>
+            </div>
+          </div>
+          
+          <DialogFooter className="flex gap-2 sm:gap-0">
+            <Button variant="outline" onClick={cancelUpgrade} disabled={upgradeModal.stripeFlowStarted}>
+              Cancel
+            </Button>
+            <Button onClick={confirmUpgrade} disabled={upgradeModal.stripeFlowStarted}>
+              {upgradeModal.stripeFlowStarted ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                "Continue to Stripe"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
