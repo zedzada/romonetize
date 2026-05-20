@@ -302,6 +302,42 @@ function BillingContent() {
     return formatPrice(price);
   };
 
+  // Handle upgrade from Pro to Studio (or any paid plan upgrade)
+  const handleUpgrade = async (targetPlanId: string) => {
+    setProcessingPlan(targetPlanId);
+    try {
+      const res = await fetch(`/api/billing/upgrade-plan${debugMode ? "?debug=true" : ""}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          targetPlan: targetPlanId,
+          interval: billingPeriod,
+        }),
+      });
+      const data = await res.json();
+      
+      // Store debug info
+      setDebugInfo(prev => ({ ...prev, upgradeResponse: data }));
+      
+      if (data.success) {
+        // Upgrade successful - refresh subscription status
+        await loadSubscription();
+        await refreshCredits();
+        window.dispatchEvent(new CustomEvent("credits-updated"));
+        setLastSyncMessage(`Upgraded to ${targetPlanId}! Credits: ${data.monthlyCredits}`);
+      } else if (data.url) {
+        // Fallback to portal
+        window.location.href = data.url;
+      } else {
+        alert(data.error || "Failed to upgrade plan");
+      }
+    } catch (err) {
+      console.error("Upgrade error:", err);
+      alert("Failed to upgrade plan. Please try again.");
+    }
+    setProcessingPlan(null);
+  };
+
   // Get plan button text and action
   const getPlanButton = (plan: PricingPlan, currentPlan: PricingPlan) => {
     const isCurrentPlan = currentPlan.id === plan.id;
@@ -325,8 +361,19 @@ function BillingContent() {
 
     // For paid plan targets
     if (hasPaidPlan) {
-      // Already on a paid plan - use Manage Billing for any change
-      return { text: "Manage Billing", disabled: false, action: handleManageBilling, variant: "outline" as const };
+      // Already on a paid plan
+      if (isUpgrade) {
+        // Pro -> Studio: Use the upgrade endpoint
+        return { 
+          text: `Upgrade to ${plan.name}`, 
+          disabled: false, 
+          action: () => handleUpgrade(plan.id), 
+          variant: "default" as const 
+        };
+      } else if (isDowngrade) {
+        // Studio -> Pro: Use billing portal for downgrade
+        return { text: "Manage Billing", disabled: false, action: handleManageBilling, variant: "outline" as const };
+      }
     }
 
     // Free user upgrading to a paid plan
@@ -704,6 +751,7 @@ function BillingContent() {
               <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
 {JSON.stringify({
   currentPlan: currentPlan.id,
+  targetPlan: currentPlan.id === "pro" ? "studio" : currentPlan.id === "free" ? "pro/studio" : "n/a",
   subscriptionStatus: subscription?.status,
   subscriptionSyncState,
   creditSyncState,
@@ -711,6 +759,16 @@ function BillingContent() {
 }, null, 2)}
               </pre>
             </div>
+
+            {/* Upgrade Debug Info */}
+            {debugInfo?.upgradeResponse && (
+              <div>
+                <div className="text-xs font-semibold text-amber-400 mb-1">Upgrade Response</div>
+                <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify(debugInfo.upgradeResponse, null, 2)}
+                </pre>
+              </div>
+            )}
 
             {/* Credits */}
             <div>
