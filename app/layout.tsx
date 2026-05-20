@@ -26,8 +26,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="bg-background" suppressHydrationWarning>
-      <head>
-        {/* Google Ads (gtag.js) */}
+      <body className="font-sans antialiased bg-background">
+        {/* Google Ads (gtag.js) - must be in body for Next.js App Router */}
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=AW-18177433530"
           strategy="afterInteractive"
@@ -40,8 +40,6 @@ export default function RootLayout({
             gtag('config', 'AW-18177433530');
           `}
         </Script>
-      </head>
-      <body className="font-sans antialiased bg-background">
         <ThemeProvider
           attribute="class"
           defaultTheme="dark"
