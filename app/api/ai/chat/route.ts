@@ -340,12 +340,25 @@ async function getAnalyticsContext(
     }
   });
 
-  // Simple top products by purchase count
+  // Helper to validate product IDs
+  const isValidProductId = (value: unknown): boolean => {
+    const id = String(value ?? "").trim();
+    return id.length > 0 && id !== "undefined" && id !== "null" && id !== "0" && id !== "unknown";
+  };
+
+  // Simple top products by purchase count - filter invalid products
   const productPurchases = new Map<string, { id: string; name: string; purchases: number }>();
   purchaseData?.forEach(e => {
-    const productId = e.product_id || e.product_name || "unknown";
-    const lookup = productNameMap.get(String(productId));
-    const name = lookup?.name || e.product_name || (productId !== "unknown" ? `ID: ${productId}` : "Unknown");
+    const rawProductId = e.product_id || e.product_name;
+    
+    // Skip if no valid product ID
+    if (!isValidProductId(rawProductId)) {
+      return;
+    }
+    
+    const productId = String(rawProductId).trim();
+    const lookup = productNameMap.get(productId);
+    const name = lookup?.name || e.product_name || "";
     
     const existing = productPurchases.get(productId);
     if (existing) {
@@ -358,6 +371,9 @@ async function getAnalyticsContext(
   const topProducts = Array.from(productPurchases.values())
     .sort((a, b) => b.purchases - a.purchases)
     .slice(0, 5);
+  
+  // Determine if product mapping is complete (all products have names)
+  const productMappingComplete = topProducts.length > 0 && topProducts.every(p => p.name && p.name.length > 0);
 
   // Determine if we have data
   const hasTrackerEvents = trackedActions > 0;
@@ -408,6 +424,7 @@ async function getAnalyticsContext(
     arpdau,
     syncedProductsCount: robloxProducts?.length || 0,
     topProducts,
+    productMappingComplete,
   };
 }
 
@@ -645,20 +662,41 @@ Monetization (last 7 days):
 `;
       }
       
-      // Products - simple list by purchases, don't show revenue split if unknown
+      // Products - only show if we have valid product data
       const topProducts = analyticsContext.topProducts as Array<{ id: string; name: string; purchases: number }> | undefined;
-      if (topProducts && topProducts.length > 0) {
+      const productMappingComplete = analyticsContext.productMappingComplete as boolean | undefined;
+      
+      // Filter to only show products with valid data (valid ID and purchases > 0)
+      const validProducts = (topProducts || []).filter(p => {
+        const hasValidId = p.id && p.id !== "undefined" && p.id !== "null" && p.id !== "0";
+        const hasValidPurchases = typeof p.purchases === "number" && p.purchases > 0;
+        return hasValidId && hasValidPurchases;
+      });
+      
+      if (validProducts.length > 0 && productMappingComplete) {
+        // All products have names - show full list
         contextText += `
 Top Products by Purchases:
-${topProducts.map((p, i) => {
-  const displayName = p.name && !p.name.startsWith("ID:") ? p.name : `Product ID: ${p.id}`;
-  return `${i + 1}. ${displayName} - ${p.purchases} purchases`;
+${validProducts.map((p, i) => {
+  const displayName = p.name || `Product ${p.id}`;
+  return `${i + 1}. ${displayName} — ${p.purchases} purchases`;
 }).join("\n")}
 `;
-        // Note about product names if some are IDs only
-        const hasUnmappedProducts = topProducts.some(p => !p.name || p.name.startsWith("ID:"));
-        if (hasUnmappedProducts) {
-          contextText += `\n(Note: Some product names are not fully mapped yet. These show as product IDs.)\n`;
+      } else if (validProducts.length > 0) {
+        // Some products exist but names are incomplete - only show products with names
+        const namedProducts = validProducts.filter(p => p.name && p.name.length > 0);
+        if (namedProducts.length > 0) {
+          contextText += `
+Top Products by Purchases:
+${namedProducts.map((p, i) => `${i + 1}. ${p.name} — ${p.purchases} purchases`).join("\n")}
+
+(Note: Product-level names are not fully mapped yet. Only showing products with known names.)
+`;
+        } else {
+          // No named products at all
+          contextText += `
+(Product-level names and IDs are not fully mapped yet, so individual product rankings are not shown. Your total monetization stats above are still usable for recommendations.)
+`;
         }
       }
       
