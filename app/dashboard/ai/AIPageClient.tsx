@@ -1125,12 +1125,14 @@ function AIAssistantContent() {
   revenueByProductType: {
     gamepassRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.gamepassRevenue,
     devproductRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.devproductRevenue,
+    unknownRevenue: (aiContext.monetizationStats as Record<string, unknown>)?.unknownRevenue,
   },
   productStats: {
     totalProducts: (aiContext.productStats as Record<string, unknown>)?.totalProducts,
     syncedRobloxProducts: (aiContext.productStats as Record<string, unknown>)?.syncedRobloxProducts,
     topProducts: ((aiContext.productStats as Record<string, unknown>)?.topProducts as unknown[] || []).slice(0, 3),
   },
+  productEnrichment: (aiContext as Record<string, unknown>)?._productEnrichment,
 }, null, 2)}
                   </pre>
                 </div>

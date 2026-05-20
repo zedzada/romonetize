@@ -370,56 +370,113 @@ async function getAnalyticsContext(
     productViews.set(pid, (productViews.get(pid) || 0) + 1);
   });
 
+  // Normalize ID helper - ensures string comparison works for string/number variants
+  const normalizeId = (v: unknown): string => String(v ?? "").trim();
+  
+  // Normalize product type helper
+  const normalizeProductType = (type: unknown): "gamepass" | "developer_product" | "unknown" => {
+    const t = String(type || "").toLowerCase();
+    if (t.includes("gamepass") || t.includes("game_pass")) return "gamepass";
+    if (t.includes("developer") || t.includes("devproduct") || t.includes("dev_product")) return "developer_product";
+    return "unknown";
+  };
+
   // Get synced Roblox products for name lookup
   const { data: robloxProductsForLookup } = await supabaseAdmin
     .from("roblox_products")
     .select("roblox_product_id, name, product_type, price_robux")
     .eq("game_id", targetGameId);
   
-  // Build product name/type lookup map
-  const productLookup = new Map<string, { name: string; productType: string; priceRobux: number }>();
+  // Also get products from products table as fallback
+  const { data: productsTableForLookup } = await supabaseAdmin
+    .from("products")
+    .select("roblox_product_id, name, product_type, price_robux")
+    .eq("game_id", targetGameId);
+  
+  // Build product name/type lookup map - normalize IDs as strings
+  const productLookup = new Map<string, { name: string; productType: "gamepass" | "developer_product" | "unknown"; priceRobux: number }>();
+  
+  // First add from roblox_products (primary source)
   robloxProductsForLookup?.forEach(p => {
-    if (p.roblox_product_id) {
-      productLookup.set(p.roblox_product_id, {
-        name: p.name,
-        productType: p.product_type,
-        priceRobux: p.price_robux,
+    const normalizedId = normalizeId(p.roblox_product_id);
+    if (normalizedId && normalizedId !== "") {
+      productLookup.set(normalizedId, {
+        name: p.name || "",
+        productType: normalizeProductType(p.product_type),
+        priceRobux: Number(p.price_robux) || 0,
       });
     }
   });
+  
+  // Then add from products table (only if not already in map)
+  productsTableForLookup?.forEach(p => {
+    const normalizedId = normalizeId(p.roblox_product_id);
+    if (normalizedId && normalizedId !== "" && !productLookup.has(normalizedId)) {
+      productLookup.set(normalizedId, {
+        name: p.name || "",
+        productType: normalizeProductType(p.product_type),
+        priceRobux: Number(p.price_robux) || 0,
+      });
+    }
+  });
+  
+  // Debug: track which product IDs were matched/unmatched
+  const rawTopProductIds = new Set<string>();
+  const matchedProductIds = new Set<string>();
+  const unmatchedProductIds = new Set<string>();
 
   const productRevenue = new Map<string, { 
     productId: string;
     name: string; 
     revenue: number; 
     purchases: number; 
-    productType: string;
+    productType: "gamepass" | "developer_product" | "unknown";
     clicks: number;
     views: number;
+    priceRobux: number;
   }>();
   
   // Calculate revenue by type (using ALL purchase data)
   let gamepassRevenue = 0;
   let devproductRevenue = 0;
+  let unknownRevenue = 0;
   
   topProductsData?.forEach(e => {
-    const productId = e.product_id || e.product_name || "unknown";
+    const rawProductId = e.product_id || e.product_name || "unknown";
+    const productId = normalizeId(rawProductId);
+    rawTopProductIds.add(productId);
+    
     const robux = e.robux ?? (e.metadata as Record<string, unknown>)?.robux ?? 0;
     const robuxNum = Number(robux) || 0;
     
-    // Look up product info from roblox_products table
+    // Look up product info from catalog - use normalized ID
     const lookup = productLookup.get(productId);
-    const name = e.product_name || lookup?.name || (productId !== "unknown" ? `Product ${productId}` : "Unknown Product");
     
-    // Normalize product_type - prefer event's product_type, fallback to lookup
-    let productType = e.product_type || lookup?.productType || "unknown";
-    if (productType === "developer_product") productType = "devproduct";
+    // Track matched vs unmatched
+    if (lookup && lookup.name) {
+      matchedProductIds.add(productId);
+    } else {
+      unmatchedProductIds.add(productId);
+    }
+    
+    // Product name: prefer catalog name, then event name, then fallback to "Product {ID}"
+    const name = lookup?.name || e.product_name || (productId !== "unknown" && productId !== "" ? `Product ${productId}` : "Unknown Product");
+    
+    // Product type: prefer event type (normalized), then catalog type
+    const eventProductType = normalizeProductType(e.product_type);
+    const catalogProductType = lookup?.productType || "unknown";
+    const productType = eventProductType !== "unknown" ? eventProductType : catalogProductType;
+    
+    // Price: prefer event robux, then catalog price
+    const priceRobux = robuxNum > 0 ? robuxNum : (lookup?.priceRobux || 0);
     
     // Track revenue by type
     if (productType === "gamepass") {
       gamepassRevenue += robuxNum;
-    } else if (productType === "devproduct") {
+    } else if (productType === "developer_product") {
       devproductRevenue += robuxNum;
+    } else {
+      unknownRevenue += robuxNum;
     }
     
     const existing = productRevenue.get(productId);
@@ -435,6 +492,7 @@ async function getAnalyticsContext(
         productType,
         clicks: productClicks.get(productId) || 0,
         views: productViews.get(productId) || 0,
+        priceRobux,
       });
     }
   });
@@ -454,7 +512,7 @@ async function getAnalyticsContext(
       };
     })
     .sort((a, b) => b.revenue - a.revenue)
-    .slice(0, 5);
+    .slice(0, 10);
 
   // Get synced Roblox products using admin client
   const { data: robloxProducts } = await supabaseAdmin
@@ -536,6 +594,7 @@ async function getAnalyticsContext(
     // Revenue by type
     gamepassRevenue,
     devproductRevenue,
+    unknownRevenue,
     // Top products
     topProducts,
     // Data health flags (for debugging)
@@ -548,6 +607,25 @@ async function getAnalyticsContext(
       hasUniquePlayersFlag,
       hasSessionsFlag,
       hasEstimatedRevenueFlag,
+    },
+    // Product enrichment debug info
+    _productEnrichment: {
+      productCatalogCount: productLookup.size,
+      rawTopProductIds: Array.from(rawTopProductIds),
+      matchedProductIds: Array.from(matchedProductIds),
+      unmatchedProductIds: Array.from(unmatchedProductIds),
+      revenueByProductType: {
+        gamepass: gamepassRevenue,
+        developer_product: devproductRevenue,
+        unknown: unknownRevenue,
+      },
+      topProductsPreview: topProducts.slice(0, 5).map(p => ({
+        productId: p.productId,
+        name: p.name,
+        productType: p.productType,
+        revenue: p.revenue,
+        purchases: p.purchases,
+      })),
     },
   };
 }
@@ -778,11 +856,10 @@ ${analyticsContext.syncedProducts?.slice(0, 5).map((p: { name: string; type: str
 ${syncedCount > 5 ? `  ... and ${syncedCount - 5} more products` : ""}
 ` : "";
 
-      // Calculate revenue by type - use grossRevenue for unknowns
+      // Calculate revenue by type - use values from context (already computed with proper enrichment)
       const gamepassRev = safeNumber(analyticsContext.gamepassRevenue);
       const devproductRev = safeNumber(analyticsContext.devproductRevenue);
-      const totalGross = safeNumber(analyticsContext.grossRevenue);
-      const unknownRev = Math.max(0, totalGross - gamepassRev - devproductRev);
+      const unknownRev = safeNumber(analyticsContext.unknownRevenue);
 
       systemPrompt += `
 ANALYTICS CONTEXT FOR ${analyticsContext.gameName || "THIS GAME"}:
@@ -813,14 +890,15 @@ ${unknownRev > 0 ? `- Unknown/Unmapped: ${formatRobux(unknownRev)}` : ""}
 ${
   analyticsContext.topProducts
     ?.map(
-      (p: { productId?: string; name: string; revenue: number; purchases: number; productType: string; clicks?: number; views?: number; conversionRate?: number | null }, i: number) => {
+      (p: { productId?: string; name: string; revenue: number; purchases: number; productType: string; clicks?: number; views?: number; conversionRate?: number | null; priceRobux?: number }, i: number) => {
         const productName = p.name || (p.productId && p.productId !== "unknown" ? `Product ${p.productId}` : "Unknown");
         const productType = p.productType === "devproduct" || p.productType === "developer_product" ? "Developer Product" : p.productType === "gamepass" ? "Gamepass" : "Unknown";
         const conversionStr = p.conversionRate !== null && p.conversionRate !== undefined ? `${p.conversionRate.toFixed(1)}% conv` : "";
         const clicksStr = (p.clicks ?? 0) > 0 ? `${safeNumber(p.clicks)} clicks` : "";
         const viewsStr = (p.views ?? 0) > 0 ? `${safeNumber(p.views)} views` : "";
         const funnelInfo = [clicksStr, viewsStr, conversionStr].filter(Boolean).join(", ");
-        return `${i + 1}. ${productName} (${productType}) - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases${funnelInfo ? `, ${funnelInfo}` : ""})`;
+        const idSuffix = p.productId && p.productId !== "unknown" && p.name && !p.name.includes(p.productId) ? ` [ID: ${p.productId}]` : "";
+        return `${i + 1}. ${productName} (${productType}) - ${formatRobux(p.revenue)} (${safeNumber(p.purchases)} purchases${funnelInfo ? `, ${funnelInfo}` : ""})${idSuffix}`;
       }
     )
     .join("\n") || "No product data available"
