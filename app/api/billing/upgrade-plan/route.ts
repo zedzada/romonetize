@@ -170,7 +170,11 @@ export async function POST(request: NextRequest) {
     debug.upgradeMode = "direct_subscription_update";
     
     try {
-      // Update the subscription item to the new price with proration
+      // Update the subscription item to the new price with IMMEDIATE invoice
+      // This charges the user right away instead of waiting for the next billing cycle
+      debug.prorationBehavior = "always_invoice";
+      debug.paymentBehavior = "error_if_incomplete";
+      
       const updatedSubscription = await stripe.subscriptions.update(currentSubscription.id, {
         items: [
           {
@@ -178,7 +182,12 @@ export async function POST(request: NextRequest) {
             price: targetPriceId,
           },
         ],
-        proration_behavior: "create_prorations", // Prorate the charge
+        // ALWAYS_INVOICE: Creates an invoice immediately with prorated charges
+        // This ensures the user is charged NOW, not at the end of the billing cycle
+        proration_behavior: "always_invoice",
+        // ERROR_IF_INCOMPLETE: Fail if payment cannot be completed immediately
+        // This prevents "pending" subscriptions that might not actually be paid
+        payment_behavior: "error_if_incomplete",
         metadata: {
           ...currentSubscription.metadata,
           plan_id: targetPlan,
@@ -190,6 +199,8 @@ export async function POST(request: NextRequest) {
       debug.subscriptionUpdated = true;
       debug.newPriceId = updatedSubscription.items.data[0]?.price.id;
       debug.newStatus = updatedSubscription.status;
+      debug.invoiceCreated = true;
+      debug.paymentStatus = updatedSubscription.status === "active" ? "paid" : updatedSubscription.status;
       
       // Update the profile in Supabase immediately
       const aiCredits = targetPlan === "studio" ? 500 : targetPlan === "pro" ? 100 : 0;
@@ -258,10 +269,12 @@ export async function POST(request: NextRequest) {
       debug.creditsGranted = aiCredits;
       debug.extraCreditsPreserved = extraCredits;
       debug.dbUpdated = true;
+      debug.planAfterSync = targetPlan;
+      debug.monthlyCreditsAfterSync = aiCredits;
       
       return NextResponse.json({
         success: true,
-        message: `Successfully upgraded to ${targetPlan}!`,
+        message: `Studio upgrade successful. Your Studio benefits are now active.`,
         plan: targetPlan,
         subscriptionId: updatedSubscription.id,
         priceId: targetPriceId,
@@ -269,12 +282,42 @@ export async function POST(request: NextRequest) {
         extraCredits: extraCredits,
         totalCredits: aiCredits + extraCredits,
         gameLimit: gameLimit,
+        chargedImmediately: true,
         debug: debugMode ? debug : undefined,
       });
       
     } catch (stripeError) {
-      // If direct update fails, fall back to portal session with upgrade flow
-      debug.directUpdateError = stripeError instanceof Error ? stripeError.message : "Unknown error";
+      // Check if this is a card_error that requires action (e.g., 3D Secure)
+      const err = stripeError as { type?: string; code?: string; message?: string; raw?: { payment_intent?: { client_secret?: string; status?: string } } };
+      
+      debug.directUpdateError = err.message || "Unknown error";
+      debug.stripeErrorType = err.type;
+      debug.stripeErrorCode = err.code;
+      
+      // If payment requires action (3D Secure), redirect to Stripe to complete
+      if (err.type === "StripeCardError" && err.raw?.payment_intent) {
+        const origin = request.headers.get("origin") || process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+        
+        // Create a checkout session for completing the payment
+        try {
+          const portalSession = await stripe.billingPortal.sessions.create({
+            customer: profile.stripe_customer_id,
+            return_url: `${origin}/dashboard/billing?upgraded=true`,
+          });
+          
+          return NextResponse.json({
+            success: false,
+            requiresPaymentAction: true,
+            message: "Complete your Studio upgrade in Stripe.",
+            url: portalSession.url,
+            debug: debugMode ? debug : undefined,
+          });
+        } catch {
+          // Fall through to general error
+        }
+      }
+      
+      // If direct update fails for other reasons, fall back to portal session
       debug.upgradeMode = "portal_fallback";
       
       // Create a portal session - user will need to upgrade manually
