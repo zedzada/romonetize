@@ -42,6 +42,23 @@ import { useRevenueDisplayMode, getRevenueModeShortLabel } from "@/hooks/use-rev
 import { RevenueModeToggleCompact } from "@/components/dashboard/revenue-mode-toggle";
 import { getProductPurchaseMetrics } from "@/lib/utils/product-aggregation";
 
+// Range options for the Overview page
+type OverviewRange = "24h" | "7d" | "28d" | "90d";
+
+const RANGE_TO_HOURS: Record<OverviewRange, number> = {
+  "24h": 24,
+  "7d": 168,
+  "28d": 672,
+  "90d": 2160,
+};
+
+const RANGE_LABELS: Record<OverviewRange, string> = {
+  "24h": "24H",
+  "7d": "7D",
+  "28d": "28D",
+  "90d": "90D",
+};
+
 function DashboardPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -59,6 +76,22 @@ function DashboardPageInner() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
   const [gameIds, setGameIds] = useState<string[]>([]);
+  
+  // Range state - default to 28d to match Monetization tab
+  const [range, setRange] = useState<OverviewRange>("28d");
+  const [fetchedAt, setFetchedAt] = useState<string | null>(null);
+  
+  // Monetization data fetched with range (same endpoint as Monetization tab)
+  const [monetizationData, setMonetizationData] = useState<{
+    estimatedRevenue: number;
+    grossRevenue: number;
+    totalPurchases: number;
+    payingUsers: number;
+    activeUsers: number;
+  } | null>(null);
+  
+  // Products data (same endpoint as Products tab)
+  const [productsCount, setProductsCount] = useState<number>(0);
   
   // Connect game form state
   const [gameId, setGameId] = useState("");
@@ -80,6 +113,36 @@ function DashboardPageInner() {
     trackerActiveUsers: revenueStats?.trackerActiveUsers,
   });
 
+  // Fetch monetization data with selected range (same endpoint as Monetization tab)
+  const fetchMonetizationData = useCallback(async () => {
+    try {
+      const hours = RANGE_TO_HOURS[range];
+      const res = await fetch(`/api/dashboard/monetization-data?range=${range}`, { cache: "no-store" });
+      const data = await res.json();
+      
+      if (data.success && data.data) {
+        setMonetizationData({
+          estimatedRevenue: data.data.summary?.estimatedRevenue || 0,
+          grossRevenue: data.data.summary?.grossRevenue || 0,
+          totalPurchases: data.data.summary?.totalPurchases || 0,
+          payingUsers: data.data.summary?.payingUsers || 0,
+          activeUsers: data.data.summary?.activeUsers || 0,
+        });
+      }
+      
+      // Also fetch products count
+      const productsRes = await fetch(`/api/dashboard/products-data?range=${range}`, { cache: "no-store" });
+      const productsData = await productsRes.json();
+      if (productsData.success && productsData.data) {
+        setProductsCount(productsData.data.products?.length || 0);
+      }
+      
+      setFetchedAt(new Date().toISOString());
+    } catch (err) {
+      console.error("[Overview] Failed to fetch monetization data:", err);
+    }
+  }, [range]);
+
   // Fetch dashboard stats and alerts (fresh from Supabase)
   const fetchStats = useCallback(async (showLoadingState = true) => {
     if (showLoadingState) setIsRefreshing(true);
@@ -98,8 +161,8 @@ function DashboardPageInner() {
       setLastRefresh(new Date());
       // Update AI response based on data
       if (statsResult.stats && statsResult.stats.totalEvents > 0) {
-        const estimatedRev = sharedMetrics.estimatedTotalRevenue || statsResult.stats.estimatedRevenue || Math.round(statsResult.stats.totalRevenue * 0.7);
-        const purchaseCount = sharedMetrics.totalPurchases || statsResult.stats.totalPurchases || 0;
+        const estimatedRev = monetizationData?.estimatedRevenue || sharedMetrics.estimatedTotalRevenue || statsResult.stats.estimatedRevenue || Math.round(statsResult.stats.totalRevenue * 0.7);
+        const purchaseCount = monetizationData?.totalPurchases || sharedMetrics.totalPurchases || statsResult.stats.totalPurchases || 0;
         setAiResponse(
           `I'm analyzing your ${statsResult.stats.totalEvents.toLocaleString()} tracked player actions across ${statsResult.stats.totalGames} game${statsResult.stats.totalGames !== 1 ? "s" : ""}. Your estimated revenue is ${estimatedRev.toLocaleString()} Robux with ${statsResult.stats.totalProducts} tracked products. Ask me anything about your monetization performance!`
         );
@@ -118,7 +181,7 @@ function DashboardPageInner() {
     
     if (showLoadingState) setIsRefreshing(false);
     setLoading(false);
-  }, []);
+  }, [monetizationData, sharedMetrics]);
 
   // Setup Supabase Realtime subscription
   const { status: realtimeStatus, isLive } = useRealtimeStats({
@@ -131,7 +194,13 @@ function DashboardPageInner() {
   useEffect(() => {
     setLoading(true);
     fetchStats(false);
-  }, [fetchStats]);
+    fetchMonetizationData();
+  }, [fetchStats, fetchMonetizationData]);
+  
+  // Refetch when range changes
+  useEffect(() => {
+    fetchMonetizationData();
+  }, [range, fetchMonetizationData]);
 
   // Listen for global stats refresh
   useStatsRefresh(fetchStats);
@@ -148,12 +217,13 @@ function DashboardPageInner() {
     }
   }, [fetchStats, gameIds.length, loading]);
 
-  // Manual refresh handler
+  // Manual refresh handler - uses currently selected range
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await Promise.all([
       fetchStats(false),
       refreshAnalytics(),
+      fetchMonetizationData(),
     ]);
     setIsRefreshing(false);
   };
@@ -373,7 +443,23 @@ function DashboardPageInner() {
             </span>
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Range selector - visible buttons */}
+          <div className="flex items-center rounded-lg border border-border bg-muted/50 p-1">
+            {(["24h", "7d", "28d", "90d"] as OverviewRange[]).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRange(r)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  range === r
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {RANGE_LABELS[r]}
+              </button>
+            ))}
+          </div>
           {/* Revenue mode toggle - affects all pages */}
           {!monetizationLocked && <RevenueModeToggleCompact />}
           <Button
@@ -387,6 +473,26 @@ function DashboardPageInner() {
           </Button>
         </div>
       </div>
+      
+      {/* Debug panel - only in development or with ?debug=true */}
+      {showDebug && (
+        <div className="p-4 bg-muted/50 rounded-lg border border-border text-xs font-mono">
+          <div className="font-semibold mb-2">Debug Info:</div>
+          <pre className="whitespace-pre-wrap">
+{JSON.stringify({
+  overviewRouteFile: "app/dashboard/page.tsx",
+  selectedRange: range,
+  selectedHours: RANGE_TO_HOURS[range],
+  revenueSource: "/api/dashboard/monetization-data",
+  purchasesSource: "/api/dashboard/monetization-data",
+  productsSource: "/api/dashboard/products-data",
+  fetchedAt: fetchedAt,
+  monetizationData: monetizationData,
+  productsCount: productsCount,
+}, null, 2)}
+          </pre>
+        </div>
+      )}
 
       {/* Stats cards - Premium hierarchy */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -416,7 +522,7 @@ function DashboardPageInner() {
             </div>
             <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalEvents.toLocaleString()}</div>
             <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
-              Tracked Actions
+              {RANGE_LABELS[range]} Tracked Actions
               <Tooltip>
                 <TooltipTrigger asChild>
                   <HelpCircle className="w-3 h-3 text-muted-foreground/50 cursor-help" />
@@ -429,22 +535,21 @@ function DashboardPageInner() {
           </CardContent>
         </Card>
 
-        {/* Revenue - Locked for free users, uses shared display mode */}
+        {/* Revenue - Locked for free users, uses monetization data from same endpoint as Monetization tab */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label={revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}
+            label={`${RANGE_LABELS[range]} ${revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}`}
             icon={<DollarSign className="w-5 h-5 text-green-500" />}
             iconBgClassName="bg-green-500/10"
             gradientClassName="from-card to-green-500/5"
           />
         ) : (() => {
-          // Use shared purchase metrics as PRIMARY source (same helper as Products/Monetization)
-          // Falls back through: sharedMetrics > revenueStats > stats
-          const grossRevenue = sharedMetrics.grossTotalRevenue || revenueStats?.grossRevenue || stats.totalRevenue;
-          const estimatedRevenue = sharedMetrics.estimatedTotalRevenue || revenueStats?.estimatedRevenue || stats.estimatedRevenue || Math.round(stats.totalRevenue * 0.7);
+          // Use monetization data from /api/dashboard/monetization-data (same as Monetization tab)
+          const grossRevenue = monetizationData?.grossRevenue || 0;
+          const estimatedRevenue = monetizationData?.estimatedRevenue || 0;
           const displayRevenue = revenueDisplayMode === "gross" ? grossRevenue : estimatedRevenue;
           const altRevenue = revenueDisplayMode === "gross" ? estimatedRevenue : grossRevenue;
-          const revenueLabel = revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue";
+          const revenueLabel = `${RANGE_LABELS[range]} ${revenueDisplayMode === "gross" ? "Gross Revenue" : "Est. Revenue"}`;
           const altLabel = revenueDisplayMode === "gross" ? "Est" : "Gross";
           
           return (
@@ -473,17 +578,17 @@ function DashboardPageInner() {
           );
         })()}
 
-        {/* Total Purchases - Locked for free users */}
+        {/* Total Purchases - Locked for free users, uses monetization data from same endpoint */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label="Total Purchases"
+            label={`${RANGE_LABELS[range]} Purchases`}
             icon={<ShoppingCart className="w-5 h-5 text-pink-500" />}
             iconBgClassName="bg-pink-500/10"
             gradientClassName="from-card to-pink-500/5"
           />
         ) : (() => {
-          // Use shared purchase metrics as PRIMARY source
-          const totalPurchases = sharedMetrics.totalPurchases || stats.totalPurchases;
+          // Use monetization data from /api/dashboard/monetization-data (same as Monetization tab)
+          const totalPurchases = monetizationData?.totalPurchases || 0;
           return (
           <Card className="border-border/50 bg-gradient-to-br from-card to-pink-500/5 shadow-sm hover:shadow-md transition-shadow">
             <CardContent className="pt-5 pb-4">
@@ -498,16 +603,16 @@ function DashboardPageInner() {
                 )}
               </div>
               <div className="text-3xl font-bold text-foreground tracking-tight">{totalPurchases.toLocaleString()}</div>
-              <div className="text-xs text-muted-foreground mt-1">Total Purchases</div>
+              <div className="text-xs text-muted-foreground mt-1">{RANGE_LABELS[range]} Purchases</div>
             </CardContent>
           </Card>
           );
         })()}
 
-        {/* Tracked Products - Locked for free users */}
+        {/* Total Products - uses products count from same endpoint as Products tab */}
         {monetizationLocked ? (
           <LockedStatCard 
-            label="Tracked Products"
+            label="Total Products"
             icon={<Eye className="w-5 h-5 text-amber-500" />}
             iconBgClassName="bg-amber-500/10"
             gradientClassName="from-card to-amber-500/5"
@@ -520,8 +625,8 @@ function DashboardPageInner() {
                   <Eye className="w-5 h-5 text-amber-500" />
                 </div>
               </div>
-              <div className="text-3xl font-bold text-foreground tracking-tight">{stats.totalProducts}</div>
-              <div className="text-xs text-muted-foreground mt-1">Tracked Products</div>
+              <div className="text-3xl font-bold text-foreground tracking-tight">{productsCount || stats.totalProducts}</div>
+              <div className="text-xs text-muted-foreground mt-1">Total Products</div>
             </CardContent>
           </Card>
         )}
