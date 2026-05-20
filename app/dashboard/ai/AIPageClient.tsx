@@ -138,6 +138,9 @@ function AIAssistantContent() {
   const [aiContextError, setAiContextError] = useState<string | null>(null);
   const [analyticsLoaded, setAnalyticsLoaded] = useState(false);
   
+  // All connected games for multi-game support
+  const [allConnectedGames, setAllConnectedGames] = useState<Array<{ id: string; name: string; roblox_game_id?: string }>>([]);
+  
   // Check if context is ready (has any non-zero stats)
   const aiContextReady = Boolean(aiContext && (
     (aiContext.trackerStats as Record<string, number>)?.trackedActions > 0 ||
@@ -167,16 +170,37 @@ function AIAssistantContent() {
     setAiContextLoading(true);
     setAiContextError(null);
     try {
-      // Use range=30d to match Monetization tab default (28d display, 30d data)
-      const res = await fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" });
-      const data = await res.json();
+      // Fetch analytics and all connected games in parallel
+      const [analyticsRes, gamesRes] = await Promise.all([
+        fetch("/api/dashboard/analytics?range=30d", { cache: "no-store" }),
+        fetch("/api/dashboard/analytics?includeAllGames=true", { cache: "no-store" }).catch(() => null),
+      ]);
+      
+      const data = await analyticsRes.json();
+      
+      // Try to get all connected games from the response or a separate endpoint
+      let connectedGames: Array<{ id: string; name: string; roblox_game_id?: string }> = [];
+      if (data?.data?.allGames) {
+        connectedGames = data.data.allGames;
+      } else if (gamesRes) {
+        try {
+          const gamesData = await gamesRes.json();
+          if (gamesData?.data?.allGames) {
+            connectedGames = gamesData.data.allGames;
+          }
+        } catch {
+          // Ignore games fetch error
+        }
+      }
+      setAllConnectedGames(connectedGames);
       
       if (debug) {
         setDebugInfo(prev => ({
           ...prev,
-          analyticsHttpStatus: res.status,
+          analyticsHttpStatus: analyticsRes.status,
           analyticsResponseKeys: Object.keys(data),
           analyticsRawData: data,
+          allConnectedGamesCount: connectedGames.length,
         }));
       }
       
@@ -229,6 +253,9 @@ function AIAssistantContent() {
             totalProducts: root.productAnalytics?.productsCount || root.productStats?.products?.length || 0,
             topProducts: root.productAnalytics?.topProducts || root.productStats?.products?.slice(0, 5) || [],
           },
+          
+          // All connected games for multi-game questions
+          allConnectedGames: connectedGames,
           
           // Data health for verification
           dataHealth: root.dataHealth || null,
@@ -1066,12 +1093,14 @@ function AIAssistantContent() {
             
             {/* PART 7: Key status indicators */}
             <div className="mb-4 p-3 bg-yellow-500/10 rounded-lg border border-yellow-500/30">
-              <h4 className="text-xs font-semibold text-yellow-600 mb-2">Status</h4>
+              <h4 className="text-xs font-semibold text-yellow-600 mb-2">Status (per spec section 11)</h4>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div><strong>analyticsLoaded:</strong> {String(analyticsLoaded)}</div>
-                <div><strong>analyticsFetchStatus:</strong> {aiContextLoading ? "loading" : aiContextError ? "error" : aiContext ? "success" : "pending"}</div>
-                <div><strong>aiContextReady:</strong> {String(aiContextReady)}</div>
-                <div><strong>activeConversationId:</strong> {activeConversationId || "none"}</div>
+                <div><strong>selectedGame:</strong> {(aiContext?.selectedGame as string) || "N/A"}</div>
+                <div><strong>allConnectedGamesCount:</strong> {allConnectedGames.length}</div>
+                <div><strong>aiContextReady:</strong> <span className={aiContextReady ? "text-green-600 font-bold" : "text-red-600"}>{String(aiContextReady)}</span></div>
+                <div><strong>analyticsRequestUrl:</strong> /api/dashboard/analytics?range=30d</div>
+                <div><strong>imageAttached:</strong> {String(!!selectedImage)}</div>
+                <div><strong>conversationId:</strong> {activeConversationId || "new"}</div>
               </div>
             </div>
             
