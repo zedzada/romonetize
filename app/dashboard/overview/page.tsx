@@ -13,6 +13,7 @@ import {
   Users, 
   TrendingUp,
   AlertCircle,
+  AlertTriangle,
   ExternalLink,
   Activity,
   Package,
@@ -297,9 +298,12 @@ export default function OverviewPage() {
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {/* Revenue disclaimer */}
         {hasTrackerData && (
-          <p className="col-span-full text-[10px] text-muted-foreground -mb-2">
-            Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports.
-          </p>
+          <div className="col-span-full flex items-start gap-2.5 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 -mb-1">
+            <AlertTriangle className="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-400">
+              Revenue is estimated from RoMonetize tracker events and may differ from official Roblox dashboard reports. Use Roblox Creator Dashboard as the final source of truth.
+            </p>
+          </div>
         )}
         
         {/* Est. Revenue (range-based) */}
