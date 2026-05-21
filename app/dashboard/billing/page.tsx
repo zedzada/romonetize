@@ -287,18 +287,18 @@ function BillingContent() {
     loadSubscription();
   }, []);
 
-  // Fetch webhook debug info when in debug mode
+  // Fetch webhook debug info when in debug mode (primary Stripe endpoint)
   useEffect(() => {
     if (debugMode) {
-      fetch("/api/webhook")
+      fetch("/api/stripe/webhook")
         .then(res => res.json())
         .then(data => {
           setWebhookDebug({
-            webhookRouteExpected: data.webhookRouteExpected || "/api/webhook",
+            webhookRouteExpected: data.route || "/api/stripe/webhook",
             webhookSecretConfigured: data.webhookSecretConfigured || false,
             lastWebhookEvent: data.lastWebhookEvent || null,
-            lastWebhookError: data.lastWebhookError || null,
-            lastWebhookReceivedAt: data.lastWebhookReceivedAt || null,
+            lastWebhookError: data.lastWebhookEvent?.error || null,
+            lastWebhookReceivedAt: data.lastWebhookEvent?.timestamp || null,
           });
         })
         .catch(err => {

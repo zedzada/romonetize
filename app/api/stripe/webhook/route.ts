@@ -10,12 +10,11 @@ export async function GET() {
   
   return NextResponse.json({
     ok: true,
-    route: "/api/webhook",
+    route: "/api/stripe/webhook",
     webhookSecretConfigured,
     lastWebhookEvent: lastWebhookEvent || null,
     stripeEndpointConfig: {
-      expectedUrl: "https://www.romonetize.com/api/webhook",
-      alternativeUrl: "https://www.romonetize.com/api/stripe/webhook",
+      expectedUrl: "https://www.romonetize.com/api/stripe/webhook",
       events: [
         "checkout.session.completed",
         "customer.subscription.created",
@@ -35,7 +34,7 @@ export async function POST(request: NextRequest) {
   const rawBody = await request.text();
   const signature = request.headers.get("stripe-signature");
   
-  const result = await handleStripeWebhook(rawBody, signature, "/api/webhook");
+  const result = await handleStripeWebhook(rawBody, signature, "/api/stripe/webhook");
   
   return NextResponse.json(result.body, { status: result.status });
 }
