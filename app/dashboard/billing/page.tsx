@@ -82,6 +82,13 @@ function BillingContent() {
   
   // Debug state
   const [debugInfo, setDebugInfo] = useState<Record<string, unknown> | null>(null);
+  const [webhookDebug, setWebhookDebug] = useState<{
+    webhookRouteExpected: string;
+    webhookSecretConfigured: boolean;
+    lastWebhookEvent: { type: string; timestamp: string; success: boolean; error?: string } | null;
+    lastWebhookError: string | null;
+    lastWebhookReceivedAt: string | null;
+  } | null>(null);
   const [creditSyncState, setCreditSyncState] = useState<{
     syncing: boolean;
     synced: boolean;
@@ -279,6 +286,26 @@ function BillingContent() {
   useEffect(() => {
     loadSubscription();
   }, []);
+
+  // Fetch webhook debug info when in debug mode (primary Stripe endpoint)
+  useEffect(() => {
+    if (debugMode) {
+      fetch("/api/stripe/webhook")
+        .then(res => res.json())
+        .then(data => {
+          setWebhookDebug({
+            webhookRouteExpected: data.route || "/api/stripe/webhook",
+            webhookSecretConfigured: data.webhookSecretConfigured || false,
+            lastWebhookEvent: data.lastWebhookEvent || null,
+            lastWebhookError: data.lastWebhookEvent?.error || null,
+            lastWebhookReceivedAt: data.lastWebhookEvent?.timestamp || null,
+          });
+        })
+        .catch(err => {
+          console.error("Failed to fetch webhook debug info:", err);
+        });
+    }
+  }, [debugMode]);
 
   const handleSync = async () => {
     setSyncing(true);
@@ -874,6 +901,20 @@ function BillingContent() {
                 <div className="text-sm text-red-300 font-mono">{String(debugInfo.failureReason)}</div>
               </div>
             )}
+
+            {/* Webhook Debug Info */}
+            <div>
+              <div className="text-xs font-semibold text-amber-400 mb-1">Webhook Status</div>
+              <pre className="text-xs text-muted-foreground whitespace-pre-wrap overflow-x-auto bg-background/50 p-2 rounded">
+{JSON.stringify({
+  webhookRouteExpected: webhookDebug?.webhookRouteExpected || "/api/webhook",
+  webhookSecretConfigured: webhookDebug?.webhookSecretConfigured ?? false,
+  lastWebhookEvent: webhookDebug?.lastWebhookEvent || null,
+  lastWebhookError: webhookDebug?.lastWebhookError || null,
+  lastWebhookReceivedAt: webhookDebug?.lastWebhookReceivedAt || null,
+}, null, 2)}
+              </pre>
+            </div>
 
             {/* Current UI State */}
             <div>
